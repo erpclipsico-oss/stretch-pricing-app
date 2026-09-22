@@ -8,9 +8,3 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
-      - key: DB_PATH
-        value: /var/data/pricing.db
-    disk:
-      name: stretch-pricing-data
-      mountPath: /var/data
-      sizeGB: 1
