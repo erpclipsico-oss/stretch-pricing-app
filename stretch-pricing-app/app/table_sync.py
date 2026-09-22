@@ -174,6 +174,22 @@ TABLE_CONFIGS = {
             ("vista6202", "Vista6202", True),
         ],
     },
+    "margin_factor": {
+        "label": "Margin Factors",
+        "table": "margin_factor",
+        "id_col": "id",
+        "order_by": "film_type, packing_type, micron_min",
+        "label_template": "{film_type} / {packing_type} / {micron_min}-{micron_max}mic",
+        "redirect_endpoint": "admin_margin_factors",
+        "columns": [
+            ("film_type", "Film Type", False),
+            ("packing_type", "Packing Type", False),
+            ("roll_size", "Roll Size", False),
+            ("micron_min", "Micron Min", True),
+            ("micron_max", "Micron Max", True),
+            ("margin_pct", "Margin %", True),
+        ],
+    },
     "packing_tier": {
         "label": "Packing Tiers",
         "table": "packing_tier",

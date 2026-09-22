@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Margin Factors · Stretch Pricing{% endblock %}
+{% block content %}
+{% set sync_table_key = 'margin_factor' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
+<div class="panel">
+  <div class="panel-header"><h2>Margin factors</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Margin is looked up by Micron range &times; Film type &times; Packing type (Automatic/Manual) &times;
+    Roll size, applied on top of a product's EX-Work rate &mdash; the reference-app margin system, which
+    fully replaces the old Country/Customer Classification factor system (no longer read anywhere in
+    pricing). Enter whole percentages (e.g. type <strong>15</strong> to mean 15%). Edit a row and click Save.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:170px;">Film type</span>
+      <span style="width:130px;">Packing type</span>
+      <span style="width:150px;">Roll size</span>
+      <span style="width:90px;">Micron min</span>
+      <span style="width:90px;">Micron max</span>
+      <span style="width:90px;">Margin %</span>
+    </div>
+    {% for r in rows %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="margin_factor_id" value="{{ r.id }}">
+        <input type="text" name="film_type" value="{{ r.film_type }}" style="width:170px;">
+        <input type="text" name="packing_type" value="{{ r.packing_type }}" style="width:130px;">
+        <input type="text" name="roll_size" value="{{ r.roll_size }}" style="width:150px;">
+        <input type="number" step="any" name="micron_min" value="{{ r.micron_min }}" style="width:80px;">
+        <input type="number" step="any" name="micron_max" value="{{ r.micron_max }}" style="width:80px;">
+        <input type="number" step="any" name="margin_pct" value="{{ r.margin_pct }}" style="width:80px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No margin factors yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add margin factor row</h2></div>
+  <form method="post" class="grid grid-4">
+    <input type="hidden" name="action" value="add">
+    <div class="field"><label>Film type</label><input type="text" name="film_type" required></div>
+    <div class="field"><label>Packing type</label><input type="text" name="packing_type" required></div>
+    <div class="field"><label>Roll size</label><input type="text" name="roll_size" required></div>
+    <div class="field"><label>Micron min</label><input type="number" step="any" name="micron_min" required></div>
+    <div class="field"><label>Micron max</label><input type="number" step="any" name="micron_max" required></div>
+    <div class="field"><label>Margin %</label><input type="number" step="any" name="margin_pct" required></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Add row</button></div>
+  </form>
+</div>
+{% endblock %}

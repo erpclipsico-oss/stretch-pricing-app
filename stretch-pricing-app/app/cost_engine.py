@@ -342,6 +342,80 @@ def core_cost_usd(conn, product):
     return core_weight * (core_rate / dollar_rate)
 
 
+# ------------------------------------------------------------ Margin factor (v18)
+
+# roll_type_bucket() -> margin_factor.film_type. RIGID has no Regular/Super
+# distinction in this catalog (the app has no field to tell them apart), but
+# Regular_Rigid and Super_Rigid carry IDENTICAL margin numbers in the seeded
+# table (see db.MARGIN_FACTOR_ROWS), so mapping every RIGID product onto
+# Regular_Rigid is lossless -- it will always return the same margin% Super_Rigid
+# would have, for every micron/packing/roll-size combination.
+FILM_TYPE_FOR_ROLL_TYPE = {
+    "St": "Standard",
+    "P": "Power",
+    "P_plus": "Power_Plus",
+    "RIGID": "Regular_Rigid",
+}
+
+
+def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=None,
+                    prestretch_packaging_type=None):
+    """Replaces the old country_class x customer_class x roll_size `factor`
+    lookup with the reference app's micron x film_type x packing_type x
+    roll_size `margin_factor` lookup. Returns the margin as a FRACTION
+    (e.g. 0.13 for 13%), matching what pricing.unit_price_for()'s
+    `ex_work * (1 + factor)` formula expects -- margin_factor.margin_pct is
+    stored as a raw percentage (13.00), so this divides by 100.
+
+    `product` may be a plain dict (e.g. from with_overrides()) or a
+    sqlite3.Row; only plain product[...] indexing / product.keys() is used,
+    same convention as the rest of this module.
+
+    Pre-Stretch products (product['is_prestretch']) map to film_type
+    'Prestretch', with packing_type 'Pre-stretch (Box)' when
+    prestretch_packaging_type == 'boxes', else 'Pre-stretch (No Box)'.
+
+    No current catalog product needs a UVI_* or UV_Rigid film_type (no
+    UV-protected product exists in the catalog today) -- that data is
+    seeded for completeness/future use only; this lookup never derives
+    those film_types for a real product, so they simply never match.
+
+    If no row matches (should not happen for any current catalog product
+    given the seeded ranges), falls back to 0% margin rather than raising --
+    note this in any report if it's ever observed firing for a real
+    product, since it would silently sell at EX-Work with no markup.
+    """
+    micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
+
+    is_prestretch = bool(product["is_prestretch"]) if "is_prestretch" in product.keys() else False
+    if is_prestretch:
+        film_type = "Prestretch"
+        packing_type = "Pre-stretch (Box)" if prestretch_packaging_type == "boxes" else "Pre-stretch (No Box)"
+        roll_size = "Prestretch Roll size"
+    else:
+        roll_type = roll_type_bucket(product["stretch_ability"])
+        film_type = FILM_TYPE_FOR_ROLL_TYPE.get(roll_type, "Standard")
+        auto_manual = (product["auto_manual"] or "").lower()
+        if "manual" in auto_manual:
+            packing_type = "Manual"
+            roll_size = "Manual Roll size"
+        else:
+            packing_type = "Automatic"
+            roll_weight = product["roll_weight_kg"] or 0
+            roll_size = "Jumbo Roll size" if roll_weight > 25 else "Standard Roll size"
+
+    row = conn.execute(
+        """SELECT margin_pct FROM margin_factor
+           WHERE film_type=? AND packing_type=? AND roll_size=?
+             AND micron_min<=? AND micron_max>=?
+           LIMIT 1""",
+        (film_type, packing_type, roll_size, micron, micron),
+    ).fetchone()
+    if row is None:
+        return 0.0
+    return (row["margin_pct"] or 0.0) / 100.0
+
+
 # ---------------------------------------------------------------- Main EX-Work computation
 
 def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None):

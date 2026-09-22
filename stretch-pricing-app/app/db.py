@@ -228,6 +228,28 @@ CREATE TABLE IF NOT EXISTS table_upload_log (
     filename TEXT,
     summary_json TEXT
 );
+
+-- Replaces the old country_class x customer_class x roll_size `factor`
+-- table (v18, "Hesham Natora" reference-app margin system -- see the PR
+-- description / cost_engine.margin_pct_for() for the full reasoning).
+-- Margin is looked up purely by micron x film_type x packing_type x
+-- roll_size, independent of any country/customer classification.
+-- margin_pct is stored as a raw percentage (17.00 means 17%, matching the
+-- reference app's own admin screen and the transcribed seed data below --
+-- NOT a 0..1 fraction like the old `factor` table), converted to a
+-- fraction at the point of use in cost_engine.margin_pct_for().
+CREATE TABLE IF NOT EXISTS margin_factor (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    film_type TEXT NOT NULL,       -- 'Power' | 'Power_Plus' | 'Standard' | 'Regular_Rigid' | 'Super_Rigid' |
+                                    -- 'UVI_12m_Power' | 'UVI_12m_Power_Plus' | 'UVI_12m_Standard' |
+                                    -- 'UVI_6m_Power' | 'UVI_6m_Power_Plus' | 'UVI_6m_Standard' |
+                                    -- 'UV_Rigid' | 'Prestretch'
+    micron_min REAL NOT NULL,
+    micron_max REAL NOT NULL,
+    packing_type TEXT NOT NULL,    -- 'Automatic' | 'Manual' | 'Pre-stretch (No Box)' | 'Pre-stretch (Box)'
+    roll_size TEXT NOT NULL,       -- 'Standard Roll size' | 'Jumbo Roll size' | 'Manual Roll size' | 'Prestretch Roll size'
+    margin_pct REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -253,6 +275,7 @@ def init_db():
     _seed_packaging_v2(conn)
     _seed_box_packaging_v3(conn)
     _seed_full_import_v4(conn)
+    _seed_margin_factor_v5(conn)
     conn.close()
 
 
@@ -1067,6 +1090,133 @@ def _seed_full_import_v4(conn):
     )
     conn.commit()
     cost_engine.recalculate_all_products(conn)
+
+
+# (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct)
+# Transcribed from 5 screenshots of the reference app ("Hesham Natora"'s
+# stretch-pricing-app) Margin Factors admin table. One row --
+# UVI_12m_Standard / 12-40 / Automatic / Jumbo Roll size -- was not directly
+# visible (cut off between two screenshots) and was inferred at 8.00 by
+# exact pattern-match against the fully-visible UVI_6m_Standard block below,
+# which has an identical shape; every other film_type in this table follows
+# the same pattern (every Automatic tier has both a Standard-Roll-size and a
+# Jumbo-Roll-size row at the same margin%) with zero exceptions. See
+# db._seed_margin_factor_v5's docstring.
+MARGIN_FACTOR_ROWS = [
+    # Power
+    ("Power", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("Power", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("Power", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("Power", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("Power", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("Power", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # Power_Plus (identical shape to Power)
+    ("Power_Plus", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("Power_Plus", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("Power_Plus", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("Power_Plus", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("Power_Plus", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("Power_Plus", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # Prestretch
+    ("Prestretch", 5, 40, "Pre-stretch (No Box)", "Prestretch Roll size", 0.00),
+    ("Prestretch", 5, 40, "Pre-stretch (Box)", "Prestretch Roll size", 0.00),
+    # Regular_Rigid
+    ("Regular_Rigid", 8, 12, "Automatic", "Standard Roll size", 20.00),
+    ("Regular_Rigid", 8, 12, "Automatic", "Jumbo Roll size", 20.00),
+    ("Regular_Rigid", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("Regular_Rigid", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("Regular_Rigid", 8, 12, "Manual", "Manual Roll size", 21.00),
+    ("Regular_Rigid", 15, 40, "Manual", "Manual Roll size", 15.00),
+    # Standard
+    ("Standard", 8, 9, "Automatic", "Standard Roll size", 17.00),
+    ("Standard", 8, 9, "Automatic", "Jumbo Roll size", 17.00),
+    ("Standard", 10, 12, "Automatic", "Standard Roll size", 15.00),
+    ("Standard", 10, 12, "Automatic", "Jumbo Roll size", 15.00),
+    ("Standard", 15, 40, "Automatic", "Standard Roll size", 8.00),
+    ("Standard", 15, 40, "Automatic", "Jumbo Roll size", 8.00),
+    ("Standard", 8, 9, "Manual", "Manual Roll size", 18.00),
+    ("Standard", 10, 12, "Manual", "Manual Roll size", 16.00),
+    ("Standard", 15, 40, "Manual", "Manual Roll size", 10.00),
+    # Super_Rigid (identical shape to Regular_Rigid)
+    ("Super_Rigid", 8, 12, "Automatic", "Standard Roll size", 20.00),
+    ("Super_Rigid", 8, 12, "Automatic", "Jumbo Roll size", 20.00),
+    ("Super_Rigid", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("Super_Rigid", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("Super_Rigid", 8, 12, "Manual", "Manual Roll size", 21.00),
+    ("Super_Rigid", 15, 40, "Manual", "Manual Roll size", 15.00),
+    # UVI_12m_Power
+    ("UVI_12m_Power", 10, 40, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_12m_Power", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_12m_Power", 10, 40, "Manual", "Manual Roll size", 16.00),
+    # UVI_12m_Power_Plus (identical shape to UVI_12m_Power)
+    ("UVI_12m_Power_Plus", 10, 40, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_12m_Power_Plus", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_12m_Power_Plus", 10, 40, "Manual", "Manual Roll size", 16.00),
+    # UVI_12m_Standard (the 12-40/Automatic/Jumbo row is the one inferred row -- see module comment above)
+    ("UVI_12m_Standard", 10, 10, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_12m_Standard", 10, 10, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_12m_Standard", 12, 40, "Automatic", "Standard Roll size", 8.00),
+    ("UVI_12m_Standard", 12, 40, "Automatic", "Jumbo Roll size", 8.00),
+    ("UVI_12m_Standard", 10, 10, "Manual", "Manual Roll size", 16.00),
+    ("UVI_12m_Standard", 12, 40, "Manual", "Manual Roll size", 10.00),
+    # UVI_6m_Power (identical shape to UVI_12m_Power)
+    ("UVI_6m_Power", 10, 40, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_6m_Power", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_6m_Power", 10, 40, "Manual", "Manual Roll size", 16.00),
+    # UVI_6m_Power_Plus (identical shape to UVI_12m_Power)
+    ("UVI_6m_Power_Plus", 10, 40, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_6m_Power_Plus", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_6m_Power_Plus", 10, 40, "Manual", "Manual Roll size", 16.00),
+    # UVI_6m_Standard (fully, directly visible -- used to infer the UVI_12m_Standard gap above)
+    ("UVI_6m_Standard", 10, 10, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_6m_Standard", 10, 10, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_6m_Standard", 12, 40, "Automatic", "Standard Roll size", 8.00),
+    ("UVI_6m_Standard", 12, 40, "Automatic", "Jumbo Roll size", 8.00),
+    ("UVI_6m_Standard", 10, 10, "Manual", "Manual Roll size", 16.00),
+    ("UVI_6m_Standard", 12, 40, "Manual", "Manual Roll size", 10.00),
+    # UV_Rigid
+    ("UV_Rigid", 10, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UV_Rigid", 10, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UV_Rigid", 10, 40, "Manual", "Manual Roll size", 15.00),
+]
+
+
+def _seed_margin_factor_v5(conn):
+    """v18 -- owner-confirmed full replacement of the country_class x
+    customer_class x roll_size `factor` margin system with the reference
+    app's micron x film_type x packing_type x roll_size `margin_factor`
+    system (see cost_engine.margin_pct_for()). One-time seed, gated behind
+    a global_setting marker like every other one-time refresh in this file,
+    so a later restart never re-runs this and clobbers a manual admin edit.
+    The old `factor` table and its country_class/customer_class columns on
+    `quotation` are deliberately left in the schema (harmless dead data /
+    too disruptive to drop from a live table) -- they are simply no longer
+    read anywhere in the pricing flow, PDF or quote-builder UI."""
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='margin_factor_v5_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    for film_type, micron_min, micron_max, packing_type, roll_size, margin_pct in MARGIN_FACTOR_ROWS:
+        conn.execute(
+            """INSERT INTO margin_factor
+               (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct),
+        )
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("margin_factor_v5_seeded", "Margin factor v5 seeded (internal marker)", 1,
+         "Internal marker: the micron x film_type x packing_type x roll_size margin_factor table has "
+         "been seeded from the reference app's Margin Factors admin screen, replacing the old "
+         "country_class x customer_class x roll_size factor table for all pricing. Do not delete "
+         "this row -- it stops the one-time seed from running again and duplicating rows or "
+         "overwriting manual admin edits made after this boot."),
+    )
+    conn.commit()
 
 
 def _seed_default_users(conn):

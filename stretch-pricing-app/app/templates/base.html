@@ -20,7 +20,6 @@
         <button type="button" class="nav-link nav-dropdown-btn">Catalog &amp; Rates &#9662;</button>
         <div class="nav-dropdown-menu">
           <a href="{{ url_for('admin_products') }}">Products</a>
-          <a href="{{ url_for('admin_factors') }}">Factors</a>
           <a href="{{ url_for('admin_freight') }}">Freight</a>
           <a href="{{ url_for('admin_loading_ports') }}">Loading Ports (FOB)</a>
           <a href="{{ url_for('admin_prestretch') }}">Pre-Stretch</a>
@@ -33,6 +32,7 @@
           <a href="{{ url_for('admin_cost_preview') }}">Cost Preview</a>
           <span class="nav-dropdown-sep"></span>
           <a href="{{ url_for('admin_global_settings') }}">Global Settings</a>
+          <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a>
           <a href="{{ url_for('admin_material_rates') }}">Material Rates</a>
           <a href="{{ url_for('admin_labor') }}">Labor</a>
           <a href="{{ url_for('admin_electricity') }}">Electricity</a>

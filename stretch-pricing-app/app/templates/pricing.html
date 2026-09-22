@@ -60,21 +60,6 @@
       <label>Quotation No.</label>
       <input type="text" id="quotation_no">
     </div>
-    <div class="field">
-      <label>Customer Classification</label>
-      <select id="customer_class">
-        <option value="A">A</option>
-        <option value="B">B</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Country Classification</label>
-      <select id="country_class">
-        <option value="High">High</option>
-        <option value="Moderate" selected>Moderate</option>
-        <option value="Low">Low</option>
-      </select>
-    </div>
   </div>
 
   <div class="lines-header">
@@ -300,8 +285,11 @@ function readLines() {
 }
 
 async function calculateAll() {
-  const country_class = document.getElementById('country_class').value;
-  const customer_class = document.getElementById('customer_class').value;
+  // Country/Customer Classification removed from the quote builder (v18 --
+  // margin is now looked up by micron/film-type/packing-type/roll-size, not
+  // by classification). The backend still accepts country_class/customer_class
+  // and simply defaults+ignores them for margin purposes, so they're left out
+  // of this payload entirely rather than sent as fixed placeholder values.
   const rows = [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')];
   let subtotal = 0;
   let totalKgAll = 0;
@@ -311,7 +299,7 @@ async function calculateAll() {
     const pallet_type = tr.querySelector('.f-pallet').value;
     const pricing_basis = tr.querySelector('.f-basis').value;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
-    const payload = {product_id, country_class, customer_class, quantity_pallets, pallet_type, pricing_basis};
+    const payload = {product_id, quantity_pallets, pallet_type, pricing_basis};
     if (isPrestretch(product_id)) {
       const pr = tr.nextElementSibling;
       payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
@@ -404,8 +392,6 @@ async function saveQuotation() {
     loading_port: document.getElementById('loading_port').value,
     destination: document.getElementById('destination').value,
     payment_term: document.getElementById('payment_term').value,
-    customer_class: document.getElementById('customer_class').value,
-    country_class: document.getElementById('country_class').value,
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
     lines: readLines(),
   };

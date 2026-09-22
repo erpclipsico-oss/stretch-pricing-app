@@ -6,11 +6,20 @@ then applied the country-classification x customer-classification x
 product-category margin factor from the Factors sheet to get the quoted
 unit price.
 
-Phase 2 (this version) replaces the flat rate with a live recompute from
-the raw cost inputs (labor, electricity, resin/material cost, conversion
-cost, BOM, pallet/packaging) via cost_engine.compute_ex_work_usd_kg(), so
-every input up the chain is editable and the EX-Work cost always reflects
-current rates. The margin-factor step below is unchanged from Phase 1.
+Phase 2 replaced the flat rate with a live recompute from the raw cost
+inputs (labor, electricity, resin/material cost, conversion cost, BOM,
+pallet/packaging) via cost_engine.compute_ex_work_usd_kg(), so every input
+up the chain is editable and the EX-Work cost always reflects current
+rates.
+
+Phase 3 (this version, v18) replaces the country_class x customer_class x
+roll_size margin-factor step with a micron x film_type x packing_type x
+roll_size lookup (cost_engine.margin_pct_for()), matching the reference
+app ("Hesham Natora"'s stretch-pricing-app) the owner asked this to fully
+replace -- not run alongside -- the old classification-based system.
+country_class/customer_class are still accepted as parameters on
+unit_price_for()/compute_line() for call-site compatibility but are no
+longer used for margin.
 See app/COST_ENGINE.md for the full formula chain.
 """
 
@@ -37,18 +46,18 @@ def product_category(product):
     return ("uvi_" + base) if uv else ("automatic_" + base)
 
 
-def get_factor_row(db, country_class, customer_class, roll_size="standard"):
-    return db.execute(
-        "SELECT * FROM factor WHERE country_class=? AND customer_class=? AND roll_size=?",
-        (country_class, customer_class, roll_size),
-    ).fetchone()
-
-
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None):
-    category = product_category(product)
-    row = get_factor_row(db, country_class, customer_class, roll_size)
-    factor = (row[category] if row is not None else 0.0) or 0.0
+    """country_class / customer_class are no longer used for margin (v18 --
+    fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
+    packing_type x roll_size lookup, per the owner's explicit instruction to
+    replace rather than run the two systems side by side). Kept as accepted
+    parameters -- rather than removed -- purely so every existing call site
+    in app.py/pricing.py doesn't need to change its call shape; they're
+    simply ignored here now. Same for `roll_size`, which the old `factor`
+    lookup used but every call site already always passed "standard" for."""
+    factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
+                                         rolls_per_pallet_override=rolls_per_pallet_override)
     ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
                                                   rolls_per_pallet_override=rolls_per_pallet_override)
     base = ex_work * (1 + factor)
@@ -194,15 +203,11 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
         db, product, roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
         country_class, customer_class,
     )
-    # Margin/factor step, exactly as for any other product. Pre-Stretch has
-    # no dedicated row in the Factors sheet, so product_category() falls
-    # through to 'automatic_standard' (its Stretch-Ability text contains
-    # neither 'power' nor 'regid' nor 'uvi') -- documented in COST_ENGINE.md
-    # as an assumption pending the owner's confirmation of the intended
-    # Pre-Stretch margin.
-    category = product_category(product)
-    row = get_factor_row(db, country_class, customer_class, "standard")
-    factor = (row[category] if row is not None else 0.0) or 0.0
+    # Margin step (v18): Pre-Stretch has its own dedicated 'Prestretch'
+    # film_type row in margin_factor (currently seeded at 0% for both
+    # packaging variants), keyed by this line's packaging_type
+    # ('boxes'/'no_boxes' -> 'Pre-stretch (Box)'/'Pre-stretch (No Box)').
+    factor = cost_engine.margin_pct_for(db, product, prestretch_packaging_type=packaging_type)
     base = ex_work * (1 + factor)
     return round(base + (price_adjustment_usd_kg or 0), 4)
 

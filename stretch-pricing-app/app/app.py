@@ -496,38 +496,63 @@ def create_app():
         flash("Product deleted.", "success")
         return redirect(url_for("admin_products"))
 
+    @app.route("/admin/cost/margin-factors", methods=["GET", "POST"])
+    @admin_required
+    def admin_margin_factors():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                db.execute(
+                    """INSERT INTO margin_factor
+                       (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct)
+                       VALUES (?,?,?,?,?,?)""",
+                    (
+                        request.form.get("film_type", "").strip(),
+                        float(request.form.get("micron_min") or 0),
+                        float(request.form.get("micron_max") or 0),
+                        request.form.get("packing_type", "").strip(),
+                        request.form.get("roll_size", "").strip(),
+                        float(request.form.get("margin_pct") or 0),
+                    ),
+                )
+                db.commit()
+                flash("Margin factor added.", "success")
+            else:
+                mid = request.form.get("margin_factor_id")
+                db.execute(
+                    """UPDATE margin_factor SET film_type=?, micron_min=?, micron_max=?, packing_type=?,
+                       roll_size=?, margin_pct=? WHERE id=?""",
+                    (
+                        request.form.get("film_type", "").strip(),
+                        float(request.form.get("micron_min") or 0),
+                        float(request.form.get("micron_max") or 0),
+                        request.form.get("packing_type", "").strip(),
+                        request.form.get("roll_size", "").strip(),
+                        float(request.form.get("margin_pct") or 0),
+                        mid,
+                    ),
+                )
+                db.commit()
+                flash("Margin factor updated.", "success")
+            return redirect(url_for("admin_margin_factors"))
+        rows = db.execute(
+            "SELECT * FROM margin_factor ORDER BY film_type, packing_type, micron_min"
+        ).fetchall()
+        last_upload = table_sync.get_last_upload(db, "margin_factor")
+        return render_template("admin_margin_factors.html", rows=rows, last_upload=last_upload)
+
     @app.route("/admin/factors", methods=["GET", "POST"])
     @admin_required
     def admin_factors():
-        db = g.db
-        if request.method == "POST":
-            fid = request.form.get("factor_id")
-            # The admin form takes/shows whole percentages (e.g. "15" = 15%);
-            # the factor table itself still stores the decimal fraction
-            # (0.15), exactly as the cost-engine math (unit_price_for)
-            # expects -- this converts at the UI boundary only.
-            def pct(name):
-                return (float(request.form.get(name) or 0)) / 100.0
-            db.execute(
-                """UPDATE factor SET automatic_standard=?, automatic_power=?, automatic_power_plus=?,
-                   uvi_standard=?, uvi_power=?, uvi_power_plus=?, regid=?, uv_regid=? WHERE id=?""",
-                (
-                    pct("automatic_standard"), pct("automatic_power"), pct("automatic_power_plus"),
-                    pct("uvi_standard"), pct("uvi_power"), pct("uvi_power_plus"),
-                    pct("regid"), pct("uv_regid"),
-                    fid,
-                ),
-            )
-            db.commit()
-            flash("Factor updated.", "success")
-            return redirect(url_for("admin_factors"))
-        factors = db.execute(
-            """SELECT * FROM factor ORDER BY
-               CASE country_class WHEN 'High' THEN 1 WHEN 'Moderate' THEN 2 ELSE 3 END,
-               customer_class,
-               CASE roll_size WHEN 'standard' THEN 1 WHEN 'jumbo' THEN 2 ELSE 3 END"""
-        ).fetchall()
-        return render_template("admin_factors.html", factors=factors)
+        # v19: the old Country/Customer Classification margin screen is
+        # retired -- margin now comes entirely from Margin Factors (Micron x
+        # Film type x Automatic/Manual x Roll size). The `factor` table and
+        # its columns on `quotation` are left in the schema (harmless dead
+        # data, per the owner's instruction not to touch a live table's
+        # schema) but this page no longer renders at all, so there is no
+        # stray classification UI left to stumble onto.
+        return redirect(url_for("admin_margin_factors"))
 
     @app.route("/admin/freight", methods=["GET", "POST"])
     @admin_required
@@ -1100,7 +1125,7 @@ def build_pdf(q, lines, totals):
         ["Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str],
         ["Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"],
         ["Loading Port", q["loading_port"] or "-", "Destination", q["destination"] or "-"],
-        ["Customer Class.", q["customer_class"] or "-", "Discount", f"{q['global_discount_pct'] or 0}%"],
+        ["Discount", f"{q['global_discount_pct'] or 0}%", "", ""],
     ]
     meta_table = Table(meta, colWidths=[90, 150, 90, 150])
     meta_table.setStyle(TableStyle([
