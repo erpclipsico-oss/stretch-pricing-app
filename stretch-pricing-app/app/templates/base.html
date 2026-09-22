@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Stretch Pricing{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% if current_user %}
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand">🧭 Stretch Pricing</span>
+      <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
+      <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
+      {% if current_user.role == 'admin' %}
+      <a href="{{ url_for('admin_users') }}" class="nav-link">Users</a>
+      {% endif %}
+    </div>
+    <div class="topbar-right">
+      <span class="user-chip">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</span>
+      <a href="{{ url_for('logout') }}" class="btn btn-outline">Logout</a>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

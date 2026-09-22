@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Users · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Users</h2></div>
+  <table class="lines-table">
+    <thead><tr><th>Username</th><th>Full name</th><th>Role</th><th>Region</th><th>Active</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ u.full_name or '-' }}</td>
+        <td>{{ u.role }}</td>
+        <td>{{ u.region or '-' }}</td>
+        <td>{{ 'Yes' if u.active else 'No' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add user</h2></div>
+  <form method="post" class="grid grid-4">
+    <div class="field"><label>Username</label><input type="text" name="username" required></div>
+    <div class="field"><label>Full name</label><input type="text" name="full_name"></div>
+    <div class="field"><label>Role</label>
+      <select name="role">
+        <option value="sales_rep">Sales rep</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="field"><label>Region</label><input type="text" name="region" placeholder="e.g. Egypt, Foreign"></div>
+    <div class="field"><label>Password</label><input type="text" name="password" placeholder="ChangeMe123!"></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Create user</button></div>
+  </form>
+</div>
+{% endblock %}

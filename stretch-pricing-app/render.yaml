@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: stretch-pricing-app
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn run:app"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DB_PATH
+        value: /var/data/pricing.db
+    disk:
+      name: stretch-pricing-data
+      mountPath: /var/data
+      sizeGB: 1

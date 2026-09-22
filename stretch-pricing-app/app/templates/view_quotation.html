@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ q.quotation_no or ('Quotation #' ~ q.id) }}{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header">
+    <h2>{{ q.quotation_no or ('Quotation #' ~ q.id) }}</h2>
+    <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-primary">⇧ Export PDF</a>
+  </div>
+  <div class="grid grid-4">
+    <div class="field"><label>Customer</label><div>{{ q.customer_name or '-' }}</div></div>
+    <div class="field"><label>Destination</label><div>{{ q.destination or '-' }}</div></div>
+    <div class="field"><label>Payment Term</label><div>{{ q.payment_term or '-' }}</div></div>
+    <div class="field"><label>Discount</label><div>{{ q.global_discount_pct or 0 }}%</div></div>
+  </div>
+  <table class="lines-table">
+    <thead>
+      <tr><th>Product</th><th>Pallet</th><th>Packing</th><th>Qty</th><th>Total KG</th><th>Unit $/KG</th><th>Line total</th></tr>
+    </thead>
+    <tbody>
+      {% for l in lines %}
+      <tr>
+        <td>{{ l.label }}</td>
+        <td>{{ l.pallet_type }}</td>
+        <td>{{ l.packing_type }}</td>
+        <td class="num">{{ l.quantity_pallets }}</td>
+        <td class="num">{{ '%.1f'|format(l.total_kg) }}</td>
+        <td class="num">{{ '%.3f'|format(l.unit_price_usd_kg) }}</td>
+        <td class="num">${{ '%.2f'|format(l.line_total) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="totals-box">
+    <div><span>Subtotal</span><strong>${{ '%.2f'|format(totals.subtotal) }}</strong></div>
+    <div class="grand"><span>Total</span><strong>${{ '%.2f'|format(totals.total) }}</strong></div>
+  </div>
+</div>
+{% endblock %}

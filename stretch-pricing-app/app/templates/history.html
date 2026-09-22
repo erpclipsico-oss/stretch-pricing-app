@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Quotations · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Quotations</h2></div>
+  <table class="lines-table">
+    <thead>
+      <tr>
+        <th>Quotation No.</th>
+        <th>Customer</th>
+        <th>Destination</th>
+        <th>Created by</th>
+        <th>Date</th>
+        <th>Total</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for q in quotations %}
+      <tr>
+        <td>{{ q.quotation_no or ('#' ~ q.id) }}</td>
+        <td>{{ q.customer_name or '-' }}</td>
+        <td>{{ q.destination or '-' }}</td>
+        <td>{{ q.creator_name or q.creator_username or '-' }}</td>
+        <td>{{ q.created_at[:10] if q.created_at else '-' }}</td>
+        <td class="num">${{ '%.2f'|format(q.total) }}</td>
+        <td>
+          <a href="{{ url_for('view_quotation', qid=q.id) }}" class="btn btn-outline btn-sm">View</a>
+          <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-outline btn-sm">PDF</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">No quotations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

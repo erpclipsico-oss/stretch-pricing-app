@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Login · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <h1 class="brand-title">🧭 Stretch Pricing</h1>
+    <h2>Login</h2>
+    <form method="post">
+      <label>Username</label>
+      <select name="username" required>
+        <option value="">Select user...</option>
+        {% for u in users %}
+        <option value="{{ u.username }}">{{ u.username }}</option>
+        {% endfor %}
+      </select>
+      <label>Password</label>
+      <input type="password" name="password" required>
+      <button type="submit" class="btn btn-primary" style="margin-top:16px;width:100%;">Login</button>
+    </form>
+    <p class="hint">Default accounts: admin / sales_rep1 &mdash; password <code>ChangeMe123!</code> (change after first login).</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Pricing · Stretch Pricing{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-header">
+    <h2>New quotation <button type="button" class="btn btn-danger-outline" id="resetBtn">🗑 New quotation</button></h2>
+    <div class="panel-actions">
+      <button type="button" class="btn btn-success" id="saveBtn">💾 Save</button>
+      <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ Export PDF</button>
+      <button type="button" class="btn btn-primary" id="calcBtn">⚡ Calculate</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4">
+    <div class="field">
+      <label>Loading Port</label>
+      <input type="text" id="loading_port" value="Alexandria (Egypt)">
+    </div>
+    <div class="field">
+      <label>Destination</label>
+      <select id="destination">
+        <option value="">Select...</option>
+        {% for f in freight %}
+        <option value="{{ f.country }}">{{ f.country }} (freight ~${{ f.shipping_rate_usd }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Payment Term</label>
+      <select id="payment_term">
+        {% for pt in payment_terms %}
+        <option value="{{ pt }}">{{ pt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Global Discount %</label>
+      <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
+    </div>
+  </div>
+
+  <div class="grid grid-4">
+    <div class="field">
+      <label>Customer Name</label>
+      <input type="text" id="customer_name">
+    </div>
+    <div class="field">
+      <label>Quotation No.</label>
+      <input type="text" id="quotation_no">
+    </div>
+    <div class="field">
+      <label>Customer Classification</label>
+      <select id="customer_class">
+        <option value="A">A</option>
+        <option value="B">B</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Country Classification</label>
+      <select id="country_class">
+        <option value="High">High</option>
+        <option value="Moderate" selected>Moderate</option>
+        <option value="Low">Low</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="lines-header">
+    <h3>Quotation lines</h3>
+    <button type="button" class="btn btn-outline" id="addLineBtn">+ Add line</button>
+  </div>
+
+  <table class="lines-table" id="linesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Product</th>
+        <th>Pallet type</th>
+        <th>Packing type</th>
+        <th>Qty (pallets)</th>
+        <th>Total KG</th>
+        <th>Unit $/KG</th>
+        <th>Line total $</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="linesBody"></tbody>
+  </table>
+
+  <div class="totals-box">
+    <div><span>Subtotal</span><strong id="subtotalCell">$0.00</strong></div>
+    <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
+    <div class="grand"><span>Total</span><strong id="totalCell">$0.00</strong></div>
+  </div>
+</div>
+
+<script>
+const PRODUCTS = [
+  {% for p in products %}
+  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}},
+  {% endfor %}
+];
+const PALLET_TYPES = {{ pallet_types|tojson }};
+const PACKING_TYPES = {{ packing_types|tojson }};
+
+let lineSeq = 0;
+let currentQuotationId = null;
+
+function addLine(prefill) {
+  prefill = prefill || {};
+  lineSeq += 1;
+  const id = 'line_' + lineSeq;
+  const tr = document.createElement('tr');
+  tr.id = id;
+  tr.innerHTML = `
+    <td>${lineSeq}</td>
+    <td>
+      <select class="f-product">
+        ${PRODUCTS.map(p => `<option value="${p.id}">${p.label}</option>`).join('')}
+      </select>
+    </td>
+    <td>
+      <select class="f-pallet">
+        ${PALLET_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+      </select>
+    </td>
+    <td>
+      <select class="f-packing">
+        ${PACKING_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+      </select>
+    </td>
+    <td><input type="number" class="f-qty" value="1" min="0" step="0.5"></td>
+    <td class="f-kg num">0</td>
+    <td class="f-unit num">0.000</td>
+    <td class="f-total num">$0.00</td>
+    <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
+  `;
+  document.getElementById('linesBody').appendChild(tr);
+  tr.querySelector('.btn-remove').addEventListener('click', () => { tr.remove(); renumber(); });
+}
+
+function renumber() {
+  [...document.querySelectorAll('#linesBody tr')].forEach((tr, i) => {
+    tr.children[0].textContent = i + 1;
+  });
+}
+
+function readLines() {
+  return [...document.querySelectorAll('#linesBody tr')].map(tr => ({
+    product_id: tr.querySelector('.f-product').value,
+    pallet_type: tr.querySelector('.f-pallet').value,
+    packing_type: tr.querySelector('.f-packing').value,
+    quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+  }));
+}
+
+async function calculateAll() {
+  const country_class = document.getElementById('country_class').value;
+  const customer_class = document.getElementById('customer_class').value;
+  const rows = [...document.querySelectorAll('#linesBody tr')];
+  let subtotal = 0;
+  for (const tr of rows) {
+    const product_id = tr.querySelector('.f-product').value;
+    const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
+    const resp = await fetch('/api/calculate-line', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({product_id, country_class, customer_class, quantity_pallets})
+    });
+    const data = await resp.json();
+    if (data.error) continue;
+    tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
+    tr.querySelector('.f-unit').textContent = data.unit_price_usd_kg.toFixed(3);
+    tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    subtotal += data.line_gross;
+  }
+  const discountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
+  const discount = subtotal * discountPct / 100;
+  const total = subtotal - discount;
+  document.getElementById('subtotalCell').textContent = '$' + subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('discountCell').textContent = '-$' + discount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('totalCell').textContent = '$' + total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+async function saveQuotation() {
+  const payload = {
+    id: currentQuotationId,
+    quotation_no: document.getElementById('quotation_no').value,
+    customer_name: document.getElementById('customer_name').value,
+    loading_port: document.getElementById('loading_port').value,
+    destination: document.getElementById('destination').value,
+    payment_term: document.getElementById('payment_term').value,
+    customer_class: document.getElementById('customer_class').value,
+    country_class: document.getElementById('country_class').value,
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    lines: readLines(),
+  };
+  const resp = await fetch('/api/save-quotation', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json();
+  if (data.id) {
+    currentQuotationId = data.id;
+    document.getElementById('exportBtn').disabled = false;
+    document.getElementById('exportBtn').onclick = () => window.open(`/quotations/${data.id}/pdf`, '_blank');
+    alert('Quotation saved as ' + (data.quotation_no || ('#' + data.id)));
+  }
+}
+
+document.getElementById('addLineBtn').addEventListener('click', () => addLine());
+document.getElementById('calcBtn').addEventListener('click', calculateAll);
+document.getElementById('saveBtn').addEventListener('click', saveQuotation);
+document.getElementById('resetBtn').addEventListener('click', () => location.reload());
+
+// start with one line
+addLine();
+</script>
+{% endblock %}
