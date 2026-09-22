@@ -275,6 +275,8 @@ def init_db():
     _seed_packaging_v2(conn)
     _seed_box_packaging_v3(conn)
     _seed_full_import_v4(conn)
+    _fix_fixed_cost_duplication_v6(conn)
+    _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
     _seed_extras_settings(conn)
     conn.close()
@@ -1225,6 +1227,135 @@ MARGIN_FACTOR_ROWS = [
     ("UV_Rigid", 10, 40, "Automatic", "Jumbo Roll size", 13.00),
     ("UV_Rigid", 10, 40, "Manual", "Manual Roll size", 15.00),
 ]
+
+
+# v6 bugfix: _seed_cost_engine_data() (first-ever boot only, table-empty
+# gated) seeds these 43 Arabic-labeled `fixed_cost_item` rows from the
+# OLDER cost_seed.json. _seed_full_import_v4() later seeds 40 English-
+# labeled rows for the SAME real-world line items from the H1.36 sheet's
+# own "Fixed" tab, matched by (name, category) -- since the names never
+# match (different language), it always INSERTS instead of updating, so
+# every boot ends up with BOTH the stale Arabic rows AND the current
+# English rows for production/selling/admin, and total_fixed_cost_egp()
+# (a plain SUM over every row) silently double-counts almost the entire
+# fixed-cost base -- confirmed against the sheet: the 40 English rows sum
+# to EXACTLY the sheet's own "Total Fixed Cost" (2,916,751.81 EGP), while
+# the 43 stale Arabic rows add another 1,692,079.83 EGP on top that
+# shouldn't be there, inflating every single product's EX-Work cost (and
+# therefore every quoted price) by ~58% on the fixed-cost component.
+# The 3 'financial' rows (bank charges/interest) have no English H1.36
+# counterpart at all because the current "Fixed" tab explicitly zeroes
+# out its whole Finance Costs section (owner's own note on that tab:
+# "removed thanks to good management of the raw-material interest file,
+# offset by credit interest") -- so those 3 are stale too, not just
+# renamed, and are deleted outright rather than carried forward.
+# This function deletes exactly those 43 legacy rows (idempotent -- a
+# fresh boot reproduces the SAME final state every time on Render's
+# no-persistent-disk free tier, so this must be a permanent code fix,
+# not a one-off DB patch) and leaves every English H1.36 row untouched.
+LEGACY_FIXED_COST_ITEMS_V4 = [
+    ("production", "كهرباء بريموباك"),
+    ("production", "مياه"),
+    ("production", "اجور عمال الانتاج"),
+    ("production", "اضافي عمال الانتاج"),
+    ("production", "مرتبات صناعية غ.م."),
+    ("production", "اضافي مرتبات صناعية غ.م."),
+    ("production", "تأمينات اجتماعية"),
+    ("production", "انتقالات وماموريات"),
+    ("production", "علاج"),
+    ("production", "مكافأت"),
+    ("production", "اعياد و مناسبات"),
+    ("production", 'مصروف الاهلاك "عام"'),
+    ("production", 'مصروف الاهلاك "بريموباك"'),
+    ("production", 'مصروف الاهلاك "Uni Tech"'),
+    ("production", "ايجار مخزن"),
+    ("production", "صيانة و قطع غيار بريموباك"),
+    ("production", "م.سيارات"),
+    ("production", "م.كلاركات"),
+    ("production", "امن صناعي"),
+    ("production", "اخرى"),
+    ("selling", "عمولات و مصروفات بنكية"),
+    ("selling", "رسوم و تراخيص"),
+    ("selling", "معارض"),
+    ("selling", "اخرى"),
+    ("selling", "رواتب بيع"),
+    ("selling", "تأمينات اجتماعية"),
+    ("selling", "اخرى"),
+    ("admin", "رواتب ادارة"),
+    ("admin", "اضافي"),
+    ("admin", "تأمينات اجتماعية"),
+    ("admin", "انتقالات وماموريات"),
+    ("admin", "اعياد و مناسبات"),
+    ("admin", "مكافأت و حوافز"),
+    ("admin", "رسوم و تراخيص"),
+    ("admin", "اتعاب و استشارات"),
+    ("admin", "الادارة العليا"),
+    ("admin", "مرافق"),
+    ("admin", "ايجار"),
+    ("admin", "اخرى"),
+    ("admin", "مصروف الاهلاك الاداري"),
+    ("financial", "عمولات و مصروفات بنكية"),
+    ("financial", "دمغات و فوائد"),
+    ("financial", "فوائد و دمغات بريموباك"),
+]
+
+
+def _fix_fixed_cost_duplication_v6(conn):
+    from . import cost_engine
+
+    changed = False
+    for category, name in LEGACY_FIXED_COST_ITEMS_V4:
+        cur = conn.execute(
+            "DELETE FROM fixed_cost_item WHERE category=? AND name=?", (category, name)
+        )
+        if cur.rowcount:
+            changed = True
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
+
+
+# v21.1 bugfix: two global_setting constants were left at their OLDER,
+# now-stale values from a prior workbook version (both were seeded once,
+# on the very first-ever boot, from cost_seed.json -- the H1.36 full
+# import's global_setting_updates only touched the 2 pre-stretch packaging
+# totals, never these two) even though the reference H1.36 workbook itself
+# has since changed them:
+#   - scrap_interest_factor: DB had 1.031, but every current Stretch-sheet
+#     material-cost formula (e.g. Stretch!T39: "=K39*J39*'Material
+#     pricing'!$C$4/1000*1.01*1.04") multiplies by 1.04, not 1.031.
+#   - electricity_variable_tariff_egp_per_kwh: DB had 1.32, but the H1.36
+#     'Electricity' sheet's own B6 "Variable Tariff" cell is now 2.8.
+# Both were confirmed by reproducing the sheet's own EX-Work Cost (KG) for
+# a specific line (17mic/300%/50kg/Automatic, gross weight) by hand and
+# finding the DB's cached rates undershot the sheet's own computed value
+# on both the material and conversion-cost components. Corrected here,
+# unconditionally, since (like _fix_fixed_cost_duplication_v6) Render's
+# free tier has no persistent disk and a fresh boot would otherwise reseed
+# the same stale values from cost_seed.json every time.
+STALE_GLOBAL_SETTINGS_V7 = {
+    "scrap_interest_factor": 1.04,
+    "electricity_variable_tariff_egp_per_kwh": 2.8,
+}
+
+
+def _fix_stale_global_settings_v7(conn):
+    from . import cost_engine
+
+    changed = False
+    for key, correct_value in STALE_GLOBAL_SETTINGS_V7.items():
+        row = conn.execute("SELECT value FROM global_setting WHERE key=?", (key,)).fetchone()
+        if row is not None and row["value"] != correct_value:
+            conn.execute("UPDATE global_setting SET value=? WHERE key=?", (correct_value, key))
+            changed = True
+    conn.execute(
+        """UPDATE global_setting SET help=?
+           WHERE key='scrap_interest_factor'""",
+        ("Stretch sheet material-cost formulas multiply by 1.04 (handling/scrap allowance).",),
+    )
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
 
 
 def _seed_margin_factor_v5(conn):

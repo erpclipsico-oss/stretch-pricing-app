@@ -14,7 +14,7 @@
 
   {% if current_user and current_user.role == 'admin' and current_user.seller_type == 'foreign' %}
   <div class="flash flash-success" style="margin-bottom:14px;">
-    🌍 Foreign Seller &mdash; +${{ '%.3f'|format(current_user.price_adjustment_usd_kg or 0) }}/KG applied
+    🌍 Foreign Seller &mdash; +${{ '%.2f'|format(current_user.price_adjustment_usd_kg or 0) }}/KG applied
     to every line on this quote. (Only admins see this note &mdash; sales reps do not.)
   </div>
   {% endif %}
@@ -343,7 +343,7 @@ async function calculateAll() {
       }
     }
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
-    tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(3);
+    tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(2);
     const lineDiscountPct = parseFloat(tr.querySelector('.f-discount').value || 0);
     const lineNet = data.line_gross * (1 - lineDiscountPct / 100);
     tr.querySelector('.f-total').textContent = '$' + lineNet.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -378,8 +378,8 @@ async function calculateAll() {
   for (const rc of rowCalc) {
     const fobUnit = rc.exwUnit + fobAddonPerKg;
     const cifUnit = fobUnit + freightPerKg;
-    rc.tr.querySelector('.f-fob').textContent = fobUnit.toFixed(3);
-    rc.tr.querySelector('.f-cif').textContent = cifUnit.toFixed(3);
+    rc.tr.querySelector('.f-fob').textContent = fobUnit.toFixed(2);
+    rc.tr.querySelector('.f-cif').textContent = cifUnit.toFixed(2);
   }
 
   const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});

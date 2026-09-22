@@ -324,25 +324,28 @@ def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet
 
 def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
-    per pallet, with the jumbo (>25kg) special case that excludes the base
-    Pallet line item (mirrors 'Pallet component'!(D11-D6)/G on row 40).
-    Rolls/pallet now comes from the Details-sheet packing_tier lookup
-    (exact gross-weight bucket x pallet type), not a single hardcoded
-    per-product value -- see lookup_packing_tier()."""
+    per pallet. Rolls/pallet comes from the Details-sheet packing_tier
+    lookup (exact gross-weight bucket x pallet type), not a single
+    hardcoded per-product value -- see lookup_packing_tier().
+
+    v21.1 bugfix: this used to subtract the base pallet unit cost for
+    jumbo (>25kg) Automatic rolls before dividing by rolls/pallet, on the
+    belief that's what the workbook did. Checked directly against the
+    H1.36 sheet's own Stretch!AD formula (=...'Pallet component'!$D$11/G39
+    for the jumbo/Automatic/USD case) and every jumbo-roll row's own
+    "Packaging" column (e.g. row 39, 17mic/300%/50kg/Automatic: 1.008333 =
+    the FULL pallet_component total (16.1333) / 16 rolls, no subtraction
+    at all) -- there never was a jumbo exclusion; it's a plain
+    total/rolls_per_pallet division for every Automatic pallet size,
+    jumbo or standard. The exclusion was understating packaging cost by
+    exactly one Pallet unit ($12) spread over the pallet's rolls (~$0.75/
+    roll for the common 16-roll jumbo pallet) on every jumbo product."""
     rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
     if rolls_per_pallet <= 0:
         return 0.0
     packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
     key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group)
     total = pallet_component_total_usd(conn, key)
-    roll_weight = product["roll_weight_kg"] or 0
-    if roll_weight > 25 and key.startswith("automatic"):
-        # Jumbo rolls: exclude the base pallet unit cost (workbook subtracts
-        # 'Pallet component'!D6 / J6, the bare "Pallet" line, from the total
-        # before dividing by rolls/pallet).
-        dollar_rate = _get_setting(conn, "dollar_rate", 45)
-        pallet_rate = _material_rate(conn, "pallet") / dollar_rate if dollar_rate else 0
-        total = max(total - pallet_rate, 0)
     return total / rolls_per_pallet
 
 

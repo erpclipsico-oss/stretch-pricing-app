@@ -63,7 +63,7 @@
     {
       "key": "electricity_variable_tariff_egp_per_kwh",
       "label": "Variable tariff (EGP/kWh)",
-      "value": 1.32,
+      "value": 2.8,
       "help": "'Electricity' B6."
     },
     {
@@ -75,8 +75,8 @@
     {
       "key": "scrap_interest_factor",
       "label": "Material scrap/handling factor",
-      "value": 1.031,
-      "help": "Stretch sheet material-cost formulas multiply by 1.031 (handling/scrap allowance)."
+      "value": 1.04,
+      "help": "Stretch sheet material-cost formulas multiply by 1.04 (handling/scrap allowance)."
     }
   ],
   "material_rates": [
