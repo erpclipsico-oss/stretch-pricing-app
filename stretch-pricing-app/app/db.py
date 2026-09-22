@@ -249,6 +249,7 @@ def init_db():
     _seed_packing_tiers(conn)
     _seed_prestretch_settings(conn)
     _seed_missing_products(conn)
+    _seed_freight_v2(conn)
     conn.close()
 
 
@@ -346,6 +347,33 @@ def _migrate(conn):
     # the owner has since edited in admin).
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Alexandria (Egypt)', 1500)")
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Damietta (Egypt)', 1800)")
+    conn.commit()
+
+
+def _seed_freight_v2(conn):
+    """Replace the placeholder freight rows with the owner's real Alexandria
+    sea-freight rate sheet (USD/container, per destination). Gated by a
+    one-time marker in global_setting, and called LAST in init_db() (after
+    _seed_reference_data(), which on a brand-new database -- e.g. every
+    restart on Render's free tier with no persistent disk -- inserts its own
+    placeholder freight rows from seed_data.json) so this always has the
+    final say and never leaves stale placeholder rows mixed in. Never
+    overwrites a rate an admin edits afterward through Admin > Freight."""
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='freight_v2_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+    conn.execute("DELETE FROM freight")
+    for country, rate in FREIGHT_RATES_V2:
+        conn.execute("INSERT INTO freight (country, shipping_rate_usd) VALUES (?, ?)", (country, str(rate)))
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("freight_v2_seeded", "Freight v2 seeded (internal marker)", 1,
+         "Internal marker: the real Alexandria freight rate sheet has been loaded. "
+         "Do not delete this row -- it stops the one-time freight refresh from "
+         "running again and wiping out manual edits made in Admin > Freight."),
+    )
     conn.commit()
 
 
@@ -610,6 +638,48 @@ def _seed_cost_engine_data(conn):
     from . import cost_engine
     cost_engine.sync_labor_to_fixed_costs(conn)
 
+
+# Real Alexandria sea-freight rate sheet (USD/container), supplied by the
+# owner (v13) to replace the placeholder freight rows seeded earlier.
+FREIGHT_RATES_V2 = [
+    ("Belgium - Antwerp", 1600),
+    ("Bulgaria - Burgas", 1350),
+    ("Bulgaria - Varna", 1350),
+    ("Cyprus - Limassol", 1000),
+    ("Czech Republic - DAP", 4000),
+    ("DAP France - Astic emballage - Rubafilm", 3000),
+    ("Felixstowe - The United Kingdom", 1600),
+    ("Germany - Hamburg", 1200),
+    ("Greece - DAP Hellagro", 3000),
+    ("Greece - Pireaus", 1000),
+    ("Greece - Thessaloniki", 1000),
+    ("Italy - Ancona", 1100),
+    ("Italy - Genoa", 1100),
+    ("Italy - La Spezia", 1100),
+    ("Italy - Napoli", 1100),
+    ("Italy - Salerno", 1100),
+    ("Italy - Venice", 1100),
+    ("lebanon - Beirut", 900),
+    ("Lithuania - klaipeda", 1100),
+    ("Morroco - Casablanca", 2000),
+    ("Netherlands - Rotterdam", 1350),
+    ("Newton Company - UK", 3600),
+    ("Poland - DAP Bialpack", 3500),
+    ("Poland - Gdańsk", 1550),
+    ("Portugal - Leixões", 1100),
+    ("Portugal - Lisbon", 1100),
+    ("Romania - Constanta", 1450),
+    ("Romania - Dap Ambafol", 3500),
+    ("Romania - DAP - Aplan", 3500),
+    ("Saudi Arabia - Jeddah", 850),
+    ("Slovenia - Koper", 1000),
+    ("Spain - Barcelona", 1000),
+    ("Spain - Valencia", 1000),
+    ("Turkey - Ambarli", 650),
+    ("Turkiye - Istanbul", 450),
+    ("Turkiye - Izmir", 400),
+    ("UK - Felixstowe", 1100),
+]
 
 DEFAULT_USERS = [
     # username, full_name, role, region, seller_type, price_adjustment_usd_kg

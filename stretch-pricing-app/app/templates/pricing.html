@@ -33,7 +33,7 @@
       <select id="destination">
         <option value="">Select...</option>
         {% for f in freight %}
-        <option value="{{ f.country }}">{{ f.country }} (freight ~${{ f.shipping_rate_usd }})</option>
+        <option value="{{ f.country }}">{{ f.country }}</option>
         {% endfor %}
       </select>
     </div>
@@ -184,7 +184,7 @@ function addLine(prefill) {
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
-    <td class="f-rpp num">&ndash;</td>
+    <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td class="f-ppc40 num">&ndash;</td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-exw num">0.000</td>
@@ -237,6 +237,7 @@ function addLine(prefill) {
     tr.querySelector('.f-rollwt').value = p.roll_weight_kg || '';
     tr.querySelector('.f-corewt').value = p.core_weight_kg || '';
     tr.querySelector('.f-width').value = p.width_mm || '';
+    tr.querySelector('.f-rpp').value = p.rolls_per_pallet || '';
   }
 
   function syncPrestretchVisibility() {
@@ -250,10 +251,12 @@ function addLine(prefill) {
     tr.querySelector('.f-rollwt').disabled = show;
     tr.querySelector('.f-corewt').disabled = show;
     tr.querySelector('.f-width').disabled = show;
+    tr.querySelector('.f-rpp').disabled = show;
     if (show) {
       tr.querySelector('.f-rollwt').value = '';
       tr.querySelector('.f-corewt').value = '';
       tr.querySelector('.f-width').value = '';
+      tr.querySelector('.f-rpp').value = '';
     } else {
       prefillRollSpec();
     }
@@ -288,9 +291,11 @@ function readLines() {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
       const width = tr.querySelector('.f-width').value;
+      const rpp = tr.querySelector('.f-rpp').value;
       if (rollwt !== '') line.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') line.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') line.custom_width_mm = parseFloat(width);
+      if (rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
     }
     return line;
   });
@@ -319,9 +324,11 @@ async function calculateAll() {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
       const width = tr.querySelector('.f-width').value;
+      const rpp = tr.querySelector('.f-rpp').value;
       if (rollwt !== '') payload.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') payload.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') payload.custom_width_mm = parseFloat(width);
+      if (rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
     }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
@@ -340,8 +347,10 @@ async function calculateAll() {
       if (document.activeElement !== tr.querySelector('.f-corewt') && (data.core_weight_kg || data.core_weight_kg === 0)) {
         tr.querySelector('.f-corewt').value = data.core_weight_kg;
       }
+      if (document.activeElement !== tr.querySelector('.f-rpp') && data.rolls_per_pallet) {
+        tr.querySelector('.f-rpp').value = data.rolls_per_pallet;
+      }
     }
-    tr.querySelector('.f-rpp').textContent = data.rolls_per_pallet ? data.rolls_per_pallet.toLocaleString() : '–';
     tr.querySelector('.f-ppc40').textContent = (data.pallets_per_container40 || data.pallets_per_container40 === 0) ? data.pallets_per_container40 : '–';
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(3);
