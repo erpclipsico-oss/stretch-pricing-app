@@ -107,10 +107,27 @@ body {
 .lines-header h3 { margin: 0; font-size: 1rem; }
 
 .lines-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.lines-table th { text-align: left; text-transform: uppercase; font-size: 0.7rem; color: var(--muted); padding: 8px; border-bottom: 2px solid var(--border); }
+.lines-table th { text-align: left; text-transform: uppercase; font-size: 0.7rem; color: var(--muted); padding: 8px; border-bottom: 2px solid var(--border); white-space: nowrap; }
 .lines-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.lines-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lines-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lines-table .empty { text-align: center; color: var(--muted); padding: 24px; }
+
+/* Compact per-line input fields (roll/core weight, width, qty, discount %,
+   etc.) -- narrow number-spinner boxes so a wide row of them stays
+   scannable, matching the dense one-row-per-line layout the owner asked
+   to match. */
+.lines-table-compact td { padding: 4px 5px; }
+.lines-table-compact select,
+.lines-table-compact input[type=number],
+.lines-table-compact input[type=text] {
+  padding: 5px 6px;
+  font-size: 0.82rem;
+}
+.compact-input { width: 62px; }
+.lines-table-compact select.f-product { min-width: 130px; }
+.lines-table-compact select.f-pallet,
+.lines-table-compact select.f-packing,
+.lines-table-compact select.f-basis { min-width: 92px; }
 
 .btn-remove { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; }
 

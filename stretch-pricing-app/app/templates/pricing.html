@@ -24,7 +24,7 @@
       <label>Loading Port</label>
       <select id="loading_port">
         {% for p in loading_ports %}
-        <option value="{{ p.port }}">{{ p.port }} (+${{ '%.0f'|format(p.fob_addon_usd) }} FOB)</option>
+        <option value="{{ p.port }}">{{ p.port }}</option>
         {% endfor %}
       </select>
     </div>
@@ -82,29 +82,33 @@
     <button type="button" class="btn btn-outline" id="addLineBtn">+ Add line</button>
   </div>
 
-  <table class="lines-table" id="linesTable">
+  <div style="overflow-x:auto;">
+  <table class="lines-table lines-table-compact" id="linesTable">
     <thead>
       <tr>
         <th>#</th>
         <th>Product</th>
         <th>Pallet type</th>
         <th>Packing type</th>
-        <th>Pricing basis</th>
+        <th>Price basis</th>
         <th>Qty (pallets)</th>
-        <th>Roll wt (KG)</th>
-        <th>Core wt (KG)</th>
         <th>Width (mm)</th>
-        <th>Rolls/Pallet</th>
-        <th>Pallets/Cont. 40'</th>
-        <th>Pallets/Cont. 20'</th>
+        <th>Roll kg</th>
+        <th>Core kg</th>
+        <th>Rolls/pallet</th>
+        <th>Pallets/cont 40'</th>
+        <th>Discount %</th>
+        <th>EXW $/kg</th>
+        <th>FOB $/kg</th>
+        <th>CIF $/kg</th>
         <th>Total KG</th>
-        <th>Unit $/KG</th>
         <th>Line total $</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="linesBody"></tbody>
   </table>
+  </div>
 
   <div class="totals-box">
     <div><span>Subtotal (EX-Work)</span><strong id="subtotalCell">$0.00</strong></div>
@@ -176,15 +180,17 @@ function addLine(prefill) {
         ${PRICING_BASES.map(b => `<option value="${b[0]}" ${b[0]==='per_kg' ? 'selected' : ''}>${b[1]}</option>`).join('')}
       </select>
     </td>
-    <td><input type="number" class="f-qty" value="1" min="0" step="0.5"></td>
-    <td><input type="number" class="f-rollwt" min="0" step="0.01" style="width:70px;" title="Actual roll weight for this order (editable per customer)"></td>
-    <td><input type="number" class="f-corewt" min="0" step="0.01" style="width:70px;" title="Actual core weight for this order (editable per customer)"></td>
-    <td><input type="number" class="f-width" min="0" step="1" style="width:70px;" title="Actual roll/core width in mm for this order (editable per customer)"></td>
+    <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5"></td>
+    <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
+    <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
+    <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td class="f-rpp num">&ndash;</td>
     <td class="f-ppc40 num">&ndash;</td>
-    <td class="f-ppc20 num">&ndash;</td>
+    <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
+    <td class="f-exw num">0.000</td>
+    <td class="f-fob num">0.000</td>
+    <td class="f-cif num">0.000</td>
     <td class="f-kg num">0</td>
-    <td class="f-unit num">0.000</td>
     <td class="f-total num">$0.00</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
@@ -207,7 +213,7 @@ function addLine(prefill) {
   pr.innerHTML = `
     <td></td>
     <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
-    <td colspan="11">
+    <td colspan="13">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <label style="font-size:0.78rem;">Roll wt (KG)
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
@@ -270,6 +276,7 @@ function readLines() {
       packing_type: tr.querySelector('.f-packing').value,
       pricing_basis: tr.querySelector('.f-basis').value,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     };
     if (isPrestretch(line.product_id)) {
       const pr = tr.nextElementSibling;
@@ -294,6 +301,8 @@ async function calculateAll() {
   const customer_class = document.getElementById('customer_class').value;
   const rows = [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')];
   let subtotal = 0;
+  let totalKgAll = 0;
+  const rowCalc = []; // {tr, exwUnit, totalKg} for the FOB/CIF-per-kg second pass
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
     const pallet_type = tr.querySelector('.f-pallet').value;
@@ -334,11 +343,14 @@ async function calculateAll() {
     }
     tr.querySelector('.f-rpp').textContent = data.rolls_per_pallet ? data.rolls_per_pallet.toLocaleString() : '–';
     tr.querySelector('.f-ppc40').textContent = (data.pallets_per_container40 || data.pallets_per_container40 === 0) ? data.pallets_per_container40 : '–';
-    tr.querySelector('.f-ppc20').textContent = (data.pallets_per_container20 || data.pallets_per_container20 === 0) ? data.pallets_per_container20 : '–';
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
-    tr.querySelector('.f-unit').textContent = data.unit_price_usd_kg.toFixed(3);
-    tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    subtotal += data.line_gross;
+    tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(3);
+    const lineDiscountPct = parseFloat(tr.querySelector('.f-discount').value || 0);
+    const lineNet = data.line_gross * (1 - lineDiscountPct / 100);
+    tr.querySelector('.f-total').textContent = '$' + lineNet.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    subtotal += lineNet;
+    totalKgAll += data.total_kg;
+    rowCalc.push({tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg});
   }
   const discountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
   const discount = subtotal * discountPct / 100;
@@ -357,6 +369,19 @@ async function calculateAll() {
   const freightRow = FREIGHT.find(f => f.country === destName);
   const freightAmt = freightRow ? firstNumber(freightRow.shipping_rate_usd) : 0;
   const cifTotal = fobTotal + freightAmt;
+
+  // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
+  // the quote's total KG (proportionally to how much of the shipment each
+  // line is), so a rep/client can see an all-in per-kg rate next to the
+  // EX-Work rate on every line, not just the quote's lump-sum totals.
+  const fobAddonPerKg = totalKgAll > 0 ? fobAddon / totalKgAll : 0;
+  const freightPerKg = totalKgAll > 0 ? freightAmt / totalKgAll : 0;
+  for (const rc of rowCalc) {
+    const fobUnit = rc.exwUnit + fobAddonPerKg;
+    const cifUnit = fobUnit + freightPerKg;
+    rc.tr.querySelector('.f-fob').textContent = fobUnit.toFixed(3);
+    rc.tr.querySelector('.f-cif').textContent = cifUnit.toFixed(3);
+  }
 
   const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   document.getElementById('subtotalCell').textContent = money(subtotal);
