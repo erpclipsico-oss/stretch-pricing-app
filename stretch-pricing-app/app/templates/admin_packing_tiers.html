@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Packing Tiers · Stretch Pricing{% endblock %}
 {% block content %}
+{% set sync_table_key = 'packing_tier' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Packing Tiers (by exact roll weight)</h2></div>
   <p class="hint" style="margin-bottom:14px;">

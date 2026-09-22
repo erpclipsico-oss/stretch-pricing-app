@@ -97,6 +97,35 @@ future phase.
   often; see `app/COST_ENGINE.md` / `app/cost_upload.py` if you want that
   extended later.
 
+### Phase 4 (v7) additions: missing jumbo SKUs + Pre-Stretch
+
+- **Six missing jumbo SKUs added.** The `Stretch` sheet had seven "jumbo
+  pre-stretch precursor" rows (50kg jumbo, 16 rolls/pallet, same 250%/300%/
+  350% categories as existing products) that were never seeded in Phase 1:
+  250% Power @ 17/20/23/30µm, 300% (Power plus) @ 17µm, 350% (Power plus) @
+  17µm. A seventh row (250% Power, 23µm) was a verbatim duplicate of the
+  23µm row already listed and was **not** added a second time — see
+  `app/COST_ENGINE.md` for the detail. These price exactly like any other
+  product; no new logic was needed.
+- **Pre-Stretch (hand-stretch film), a new product family.** Seven SKUs
+  (micron 5/6/7/8/9/10/12) are now selectable in the quote builder. Unlike
+  every other product, Pre-Stretch is made-to-order: the rep types in **roll
+  weight, core weight, rolls/pallet and a packaging type (No Boxes / With
+  Boxes)** per quotation line instead of using fixed catalog values —
+  selecting a Pre-Stretch product reveals these four extra fields under the
+  line. Its material cost is not built from the BOM independently: each
+  Pre-Stretch micron borrows its *source* jumbo SKU's current finished sales
+  $/KG and multiplies it by the line's entered net weight. See
+  `app/COST_ENGINE.md` for the full formula and the micron → source mapping,
+  editable on the new **Pre-Stretch** admin screen (also holds the two fixed
+  packaging totals, alongside Global Settings).
+- **Three categories flagged, not built.** `Special (Power Plus)`, `UVI
+  Film` (Standard/Power/Power+) and `(UV&REGID) Film` have zero cost/spec
+  data anywhere in the source workbook (no roll weight, core weight, width
+  or rolls/pallet for any micron) — nothing was fabricated for them. They
+  are **not** in the product catalog; the owner needs to supply real specs
+  before they can be added via the normal Products admin screen.
+
 ## Local setup
 
 ```bash

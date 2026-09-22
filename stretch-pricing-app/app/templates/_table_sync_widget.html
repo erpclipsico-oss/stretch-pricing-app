@@ -1,0 +1,30 @@
+{# Reusable Excel round-trip widget. Set `sync_table_key` (and optionally
+   `sync_last_upload`, a table_upload_log row or None) before including:
+   {% set sync_table_key = 'material_rate' %}
+   {% set sync_last_upload = last_upload %}
+   {% include "_table_sync_widget.html" %}
+#}
+<div class="panel" style="background:#f8fafc;">
+  <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+    <a class="btn btn-outline" href="{{ url_for('table_sync_download', table_key=sync_table_key) }}">
+      &#8681; Download Excel Template
+    </a>
+    <form method="post" action="{{ url_for('table_sync_upload', table_key=sync_table_key) }}"
+          enctype="multipart/form-data" style="display:flex; align-items:center; gap:8px;">
+      <input type="file" name="excel_file" accept=".xlsx" required style="font-size:0.8rem;">
+      <button type="submit" class="btn btn-primary btn-sm">Upload &amp; Preview Changes</button>
+    </form>
+    <span class="hint" style="margin:0;">
+      {% if sync_last_upload %}
+        Last uploaded: <strong>{{ sync_last_upload.uploaded_at[:19]|replace('T', ' ') if sync_last_upload.uploaded_at else '-' }}</strong>
+        by {{ sync_last_upload.uploaded_by }} ({{ sync_last_upload.filename }})
+      {% else %}
+        Never uploaded via Excel.
+      {% endif %}
+    </span>
+  </div>
+  <p class="hint" style="margin-top:8px; margin-bottom:0;">
+    Download this table to Excel, fill in the yellow cells, then upload it back. You'll see a full
+    before/after review — including the estimated effect on final sales prices — before anything is saved.
+  </p>
+</div>

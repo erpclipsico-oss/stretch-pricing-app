@@ -11,9 +11,10 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db, init_db
-from .pricing import compute_line, product_label, product_category
+from .pricing import compute_line, product_label, product_category, is_prestretch, compute_prestretch_line
 from . import cost_engine
 from . import cost_upload
+from . import table_sync
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -90,12 +91,13 @@ def create_app():
         products_rows = g.db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
         ).fetchall()
-        products = [dict(p, label=product_label(p)) for p in products_rows]
+        products = [dict(p, label=product_label(p), is_prestretch=is_prestretch(p)) for p in products_rows]
         freight = g.db.execute("SELECT * FROM freight ORDER BY country").fetchall()
         pallet_types = ["Standard Pallet", "Euro Pallet"]
         packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
         payment_terms = ["Cash (0 days)", "30 days", "60 days", "90 days"]
         pricing_bases = [("gross", "$/Roll (Gross)"), ("net", "$/Roll (Net)"), ("per_kg", "$/KG")]
+        prestretch_packaging_types = [("no_boxes", "No Boxes"), ("boxes", "With Boxes")]
         return render_template(
             "pricing.html",
             products=products,
@@ -104,6 +106,7 @@ def create_app():
             packing_types=packing_types,
             payment_terms=payment_terms,
             pricing_bases=pricing_bases,
+            prestretch_packaging_types=prestretch_packaging_types,
         )
 
     @app.route("/api/calculate-line", methods=["POST"])
@@ -119,11 +122,44 @@ def create_app():
         pallet_type = data.get("pallet_type")
         pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
+
+        if is_prestretch(product):
+            roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
+            core_weight_kg = float(data.get("prestretch_core_weight_kg") or 0)
+            rolls_per_pallet = float(data.get("prestretch_rolls_per_pallet") or 0)
+            packaging_type = data.get("prestretch_packaging_type", "no_boxes")
+            unit_price, total_kg = compute_prestretch_line(
+                g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
+                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+            )
+            gross = round(unit_price * total_kg, 2)
+            return jsonify({
+                "unit_price_usd_kg": unit_price,
+                "total_kg": total_kg,
+                "line_gross": gross,
+                "roll_weight_kg": roll_weight_kg,
+                "core_weight_kg": core_weight_kg,
+                "rolls_per_pallet": rolls_per_pallet,
+                "pallets_per_container40": None,
+                "pallets_per_container20": None,
+            })
+
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
                                              price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                              pricing_basis=pricing_basis)
         gross = round(unit_price * total_kg, 2)
-        return jsonify({"unit_price_usd_kg": unit_price, "total_kg": total_kg, "line_gross": gross})
+        rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, product, pallet_type)
+        tier = cost_engine.lookup_packing_tier(g.db, product["auto_manual"], product["roll_weight_kg"], pallet_type)
+        return jsonify({
+            "unit_price_usd_kg": unit_price,
+            "total_kg": total_kg,
+            "line_gross": gross,
+            "roll_weight_kg": product["roll_weight_kg"] or 0,
+            "core_weight_kg": product["core_weight_kg"] or 0,
+            "rolls_per_pallet": rolls_per_pallet,
+            "pallets_per_container40": (tier["pallets_per_container40"] if tier else None),
+            "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
+        })
 
     @app.route("/api/save-quotation", methods=["POST"])
     @login_required
@@ -179,6 +215,31 @@ def create_app():
                 continue
             pallet_type = l.get("pallet_type", "Standard Pallet")
             pricing_basis = l.get("pricing_basis", "per_kg")
+
+            if is_prestretch(product):
+                roll_weight_kg = float(l.get("prestretch_roll_weight_kg") or 0)
+                core_weight_kg = float(l.get("prestretch_core_weight_kg") or 0)
+                rolls_per_pallet = float(l.get("prestretch_rolls_per_pallet") or 0)
+                packaging_type = l.get("prestretch_packaging_type", "no_boxes")
+                unit_price, total_kg = compute_prestretch_line(
+                    db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                    roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                    price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                )
+                db.execute(
+                    """INSERT INTO quotation_line
+                       (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
+                        unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                        prestretch_roll_weight_kg, prestretch_core_weight_kg, prestretch_rolls_per_pallet,
+                        prestretch_packaging_type)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
+                     float(l.get("quantity_pallets") or 0), unit_price, total_kg,
+                     float(l.get("line_discount_pct") or 0), pricing_basis,
+                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type),
+                )
+                continue
+
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
@@ -466,7 +527,8 @@ def create_app():
             flash("Global cost settings updated.", "success")
             return redirect(url_for("admin_global_settings"))
         settings = db.execute("SELECT * FROM global_setting ORDER BY label").fetchall()
-        return render_template("admin_global_settings.html", settings=settings)
+        last_upload = table_sync.get_last_upload(db, "global_setting")
+        return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
 
     @app.route("/admin/cost/materials", methods=["GET", "POST"])
     @admin_required
@@ -482,7 +544,9 @@ def create_app():
             return redirect(url_for("admin_material_rates"))
         resin = db.execute("SELECT * FROM material_rate WHERE category='resin' ORDER BY label").fetchall()
         packaging = db.execute("SELECT * FROM material_rate WHERE category='packaging' ORDER BY label").fetchall()
-        return render_template("admin_material_rates.html", resin=resin, packaging=packaging)
+        last_upload = table_sync.get_last_upload(db, "material_rate")
+        return render_template("admin_material_rates.html", resin=resin, packaging=packaging,
+                                last_upload=last_upload)
 
     @app.route("/admin/cost/labor", methods=["GET", "POST"])
     @admin_required
@@ -515,8 +579,10 @@ def create_app():
         fixed_total = sum((e["base_2023_egp"] or 0) * (1 + (e["increase_rate"] or 0)) for e in employees if e["active"])
         variable_total = sum(((e["base_2023_egp"] or 0) * (1 + (e["increase_rate"] or 0)) / 8) * 4
                               for e in employees if e["active"])
+        last_upload = table_sync.get_last_upload(db, "labor_employee")
         return render_template("admin_labor.html", employees=employees,
-                                fixed_total=round(fixed_total, 2), variable_total=round(variable_total, 2))
+                                fixed_total=round(fixed_total, 2), variable_total=round(variable_total, 2),
+                                last_upload=last_upload)
 
     @app.route("/admin/cost/labor/<int:eid>/delete", methods=["POST"])
     @admin_required
@@ -545,7 +611,10 @@ def create_app():
             return redirect(url_for("admin_electricity"))
         power = db.execute("SELECT * FROM electricity_power ORDER BY roll_type, micron").fetchall()
         capacity = db.execute("SELECT * FROM production_capacity ORDER BY roll_type, micron").fetchall()
-        return render_template("admin_electricity.html", power=power, capacity=capacity)
+        last_upload_power = table_sync.get_last_upload(db, "electricity_power")
+        last_upload_capacity = table_sync.get_last_upload(db, "production_capacity")
+        return render_template("admin_electricity.html", power=power, capacity=capacity,
+                                last_upload_power=last_upload_power, last_upload_capacity=last_upload_capacity)
 
     @app.route("/admin/cost/variable-costs", methods=["GET", "POST"])
     @admin_required
@@ -561,7 +630,8 @@ def create_app():
             flash("Variable cost items updated.", "success")
             return redirect(url_for("admin_variable_costs"))
         items = db.execute("SELECT * FROM variable_cost_item ORDER BY id").fetchall()
-        return render_template("admin_variable_costs.html", items=items)
+        last_upload = table_sync.get_last_upload(db, "variable_cost_item")
+        return render_template("admin_variable_costs.html", items=items, last_upload=last_upload)
 
     @app.route("/admin/cost/fixed-costs", methods=["GET", "POST"])
     @admin_required
@@ -590,7 +660,9 @@ def create_app():
         for it in items:
             by_category.setdefault(it["category"], []).append(it)
         total = sum(it["value_egp"] or 0 for it in items)
-        return render_template("admin_fixed_costs.html", by_category=by_category, total=round(total, 2))
+        last_upload = table_sync.get_last_upload(db, "fixed_cost_item")
+        return render_template("admin_fixed_costs.html", by_category=by_category, total=round(total, 2),
+                                last_upload=last_upload)
 
     @app.route("/admin/cost/fixed-costs/<int:fid>/delete", methods=["POST"])
     @admin_required
@@ -623,7 +695,8 @@ def create_app():
         rows = db.execute("SELECT * FROM pallet_component ORDER BY label").fetchall()
         totals = {r["packing_key"]: round(cost_engine.pallet_component_total_usd(db, r["packing_key"]), 4)
                    for r in rows}
-        return render_template("admin_pallet.html", rows=rows, totals=totals)
+        last_upload = table_sync.get_last_upload(db, "pallet_component")
+        return render_template("admin_pallet.html", rows=rows, totals=totals, last_upload=last_upload)
 
     @app.route("/admin/cost/bom", methods=["GET", "POST"])
     @admin_required
@@ -647,7 +720,40 @@ def create_app():
         rows = db.execute(
             "SELECT * FROM bom_row ORDER BY stretch_multiplier, roll_tier, micron"
         ).fetchall()
-        return render_template("admin_bom.html", rows=rows)
+        last_upload = table_sync.get_last_upload(db, "bom_row")
+        return render_template("admin_bom.html", rows=rows, last_upload=last_upload)
+
+    @app.route("/admin/cost/prestretch", methods=["GET", "POST"])
+    @admin_required
+    def admin_prestretch():
+        db = g.db
+        if request.method == "POST":
+            pid = request.form.get("product_id")
+            source_id = request.form.get("prestretch_source_product_id") or None
+            db.execute(
+                "UPDATE product SET prestretch_source_product_id=? WHERE id=?", (source_id, pid)
+            )
+            db.commit()
+            flash("Pre-Stretch source mapping updated.", "success")
+            return redirect(url_for("admin_prestretch"))
+        rows = db.execute(
+            "SELECT * FROM product WHERE is_prestretch=1 ORDER BY CAST(micron AS REAL)"
+        ).fetchall()
+        # Candidate source products: any non-Pre-Stretch jumbo (50kg) SKU --
+        # the only ones the workbook's Pre-Stretch rows ever borrow a sales
+        # price from.
+        sources = db.execute(
+            "SELECT * FROM product WHERE is_prestretch=0 AND roll_weight_kg=50 "
+            "ORDER BY stretch_ability, CAST(micron AS REAL)"
+        ).fetchall()
+        packaging_settings = db.execute(
+            "SELECT * FROM global_setting WHERE key IN "
+            "('prestretch_packaging_noboxes_usd','prestretch_packaging_boxes_usd') ORDER BY key"
+        ).fetchall()
+        return render_template(
+            "admin_prestretch.html", rows=rows, sources=sources, packaging_settings=packaging_settings,
+            product_label=product_label,
+        )
 
     @app.route("/admin/cost/packing-tiers", methods=["GET", "POST"])
     @admin_required
@@ -673,7 +779,90 @@ def create_app():
         rows = db.execute(
             "SELECT * FROM packing_tier ORDER BY category, pallet_type, match_weight_kg"
         ).fetchall()
-        return render_template("admin_packing_tiers.html", rows=rows)
+        last_upload = table_sync.get_last_upload(db, "packing_tier")
+        return render_template("admin_packing_tiers.html", rows=rows, last_upload=last_upload)
+
+    # ---------- Admin: per-table Excel round-trip (download/upload/review) ----------
+    @app.route("/admin/table-sync/<table_key>/download")
+    @admin_required
+    def table_sync_download(table_key):
+        if table_key not in table_sync.TABLE_CONFIGS:
+            abort(404)
+        buf = table_sync.export_table_excel(g.db, table_key)
+        filename = f"{table_key}_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.xlsx"
+        return send_file(
+            buf, as_attachment=True, download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/admin/table-sync/<table_key>/upload", methods=["POST"])
+    @admin_required
+    def table_sync_upload(table_key):
+        if table_key not in table_sync.TABLE_CONFIGS:
+            abort(404)
+        cfg = table_sync.TABLE_CONFIGS[table_key]
+        f = request.files.get("excel_file")
+        if not f or not f.filename:
+            flash("Choose an .xlsx file first.", "error")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+        try:
+            parsed_rows = table_sync.parse_uploaded_excel(f.stream, table_key)
+        except Exception as e:
+            flash(f"Could not read that Excel file: {e}", "error")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+        if not parsed_rows:
+            flash("No usable values found in that file (check the yellow 'editable' cells were filled in).",
+                  "error")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+        result = table_sync.diff_table(g.db, table_key, parsed_rows)
+        if not result["field_diffs"]:
+            flash("No differences found -- every matched value already equals what's in the database.",
+                  "success")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+        payload = json.dumps({"rows": parsed_rows, "filename": f.filename})
+        return render_template(
+            "admin_table_sync_review.html", table_key=table_key, table_label=cfg["label"],
+            field_diffs=result["field_diffs"], price_impact=result["price_impact"],
+            filename=f.filename, payload=payload, redirect_endpoint=cfg["redirect_endpoint"],
+        )
+
+    @app.route("/admin/table-sync/<table_key>/apply", methods=["POST"])
+    @admin_required
+    def table_sync_apply(table_key):
+        if table_key not in table_sync.TABLE_CONFIGS:
+            abort(404)
+        cfg = table_sync.TABLE_CONFIGS[table_key]
+        try:
+            payload = json.loads(request.form.get("payload") or "{}")
+            parsed_rows = payload["rows"]
+            filename = payload.get("filename", "upload.xlsx")
+        except Exception:
+            flash("Upload session data was invalid -- please upload the file again.", "error")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+
+        # Re-validate/re-diff against the *current* live DB before applying --
+        # cheap, and naturally handles the DB having changed since the review
+        # page was rendered (e.g. someone hand-edited a value meanwhile).
+        result = table_sync.diff_table(g.db, table_key, parsed_rows)
+        if not result["field_diffs"]:
+            flash("Nothing to apply -- the database already matches (it may have changed since you reviewed).",
+                  "success")
+            return redirect(url_for(cfg["redirect_endpoint"]))
+
+        field_diffs, price_impact = table_sync.apply_table_changes(
+            g.db, table_key, parsed_rows, g.user["username"], filename,
+        )
+        msg = f"Applied {len(field_diffs)} change(s) from {filename} to {cfg['label']}."
+        if price_impact.get("count"):
+            msg += (
+                f" Estimated final sales price impact: {price_impact['avg_pct']:+.2f}% average "
+                f"(range {price_impact['min_pct']:+.2f}% to {price_impact['max_pct']:+.2f}%) "
+                f"across {price_impact['count']} product(s)."
+            )
+        else:
+            msg += " No effect on any product's estimated final sales price."
+        flash(msg, "success")
+        return redirect(url_for(cfg["redirect_endpoint"]))
 
     # ---------- Admin: annual cost upload (diff-review-confirm) ----------
     @app.route("/admin/cost-upload", methods=["GET", "POST"])

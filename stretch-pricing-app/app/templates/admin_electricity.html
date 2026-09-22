@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Electricity · Stretch Pricing{% endblock %}
 {% block content %}
+{% set sync_table_key = 'electricity_power' %}
+{% set sync_last_upload = last_upload_power %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Electricity — machine power (kW/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">
@@ -26,6 +29,9 @@
   </div>
 </div>
 
+{% set sync_table_key = 'production_capacity' %}
+{% set sync_last_upload = last_upload_capacity %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Electricity — production capacity (tons/day)</h2></div>
   <p class="hint" style="margin-bottom:14px;">

@@ -27,7 +27,17 @@ import openpyxl
 
 
 def _sheet(wb, name):
-    return wb[name] if name in wb.sheetnames else None
+    """Looks up a worksheet by name. `name` may be a single sheet name or a
+    list of candidate names to try in order -- some years' workbooks rename
+    a sheet tab (e.g. 'اجور مباشرة' -> 'Direct Labor', 'تكاليف متغيرة' ->
+    'Variable', 'تكاليف ثابتة' -> 'Fixed'), so callers pass both the
+    original Arabic tab name and any English variant seen in a later
+    workbook, and whichever one exists in this file is used."""
+    candidates = name if isinstance(name, (list, tuple)) else [name]
+    for cand in candidates:
+        if cand in wb.sheetnames:
+            return wb[cand]
+    return None
 
 
 def _norm(s):
@@ -74,12 +84,64 @@ def parse_global_settings(wb):
     return out
 
 
+def parse_electricity(wb):
+    """Returns (variable_tariff_egp_per_kwh, {(micron_float, roll_type): kw_per_ton})
+    from the 'Electricity' sheet. Two independent grids share the sheet: a
+    left block (St / P / P+ columns) and a right block (RIGID column),
+    exactly like the Phase-1 seed data's layout -- read directly rather
+    than assumed, since a future year could reorder the micron rows.
+    roll_type keys use the same spelling the electricity_power table's
+    'roll_type' column already uses ('St', 'P', 'P_plus', 'RIGID' -- note
+    the underscore, not '+', matching a SQL-column-safe value), and micron
+    is kept as a float (not the workbook's occasional int) so it compares
+    equal to the DB's REAL column regardless of how each side was typed."""
+    ws = _sheet(wb, ["Electricity"])
+    tariff = None
+    power = {}
+    if ws is None:
+        return tariff, power
+    # The sheet has TWO grids that both start with a numeric micron in col0
+    # and numeric values in cols 2/4/6/9/11 -- the kW/ton grid we want, and
+    # a second "Variable Electricity Amount / Day" grid further down whose
+    # columns are Ton/EGP-per-day, not kW/ton, but line up in the exact
+    # same column positions. Only the first grid (immediately below the row
+    # whose col2/col11 headers say 'KW/Ton') is what electricity_power
+    # stores, so parsing stops the moment that specific grid ends (first
+    # blank row after it started), never reading into the second grid.
+    in_kw_grid = False
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True):
+        if not row:
+            continue
+        if isinstance(row[0], str) and _norm(row[0]) == "tariff" and isinstance(row[1], (int, float)):
+            tariff = float(row[1])
+        header_cells = [c for c in row if isinstance(c, str)]
+        if any(_norm(c) == "kw/ton" for c in header_cells):
+            in_kw_grid = True
+            continue
+        if in_kw_grid and row[0] is None:
+            in_kw_grid = False  # blank row ends this grid
+            continue
+        if not in_kw_grid:
+            continue
+        # Left block: micron in col0, kw/ton for St/P/P+ in cols 2/4/6.
+        if isinstance(row[0], (int, float)) and len(row) > 6:
+            micron = float(row[0])
+            for roll_type, idx in (("St", 2), ("P", 4), ("P_plus", 6)):
+                val = row[idx]
+                if isinstance(val, (int, float)):
+                    power[(micron, roll_type)] = float(val)
+        # Right block: micron in col9, kw/ton RIGID in col11.
+        if len(row) > 11 and isinstance(row[9], (int, float)) and isinstance(row[11], (int, float)):
+            power[(float(row[9]), "RIGID")] = float(row[11])
+    return tariff, power
+
+
 def parse_labor(wb):
     """{name_normalized: (raw_name, role, base_2024_egp, increase_rate)} from
     'اجور مباشرة'. base_2023_egp in the DB is really 'base wage before the
     increase rate is applied' -- the sheet's 'اساسي 2024' column already has
     the increase baked in, so we back it out: base = اساسي2024/(1+rate)."""
-    ws = _sheet(wb, "اجور مباشرة")
+    ws = _sheet(wb, ["اجور مباشرة", "Direct Labor"])
     out = {}
     if ws is None:
         return out
@@ -95,8 +157,15 @@ def parse_labor(wb):
     return out
 
 
+VARIABLE_COST_LABEL_ALIASES = {
+    "customs gratuity for explosives": "اكرامية مفرقعات",
+    "guarantee letter recovery commission": "عمولة استرداد خطاب ضمان",
+    "interest on raw materials payable": "فوائد مدينة خامات",
+}
+
+
 def parse_variable_cost_items(wb):
-    ws = _sheet(wb, "تكاليف متغيرة")
+    ws = _sheet(wb, ["تكاليف متغيرة", "Variable"])
     out = {}
     if ws is None:
         return out
@@ -104,16 +173,91 @@ def parse_variable_cost_items(wb):
         if not row or not isinstance(row[0], str):
             continue
         name, unit, value = row[0], row[1] if len(row) > 1 else None, row[2] if len(row) > 2 else None
-        if isinstance(value, (int, float)) and name.strip() not in ("البيان",):
-            out[_norm(name)] = (name, float(value))
+        if isinstance(value, (int, float)) and name.strip() not in ("البيان", "Description"):
+            canonical = VARIABLE_COST_LABEL_ALIASES.get(_norm(name), name)
+            out[_norm(canonical)] = (name, float(value))
     return out
 
 
+FIXED_COST_LABEL_ALIASES = {
+    # English label (normalized) -> the Arabic label originally seeded into
+    # fixed_cost_item.name, so a later workbook whose sheet tab and row
+    # labels have been translated to English still matches the right DB
+    # row *by name* rather than by row position. Position-based matching
+    # broke in practice the first time a new line item ("Depreciation SML")
+    # was inserted mid-section: everything after it silently paired with
+    # the wrong neighbouring row. Matching by name (via this table) is
+    # immune to insertions, deletions or reordering in a future workbook.
+    "primo pack electrecity": "كهرباء بريموباك",
+    "water": "مياه",
+    "direct labor wages": "اجور عمال الانتاج",
+    "direct labor overtime": "اضافي عمال الانتاج",
+    "in direct labor salaries": "مرتبات صناعية غ.م.",
+    "in direct labor overtime": "اضافي مرتبات صناعية غ.م.",
+    "travel and transportation": "انتقالات وماموريات",
+    "medical treatment": "علاج",
+    "social insurance": "تأمينات اجتماعية",  # appears in Production, Selling and Admin, all under this same Arabic name
+    "bonuses and incentives": "مكافأت",  # production section's label -- admin's own "مكافأت و حوافز" is a genuine collision (identical English text, different Arabic), resolved via CATEGORY_SCOPED_FIXED_COST_ALIASES below
+    "holidays and occasions": "اعياد و مناسبات",
+    'depreciation expense "general"': 'مصروف الاهلاك "عام"',
+    'depreciation "primo pack"': 'مصروف الاهلاك "بريموباك"',
+    'depreciation "uni tech"': 'مصروف الاهلاك "uni tech"',
+    "warehouse rent": "ايجار مخزن",
+    "maintenance and spare parts": "صيانة و قطع غيار بريموباك",
+    "vehicle expenses": "م.سيارات",
+    "forklift expenses": "م.كلاركات",
+    "industrial security": "امن صناعي",
+    "other expenses": "اخرى",  # bare "Other Expenses" -- appears in Production and Admin sections
+    # Selling section
+    "commissions and bank charges": "عمولات و مصروفات بنكية",
+    "fees and licenses": "رسوم و تراخيص",  # selling section; admin section's own "رسوم و تراخيص" collides on name -- resolved by category-scoped lookup, see diff_workbook
+    "exhibitions": "معارض",
+    'other expenses "exports"': "اخرى",  # NOTE: Selling has two "اخرى" DB rows (Exports-context and General-context); both alias to the same Arabic name and are resolved positionally *within* that (category, name) group, see diff_workbook
+    'other expenses "general"': "اخرى",
+    "sales salaries": "رواتب بيع",
+    # Admin section
+    "administrative salaries": "رواتب ادارة",
+    "administrative overtime": "اضافي",
+    "travel and official assignments": "انتقالات وماموريات",  # NOTE: name collides with production's -- category-scoped
+    "travel and official assignments": "انتقالات وماموريات",  # admin's phrasing of the same Arabic label production calls "Travel and Transportation"
+    "professional fees and consultations": "اتعاب و استشارات",
+    "senior management": "الادارة العليا",
+    "utilities": "مرافق",
+    "rent": "ايجار",
+    "administrative depreciation": "مصروف الاهلاك الاداري",
+    # Financial section
+    "stamps and interest": "دمغات و فوائد",
+    'stamps and interest "primo pack"': "فوائد و دمغات بريموباك",
+}
+
+# A handful of items share the exact same English label across two
+# categories but were seeded under *different* Arabic names (only
+# "Bonuses and Incentives" does this in practice -- production's is
+# "مكافأت", admin's is the longer "مكافأت و حوافز"). Checked before the
+# flat alias table above, keyed by (category, normalized English label).
+CATEGORY_SCOPED_FIXED_COST_ALIASES = {
+    ("admin", "bonuses and incentives"): "مكافأت و حوافز",
+}
+# Rows whose plain-English label collides with another section's (e.g. both
+# Production and Admin have "Social Insurance" / "تأمينات اجتماعية", both
+# Selling and Admin have a bare "Other Expenses" / "اخرى", and "مكافأت" vs
+# "مكافأت و حوافز" differ only by category) are matched by (category, name)
+# together in diff_workbook rather than by name alone, so the alias map
+# above is intentionally silent on those -- the category-scoped exact-name
+# match handles them directly without needing an alias.
+
+
 def parse_fixed_cost_items(wb):
-    """Walks 'تكاليف ثابتة' top to bottom, tracking which category section
-    we're in (production / selling / admin / financial, identified by the
-    Arabic section headers), reading (name, 'value') rows under each."""
-    ws = _sheet(wb, "تكاليف ثابتة")
+    """Walks the fixed-costs sheet top to bottom, tracking which category
+    section we're in (production / selling / admin / financial, identified
+    by section headers in either Arabic or English -- a later workbook may
+    have the sheet tab and its section headers translated to English, e.g.
+    'مصروفا صناعية' -> 'Manufacturing Expenses'), reading (name, value) rows
+    under each, in sheet order (order is kept so diff_workbook can still
+    fall back to position *within a same-named group*, e.g. the two
+    "Other Expenses" rows in a section). Rows that are a section's own
+    'Total ...' subtotal are skipped, not individual cost items."""
+    ws = _sheet(wb, ["تكاليف ثابتة", "Fixed"])
     out = []  # list of (category, name, value) in sheet order
     if ws is None:
         return out
@@ -124,20 +268,37 @@ def parse_fixed_cost_items(wb):
         "مصروفات عمومية و ادارية": "admin",
         "مصروفات مالية": "financial",
         "المصروفات المالية": "financial",
+        "manufacturing expenses": "production",
+        "selling expenses": "selling",
+        "general & administrative expenses": "admin",
+        "general and administrative expenses": "admin",
+        "finance costs": "financial",
+        "financial expenses": "financial",
     }
+    skip_labels = {"البيان", "الاجمالي", "description", "expense classification"}
     current = None
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True):
         if not row or row[0] is None:
             continue
         first = row[0].strip() if isinstance(row[0], str) else None
-        if first in section_headers:
-            current = section_headers[first]
+        if first is None:
             continue
-        if first in ("البيان", "الاجمالي") or current is None:
+        if _norm(first) in section_headers:
+            current = section_headers[_norm(first)]
+            continue
+        if _norm(first) in skip_labels or _norm(first).startswith("total") or current is None:
             continue
         value = row[2] if len(row) > 2 else None
         if isinstance(value, (int, float)):
-            out.append((current, first, float(value)))
+            # Translate an English label back to the Arabic name the DB
+            # was originally seeded with, so callers can match by name.
+            # A (category, label) match wins over the flat table, for the
+            # rare label that means a different DB row in a different
+            # section (see CATEGORY_SCOPED_FIXED_COST_ALIASES).
+            canonical = CATEGORY_SCOPED_FIXED_COST_ALIASES.get(
+                (current, _norm(first)), FIXED_COST_LABEL_ALIASES.get(_norm(first), first)
+            )
+            out.append((current, canonical, float(value)))
     return out
 
 
@@ -179,6 +340,32 @@ def diff_workbook(conn, xlsx_path):
         else:
             unchanged += 1
 
+    # Electricity: the variable tariff (EGP/kWh) and the per-micron/roll-type
+    # kW/ton table both feed the Conversion Cost formula directly, so a
+    # change here can move every product's price -- worth diffing even
+    # though it isn't a simple flat-rate table like Material Rates.
+    tariff, power = parse_electricity(wb)
+    if tariff is not None:
+        row = conn.execute("SELECT * FROM global_setting WHERE key='electricity_variable_tariff_egp_per_kwh'").fetchone()
+        if row is not None:
+            old_val = row["value"] or 0
+            if abs(tariff - old_val) > 1e-9:
+                changes.append(_change("Electricity", "Variable Tariff (EGP/kWh)", old_val, tariff,
+                                        {"table": "global_setting", "id": "electricity_variable_tariff_egp_per_kwh", "value": tariff}))
+            else:
+                unchanged += 1
+    for row in conn.execute("SELECT * FROM electricity_power").fetchall():
+        key = (float(row["micron"]), row["roll_type"])
+        new_val = power.get(key)
+        if new_val is None:
+            continue
+        old_val = row["kw_per_ton"] or 0
+        if abs(new_val - old_val) > 1e-6:
+            changes.append(_change("Electricity", f"{row['roll_type']} {row['micron']}µ (kW/ton)", old_val, new_val,
+                                    {"table": "electricity_power", "id": row["id"], "field": "kw_per_ton", "value": new_val}))
+        else:
+            unchanged += 1
+
     # Labor
     parsed_labor = parse_labor(wb)
     for row in conn.execute("SELECT * FROM labor_employee WHERE active=1").fetchall():
@@ -215,21 +402,37 @@ def diff_workbook(conn, xlsx_path):
         else:
             unchanged += 1
 
-    # Fixed cost items -- matched positionally within each category section,
-    # in the same order the sheet lists them (see parse_fixed_cost_items doc).
+    # Fixed cost items -- matched by (category, name) using the Arabic
+    # label the parser translates English rows back to (see
+    # FIXED_COST_LABEL_ALIASES / parse_fixed_cost_items). Two different
+    # category sections can legitimately share a name (e.g. both Production
+    # and Admin have their own "تأمينات اجتماعية" / Social Insurance), which
+    # (category, name) already disambiguates since each is matched only
+    # within its own category. Within one category, the rare case of two
+    # rows sharing the exact same name (Selling's two "اخرى" / "Other
+    # Expenses" rows) falls back to matching in sheet order *within that
+    # name's own group*, which is safe because same-name rows have no name
+    # left to distinguish them by and the sheet's internal row order for a
+    # repeated label is stable year to year.
     parsed_fixed = parse_fixed_cost_items(wb)
-    by_cat = {}
+    parsed_by_cat_name = {}
     for cat, name, val in parsed_fixed:
-        by_cat.setdefault(cat, []).append((name, val))
-    for cat, items in by_cat.items():
-        db_rows = conn.execute(
-            "SELECT * FROM fixed_cost_item WHERE category=? ORDER BY id", (cat,)
-        ).fetchall()
-        for (name, new_val), row in zip(items, db_rows):
+        parsed_by_cat_name.setdefault((cat, _norm(name)), []).append(val)
+
+    db_by_cat_name = {}
+    for row in conn.execute("SELECT * FROM fixed_cost_item ORDER BY category, id").fetchall():
+        db_by_cat_name.setdefault((row["category"], _norm(row["name"])), []).append(row)
+
+    for key, db_rows in db_by_cat_name.items():
+        cat, _ = key
+        new_vals = parsed_by_cat_name.get(key)
+        if not new_vals:
+            continue  # no matching name found in the new workbook -- leave alone, don't guess
+        for row, new_val in zip(db_rows, new_vals):
             old_val = row["value_egp"] or 0
             if abs(new_val - old_val) > 1e-6:
                 changes.append(_change(
-                    f"Fixed Costs ({cat})", row["name"] or name, old_val, new_val,
+                    f"Fixed Costs ({cat})", row["name"], old_val, new_val,
                     {"table": "fixed_cost_item", "id": row["id"], "field": "value_egp", "value": new_val},
                 ))
             else:

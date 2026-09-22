@@ -205,6 +205,20 @@ CREATE TABLE IF NOT EXISTS cost_upload_log (
     filename TEXT,
     summary_json TEXT
 );
+
+-- Per-table Excel round-trip log (table_sync.py): one row per confirmed
+-- single-table upload, so each admin cost screen can show "Last uploaded:
+-- <date>" next to its Download/Upload widget. Same known limitation as
+-- cost_upload_log and everything else in this app: lost on a Render
+-- free-tier restart/redeploy since SQLite has no persistent disk there.
+CREATE TABLE IF NOT EXISTS table_upload_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_key TEXT NOT NULL,
+    uploaded_at TEXT,
+    uploaded_by TEXT,
+    filename TEXT,
+    summary_json TEXT
+);
 """
 
 
@@ -224,6 +238,8 @@ def init_db():
     _seed_default_users(conn)
     _seed_cost_engine_data(conn)
     _seed_packing_tiers(conn)
+    _seed_prestretch_settings(conn)
+    _seed_missing_products(conn)
     conn.close()
 
 
@@ -256,6 +272,45 @@ def _migrate(conn):
     line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
     if "pricing_basis" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN pricing_basis TEXT NOT NULL DEFAULT 'per_kg'")
+        conn.commit()
+
+    # ---- Pre-Stretch support (v7) ----
+    if "is_prestretch" not in product_cols:
+        conn.execute("ALTER TABLE product ADD COLUMN is_prestretch INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    if "prestretch_source_product_id" not in product_cols:
+        # The catalog product whose finished, margin-inclusive sales price
+        # (Stretch!AI) this Pre-Stretch micron's material cost (Stretch!T)
+        # is derived from -- Stretch!T79 = AI49*J79, etc. NULL for every
+        # ordinary (non Pre-Stretch) product.
+        conn.execute(
+            "ALTER TABLE product ADD COLUMN prestretch_source_product_id INTEGER REFERENCES product(id)"
+        )
+        conn.commit()
+
+    line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
+    if "prestretch_roll_weight_kg" not in line_cols:
+        # Pre-Stretch is made-to-order: roll weight, core weight and
+        # rolls/pallet are typed in per quotation line rather than coming
+        # from the product catalog (Stretch!H79/I79/G79 are blank in the
+        # template for the same reason).
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN prestretch_roll_weight_kg REAL")
+        conn.commit()
+    if "prestretch_core_weight_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN prestretch_core_weight_kg REAL")
+        conn.commit()
+    if "prestretch_rolls_per_pallet" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN prestretch_rolls_per_pallet REAL")
+        conn.commit()
+    if "prestretch_packaging_type" not in line_cols:
+        # 'no_boxes' | 'boxes' -- Stretch!D79's Auto/Manual-type selector
+        # (1 = Packaging for No Boxes, 2 = Packaging for Boxes) reused here
+        # as this Pre-Stretch line's packaging choice, since D79 has no
+        # other meaning for this product family (Pre-Stretch isn't
+        # Automatic/Manual in the usual sense -- it's always hand-rewound).
+        conn.execute(
+            "ALTER TABLE quotation_line ADD COLUMN prestretch_packaging_type TEXT NOT NULL DEFAULT 'no_boxes'"
+        )
         conn.commit()
 
 
@@ -293,6 +348,141 @@ def _seed_reference_data(conn):
         conn.execute("INSERT INTO freight (country, shipping_rate_usd) VALUES (?, ?)",
                      (fr["country"], str(fr["shipping_rate_usd"])))
 
+    conn.commit()
+
+
+# ---------------------------------------------------------------------
+# v7: the seven "jumbo pre-stretch precursor" SKUs (Stretch rows 27, 29,
+# 31, 35, 40, 49 -- row 32 is a verbatim duplicate of row 31, '23J-pre'
+# under 250% Power, and is intentionally NOT added as a second row; see
+# COST_ENGINE.md) plus the "Pre-Stretch" product line (Stretch rows
+# 79-85). Both are seeded idempotently, matching on natural keys, so this
+# is safe to re-run against an already-deployed, already-seeded live DB.
+# ---------------------------------------------------------------------
+
+# (stretch_ability, micron, roll_weight_kg, rolls_per_pallet, core_weight_kg, width_mm)
+# -- all Auto/Manual=Automatic, Pallet size=Standard, Color=1 (Transparent),
+# per Stretch!C/D/E columns for these rows (verified directly against the
+# workbook, not assumed).
+JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS = [
+    ("250% Power", "17", 50, 16, 1.8, 500),   # Stretch row 27 ('17J-pre')
+    ("250% Power", "20", 50, 16, 1.8, 500),   # Stretch row 29 ('20J-pre')
+    ("250% Power", "23", 50, 16, 1.8, 500),   # Stretch row 31 ('23J-pre'); row 32 is a duplicate, skipped
+    ("250% Power", "30", 50, 16, 1.8, 500),   # Stretch row 35 ('30J-pre')
+    ("300% (Power plus)", "17", 50, 16, 1.8, 500),  # Stretch row 40 ('17J-pre')
+    ("350% (Power plus)", "17", 50, 16, 1.8, 500),  # Stretch row 49 ('17J-pre')
+]
+
+# Pre-Stretch micron -> which of the jumbo precursor SKUs above (identified
+# by stretch_ability+micron, roll_weight_kg=50) supplies its material cost
+# (Stretch!T79 = AI<source row>*J79, i.e. the source SKU's finished,
+# margin-inclusive sales $/KG x this line's entered net weight).
+# Pre-Stretch micron 10 (Stretch row 84, source row 32) intentionally
+# shares its source with micron 9 (row 83, source row 31) since row 32 is
+# the duplicate of row 31 noted above -- both point at the same
+# '250% Power' / 23 micron jumbo SKU.
+PRESTRETCH_PRODUCTS = [
+    # (micron, source_stretch_ability, source_micron)
+    ("5", "350% (Power plus)", "17"),   # Stretch row 79, source = row 49
+    ("6", "300% (Power plus)", "17"),   # Stretch row 80, source = row 40
+    ("7", "250% Power", "17"),          # Stretch row 81, source = row 27
+    ("8", "250% Power", "20"),          # Stretch row 82, source = row 29
+    ("9", "250% Power", "23"),          # Stretch row 83, source = row 31
+    ("10", "250% Power", "23"),         # Stretch row 84, source = row 32 (dup of row 31)
+    ("12", "250% Power", "30"),         # Stretch row 85, source = row 35
+]
+
+PRESTRETCH_GLOBAL_SETTINGS = [
+    # key, label, value, help
+    ("prestretch_packaging_noboxes_usd", "Pre-Stretch packaging total, No Boxes ($/pallet)", 14.8,
+     "'Pallet component'!Q11. Used as Stretch!AD79's numerator when the line's packaging type is "
+     "'No Boxes' (D79=1): divided by the line's entered Rolls/Pallet."),
+    ("prestretch_packaging_boxes_usd", "Pre-Stretch packaging total, With Boxes ($/pallet)", 14.38,
+     "'Pallet component'!V11. Used as Stretch!AD79's numerator when the line's packaging type is "
+     "'With Boxes' (D79=2): divided by Rolls/Pallet, plus 1/6 of a Box's cost "
+     "('Material pricing'!C21/F2/6, i.e. the 'box' material rate)."),
+]
+
+
+def _seed_missing_products(conn):
+    """Idempotent, per-row seeding (not gated on the product table being
+    empty) so these SKUs get added to an already-deployed, already-seeded
+    live database too, without duplicating rows if this runs again."""
+    from . import cost_engine
+
+    def find_jumbo_id(stretch_ability, micron):
+        row = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=50",
+            (stretch_ability, micron),
+        ).fetchone()
+        return row["id"] if row else None
+
+    for stretch_ability, micron, roll_weight_kg, rolls_per_pallet, core_weight_kg, width_mm in \
+            JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=?",
+            (stretch_ability, micron, roll_weight_kg),
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES (?,?,?,?,?,?,?,?,?,0)""",
+            (stretch_ability, micron, "Standard", "Automatic", "Transparent",
+             rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm),
+        )
+    conn.commit()
+
+    # Now that all jumbo precursor SKUs exist (whether just-inserted or
+    # already present from an earlier run), resolve each Pre-Stretch
+    # micron's source product id and seed the Pre-Stretch catalog rows.
+    for micron, source_ability, source_micron in PRESTRETCH_PRODUCTS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability='Pre-Stretch' AND micron=?", (micron,)
+        ).fetchone()
+        if exists:
+            continue
+        source_id = find_jumbo_id(source_ability, source_micron)
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg, is_prestretch,
+                prestretch_source_product_id)
+               VALUES ('Pre-Stretch', ?, NULL, 'Manual', 'Transparent', NULL, NULL, NULL, NULL, 0, 1, ?)""",
+            (micron, source_id),
+        )
+    conn.commit()
+
+    # Cache ex_work_usd_kg for the newly-seeded jumbo SKUs (ordinary
+    # products -- the cost engine prices them exactly like any other
+    # jumbo roll). Pre-Stretch rows are left at 0: they have no fixed
+    # roll/core weight to compute a cached rate from (made-to-order), so
+    # their price is always computed live, per quotation line, from the
+    # entered weights -- see pricing.compute_prestretch_line().
+    for stretch_ability, micron, roll_weight_kg, *_ in JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=?",
+            (stretch_ability, micron, roll_weight_kg),
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+
+def _seed_prestretch_settings(conn):
+    """Per-key idempotent (like _seed_default_users) so these two fixed
+    packaging totals get added to an already-deployed live DB too."""
+    for key, label, value, help_text in PRESTRETCH_GLOBAL_SETTINGS:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (key, label, value, help_text),
+        )
     conn.commit()
 
 

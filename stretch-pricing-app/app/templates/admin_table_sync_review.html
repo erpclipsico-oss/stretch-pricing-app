@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Review Changes — {{ table_label }} · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Review changes — {{ table_label }}</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Reviewing <strong>{{ filename }}</strong>: {{ field_diffs|length }} value(s) changed. Nothing has been
+    saved yet — check the numbers below, then Apply or Cancel.
+  </p>
+
+  <table class="lines-table">
+    <thead><tr><th>Row</th><th>Field</th><th>Old value</th><th>New value</th><th>% change</th></tr></thead>
+    <tbody>
+      {% for d in field_diffs %}
+      <tr>
+        <td>{{ d.row_label }}</td>
+        <td>{{ d.field }}</td>
+        <td class="num">{{ d.old }}</td>
+        <td class="num">{{ d.new }}</td>
+        <td class="num" style="color: {{ 'crimson' if d.pct_change < 0 else '#166534' }};">
+          {{ '%+.1f'|format(d.pct_change) }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="panel" style="margin-top:18px; background:#eff6ff; border-color:#bfdbfe;">
+    <div class="panel-header"><h2 style="font-size:1rem;">Estimated impact on final sales price</h2></div>
+    {% if price_impact.count %}
+    <p>
+      Across <strong>{{ price_impact.count }}</strong> affected product(s) (out of
+      {{ price_impact.products_evaluated }} evaluated, at a representative Moderate / Class-A / Standard-roll
+      quote), the final sales price moves by <strong>{{ '%+.2f'|format(price_impact.avg_pct) }}%</strong> on
+      average — from {{ '%+.2f'|format(price_impact.min_pct) }}% to
+      {{ '%+.2f'|format(price_impact.max_pct) }}% depending on the product.
+    </p>
+    {% if price_impact.category_breakdown %}
+    <table class="lines-table">
+      <thead><tr><th>Product category</th><th># products</th><th>Avg %</th><th>Min %</th><th>Max %</th></tr></thead>
+      <tbody>
+        {% for c in price_impact.category_breakdown %}
+        <tr>
+          <td>{{ c.category }}</td>
+          <td class="num">{{ c.count }}</td>
+          <td class="num">{{ '%+.2f'|format(c.avg_pct) }}%</td>
+          <td class="num">{{ '%+.2f'|format(c.min_pct) }}%</td>
+          <td class="num">{{ '%+.2f'|format(c.max_pct) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if price_impact.top_products %}
+    <h3 style="margin-top:14px; font-size:0.9rem;">Most affected products</h3>
+    <table class="lines-table">
+      <thead><tr><th>Product</th><th>Old $/KG</th><th>New $/KG</th><th>% change</th></tr></thead>
+      <tbody>
+        {% for p in price_impact.top_products %}
+        <tr>
+          <td>{{ p.label }}</td>
+          <td class="num">{{ p.before }}</td>
+          <td class="num">{{ p.after }}</td>
+          <td class="num" style="color: {{ 'crimson' if p.pct < 0 else '#166534' }};">
+            {{ '%+.2f'|format(p.pct) }}%
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% else %}
+    <p class="empty">These changes don't move any product's estimated final sales price.</p>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('table_sync_apply', table_key=table_key) }}"
+        style="margin-top:16px; display:flex; gap:10px;">
+    <input type="hidden" name="payload" value="{{ payload }}">
+    <button type="submit" class="btn btn-success">&#10004; Apply these {{ field_diffs|length }} change(s)</button>
+    <a href="{{ url_for(redirect_endpoint) }}" class="btn btn-outline">Cancel</a>
+  </form>
+</div>
+{% endblock %}

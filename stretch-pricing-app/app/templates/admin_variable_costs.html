@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Variable Costs · Stretch Pricing{% endblock %}
 {% block content %}
+{% set sync_table_key = 'variable_cost_item' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Variable costs — تكاليف متغيرة</h2></div>
   <p class="hint" style="margin-bottom:14px;">

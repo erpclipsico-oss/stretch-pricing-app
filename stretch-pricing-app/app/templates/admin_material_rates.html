@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Material Rates · Stretch Pricing{% endblock %}
 {% block content %}
+{% set sync_table_key = 'material_rate' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">

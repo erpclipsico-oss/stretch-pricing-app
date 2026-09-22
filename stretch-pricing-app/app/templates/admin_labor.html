@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Direct Labor · Stretch Pricing{% endblock %}
 {% block content %}
+{% set sync_table_key = 'labor_employee' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
 <div class="panel">
   <div class="panel-header"><h2>Direct Labor — اجور مباشرة</h2></div>
   <p class="hint" style="margin-bottom:14px;">

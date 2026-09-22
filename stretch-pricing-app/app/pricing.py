@@ -79,3 +79,136 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
     total_kg = round((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)
     return unit_price, total_kg
+
+
+# ---------------------------------------------------------------------
+# Pre-Stretch (Stretch rows 79-85): unlike every other product, this
+# family is made-to-order -- roll weight, core weight and rolls/pallet are
+# not fixed catalog values but are typed in per quotation line -- and its
+# material cost is not built from the BOM independently: it borrows its
+# "source" jumbo SKU's own finished, margin-inclusive sales price ($/KG)
+# and multiplies by this line's entered net weight (Stretch!T79=AI49*J79).
+# See COST_ENGINE.md for the full formula chain and the seeded micron ->
+# source-product mapping (product.prestretch_source_product_id).
+# ---------------------------------------------------------------------
+
+def is_prestretch(product):
+    return bool(product["is_prestretch"]) if "is_prestretch" in product.keys() else False
+
+
+def prestretch_cost_components(db, product, roll_weight_kg, core_weight_kg, country_class, customer_class):
+    """The three of Stretch!AG79's four addends that don't depend on
+    Rolls/Pallet: T79 (material, from the source SKU's sales price),
+    AC79 (core) and AF79 (conversion cost). Returns
+    (material_cost, core_cost, other_costs). The fourth addend, AD79
+    (packaging), depends on Rolls/Pallet too and is computed separately by
+    prestretch_packaging_cost_usd()."""
+    roll_weight = roll_weight_kg or 0
+    core_weight = core_weight_kg or 0
+    net_weight = max(roll_weight - core_weight, 0)  # Stretch!J79
+    if roll_weight <= 0:
+        return 0.0, 0.0, 0.0
+
+    source = None
+    if product["prestretch_source_product_id"]:
+        source = db.execute(
+            "SELECT * FROM product WHERE id=?", (product["prestretch_source_product_id"],)
+        ).fetchone()
+
+    # T79 = AI<source row> * J79 -- the source SKU's own finished, margin-
+    # inclusive sales price per KG (i.e. unit_price_for(), not the raw
+    # EX-Work cost), times this line's entered net (plastic) weight.
+    source_sales_price = unit_price_for(db, source, country_class, customer_class) if source else 0.0
+    material_cost = source_sales_price * net_weight  # T79
+
+    # AC79 = I79 * (Core-prestretch rate EGP/kg / 'Material pricing'!F2)
+    dollar_rate = cost_engine._get_setting(db, "dollar_rate_prestretch", 45)
+    core_rate = cost_engine._material_rate(db, "core_prestretch")
+    core_cost = core_weight * (core_rate / dollar_rate) if dollar_rate else 0.0  # AC79
+
+    # AF79: conversion cost ("Depreciation + D.labor + Machine Power"),
+    # reusing the same mechanism as every other product. Pre-Stretch's own
+    # Stretch-Ability text ("Pre-Stretch") matches none of the power/regid
+    # keywords cost_engine.roll_type_bucket() looks for, so it already
+    # resolves to the Standard ("St") bucket -- kept as the documented,
+    # deliberate choice (Pre-Stretch is a converting/rewinding step off the
+    # Standard-bucket line, not its own extrusion process). Looked up by
+    # this Pre-Stretch SKU's own micron (5/6/7/8/9/10/12); for microns with
+    # no direct Electricity-sheet data point (5/6/7), the existing nearest-
+    # micron fallback is used, same as any other under-specified micron
+    # elsewhere in this app -- see COST_ENGINE.md.
+    roll_type = cost_engine.roll_type_bucket(product["stretch_ability"])
+    micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
+    conv_usd_per_ton = cost_engine.conversion_cost_usd_per_ton(db, micron, roll_type)
+    other_costs = net_weight * conv_usd_per_ton / 1000  # AF79 (no width factor: Pre-Stretch has no Width field)
+
+    return material_cost, core_cost, other_costs
+
+
+def prestretch_packaging_cost_usd(db, rolls_per_pallet, net_weight, packaging_type):
+    """Stretch!AD79. packaging_type: 'no_boxes' (D79=1) or 'boxes' (D79=2)."""
+    if net_weight <= 0 or not rolls_per_pallet or rolls_per_pallet <= 0:
+        return 0.0
+    if packaging_type == "boxes":
+        total = cost_engine._get_setting(db, "prestretch_packaging_boxes_usd", 14.38)
+        dollar_rate = cost_engine._get_setting(db, "dollar_rate_prestretch", 45)
+        box_rate = cost_engine._material_rate(db, "box")
+        extra = (box_rate / dollar_rate / 6) if dollar_rate else 0.0
+        return total / rolls_per_pallet + extra
+    total = cost_engine._get_setting(db, "prestretch_packaging_noboxes_usd", 14.8)
+    return total / rolls_per_pallet
+
+
+def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                               country_class, customer_class):
+    """Stretch!AG79 = (AF79 + AD79 + AC79 + T79) / H79 -- the full Pre-Stretch
+    EX-Work $/KG for one quotation line's entered inputs."""
+    roll_weight = roll_weight_kg or 0
+    if roll_weight <= 0:
+        return 0.0
+    net_weight = max(roll_weight - (core_weight_kg or 0), 0)
+    material_cost, core_cost, other_costs = prestretch_cost_components(
+        db, product, roll_weight_kg, core_weight_kg, country_class, customer_class
+    )
+    packaging_cost = prestretch_packaging_cost_usd(db, rolls_per_pallet, net_weight, packaging_type)
+    total = material_cost + core_cost + other_costs + packaging_cost
+    return round(total / roll_weight, 4)
+
+
+def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
+                               rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0):
+    roll_weight = roll_weight_kg or 0
+    if roll_weight <= 0:
+        return 0.0
+    ex_work = prestretch_ex_work_usd_kg(
+        db, product, roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+        country_class, customer_class,
+    )
+    # Margin/factor step, exactly as for any other product. Pre-Stretch has
+    # no dedicated row in the Factors sheet, so product_category() falls
+    # through to 'automatic_standard' (its Stretch-Ability text contains
+    # neither 'power' nor 'regid' nor 'uvi') -- documented in COST_ENGINE.md
+    # as an assumption pending the owner's confirmation of the intended
+    # Pre-Stretch margin.
+    category = product_category(product)
+    row = get_factor_row(db, country_class, customer_class, "standard")
+    factor = (row[category] if row is not None else 0.0) or 0.0
+    base = ex_work * (1 + factor)
+    return round(base + (price_adjustment_usd_kg or 0), 4)
+
+
+def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
+                             core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
+                             pricing_basis="per_kg"):
+    """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
+    from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
+    packaging type, instead of the product catalog's fixed values."""
+    unit_price = prestretch_unit_price_for(
+        db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
+        rolls_per_pallet, packaging_type, price_adjustment_usd_kg,
+    )
+    gross_roll_weight = roll_weight_kg or 0
+    net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
+    roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
+    total_kg = round((quantity_pallets or 0) * (rolls_per_pallet or 0) * roll_weight, 3)
+    return unit_price, total_kg

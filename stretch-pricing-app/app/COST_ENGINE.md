@@ -95,16 +95,9 @@ own, separate UVI categories for pricing purposes.
 
 ## Known approximations / open questions
 
-- **Pre-stretch rows** (Stretch rows 79–85, the ones the AF79:AF85 comment
-  is actually attached to) are costed very differently in the workbook:
-  their material cost (`T79`) is `=AI49*J79` — i.e. it borrows another row's
-  *finished sales price* as an input, rather than being built up from BOM +
-  conversion cost independently. This app's product catalogue does not
-  currently model that cross-row dependency; pre-stretch SKUs will price
-  using the same general formula as every other product (their own BOM/
-  Pallet/Conversion-cost inputs), which is a reasonable approximation but
-  is **not** a byte-for-byte match to the workbook for that specific
-  product family. Flagging this for the team to confirm.
+- **Pre-Stretch rows are now implemented as their own product family**
+  (see the dedicated section below) — this replaces the earlier
+  approximation that priced pre-stretch SKUs like any other product.
 - **UVI weight %** is a manual entry in the workbook's Stretch sheet (not
   BOM-driven) and there's currently no per-product field for it in this
   app, so UVI resin cost contributes $0 until such a field is added.
@@ -169,6 +162,116 @@ rolls/pallet) with no label distinguishing when each applies. The 45
 rolls/pallet variant was kept as the seeded default (`standard_16kg_euro`);
 flagging this for the team to confirm which one is correct, or whether both
 are needed as separate tiers.
+
+## Missing jumbo SKUs (v7)
+
+Stretch rows 27, 29, 31, 35, 40, 49 — 50kg jumbo, 16 rolls/pallet, Automatic/
+Standard-pallet variants of the existing 250% Power / 300% (Power plus) /
+350% (Power plus) categories at micron 17/20/23/30 — were never seeded in
+Phase 1 (only the 16kg standard rows were). They are seeded idempotently
+by `db._seed_missing_products()` (matched on stretch_ability + micron +
+roll_weight_kg, so re-running the app against an already-deployed DB never
+duplicates them) and price with the *exact same* cost-engine formula as
+every other product — the jumbo BOM rows for multiplier 2.5/3/3.5 at
+micron 17/20/23/30 were already seeded, so no BOM/electricity data was
+missing for them.
+
+**Row 32 ("250% Power", 23µm, jumbo) is a verbatim duplicate of row 31**
+(identical stretch ability, micron, pallet/auto/color/width/roll-weight/
+core-weight) — apparently a copy/paste artifact in the source workbook.
+Only row 31 was added as a product; row 32 was not seeded a second time.
+Flagging this for the owner to confirm whether row 32 was meant to be a
+distinct SKU (e.g. a different color or spec that just wasn't filled in) —
+if so, the corresponding fields still need to come from somewhere, since
+the workbook itself has no second data point to distinguish it.
+
+## Pre-Stretch (v7)
+
+Pre-Stretch (Stretch rows 79–85, micron 5/6/7/8/9/10/12) is a distinct
+product family, not just another product row, because it is made to order:
+roll weight, core weight and rolls/pallet are typed in by the rep on each
+quotation line (`quotation_line.prestretch_roll_weight_kg` /
+`prestretch_core_weight_kg` / `prestretch_rolls_per_pallet`), not fixed
+catalog values — matching Stretch!H79/I79/G79 being blank in the template.
+`product.is_prestretch=1` marks the seven Pre-Stretch catalog rows (their
+own `roll_weight_kg`/`core_weight_kg`/`rolls_per_pallet` are NULL, since
+those are per-order), and each carries `product.prestretch_source_product_id`
+pointing at the jumbo SKU whose finished sales price feeds its material
+cost. `pricing.compute_prestretch_line()` is the Pre-Stretch counterpart of
+`compute_line()`, called from `/api/calculate-line` and `/api/save-quotation`
+whenever `pricing.is_prestretch(product)` is true.
+
+**Micron → source SKU mapping** (editable on the admin **Pre-Stretch**
+screen), from Stretch!T79:T85's `=AI<source row>*J<this row>`:
+
+| Pre-Stretch micron | Source SKU (jumbo, 50kg) | Stretch rows |
+|---|---|---|
+| 5  | 350% (Power plus), 17µm | 79 ← 49 |
+| 6  | 300% (Power plus), 17µm | 80 ← 40 |
+| 7  | 250% Power, 17µm        | 81 ← 27 |
+| 8  | 250% Power, 20µm        | 82 ← 29 |
+| 9  | 250% Power, 23µm        | 83 ← 31 |
+| 10 | 250% Power, 23µm (same as micron 9 — row 32 is the row-31 duplicate) | 84 ← 32 |
+| 12 | 250% Power, 30µm        | 85 ← 35 |
+
+**Formula chain** (`pricing.prestretch_cost_components()` /
+`prestretch_packaging_cost_usd()` / `prestretch_ex_work_usd_kg()`), for a
+line with entered roll weight H, core weight I, rolls/pallet G and
+packaging type (No Boxes / With Boxes):
+
+1. **Net weight** `J = H - I`.
+2. **Material cost `T`** = the source SKU's *current finished, margin-
+   inclusive sales price* per KG (`pricing.unit_price_for()` against the
+   same country/customer classification as the quote — not the raw EX-Work
+   cost) `× J`.
+3. **Core cost `AC`** = `I × (Core-prestretch rate EGP/kg ÷ Dollar Rate –
+   Prestretch)` — `material_rate.core_prestretch` (seeded 30 EGP/kg) and
+   `global_setting.dollar_rate_prestretch` (seeded 45, kept as its own
+   setting since the workbook formula reads `'Material pricing'!F2`, a
+   distinct cell from the main Dollar Rate `F1`, even though both are
+   currently 45).
+4. **Packaging cost `AD`**: `No Boxes` → `global_setting.
+   prestretch_packaging_noboxes_usd` (seeded $14.80, from `'Pallet
+   component'!Q11`) `÷ G`; `With Boxes` → `global_setting.
+   prestretch_packaging_boxes_usd` (seeded $14.38, from `'Pallet
+   component'!V11`) `÷ G`, **plus** 1/6 of a Box's material cost
+   (`material_rate.box` ÷ `dollar_rate_prestretch` ÷ 6 — the workbook's
+   `'Material pricing'!C21/F2/6` term).
+5. **Conversion cost `AF`** ("Depreciation + D.labor + Machine Power"),
+   reusing `cost_engine.conversion_cost_usd_per_ton()` exactly as every
+   other product does. Bucket: Pre-Stretch's Stretch-Ability text contains
+   none of `roll_type_bucket()`'s power/regid keywords, so it already
+   resolves to **Standard ("St")** — kept as the deliberate choice (Pre-
+   Stretch is a converting/rewinding step off the Standard-bucket line, not
+   its own extrusion process). Looked up by the Pre-Stretch SKU's own
+   micron (5/6/7/8/9/10/12); microns 5/6/7 have no direct Electricity-sheet
+   data point in the St bucket, so the existing nearest-micron fallback
+   lands on micron 8/9's row, which happens to be **0 kW/ton and 0 tons/day**
+   in the source workbook — i.e. the conversion-cost contribution is $0 for
+   those three microns specifically. This is a known gap, not a bug: the
+   source Electricity/Production-capacity sheets simply have no data for
+   micron 5–7 St. Flagging for the owner: if real kW/ton and tons/day
+   figures exist for hand-stretch at those microns, add them on the
+   Electricity/Global Settings admin screens and this fills in
+   automatically (no code change needed).
+   `× J` (no width factor — Pre-Stretch has no Width field).
+6. **EX-Work $/KG** = `(T + AC + AD + AF) / H`.
+7. **Margin/factor**: applied exactly as for any other product
+   (`unit_price = ex_work × (1 + factor) + price_adjustment`). The Factors
+   sheet has **no dedicated Pre-Stretch row/column**, so `product_category()`
+   falls through to `automatic_standard` (Pre-Stretch's text contains
+   neither "power" nor "regid" nor "uvi") — flagging this for the owner to
+   confirm the intended Pre-Stretch margin; it may deserve its own Factors
+   category and percentage.
+
+**Sanity-check behaviour**: at small, realistic rolls/pallet counts (e.g.
+30–50 for a ~1.5kg hand roll) Pre-Stretch prices out notably above its
+source jumbo SKU's own $/KG, as expected — packaging cost per roll
+dominates. At a very generous rolls/pallet (e.g. 200, unrealistically light
+for a small roll), the packaging/core cost gets diluted enough that the
+Pre-Stretch price can land close to or slightly under the source's own
+price; it is never negative or near-zero for any plausible input, but reps
+should enter a realistic rolls/pallet count for the quote to be meaningful.
 
 ## Caching
 

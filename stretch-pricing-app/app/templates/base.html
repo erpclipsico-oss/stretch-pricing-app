@@ -14,23 +14,43 @@
       <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
       <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
       {% if current_user.role == 'admin' %}
-      <a href="{{ url_for('admin_products') }}" class="nav-link">Products</a>
-      <a href="{{ url_for('admin_factors') }}" class="nav-link">Factors</a>
-      <a href="{{ url_for('admin_freight') }}" class="nav-link">Freight</a>
-      <a href="{{ url_for('admin_users') }}" class="nav-link">Users</a>
       <span class="nav-sep">|</span>
-      <a href="{{ url_for('admin_cost_preview') }}" class="nav-link">Cost Preview</a>
-      <a href="{{ url_for('admin_global_settings') }}" class="nav-link">Global Settings</a>
-      <a href="{{ url_for('admin_material_rates') }}" class="nav-link">Material Rates</a>
-      <a href="{{ url_for('admin_labor') }}" class="nav-link">Labor</a>
-      <a href="{{ url_for('admin_electricity') }}" class="nav-link">Electricity</a>
-      <a href="{{ url_for('admin_variable_costs') }}" class="nav-link">Variable Costs</a>
-      <a href="{{ url_for('admin_fixed_costs') }}" class="nav-link">Fixed Costs</a>
-      <a href="{{ url_for('admin_pallet') }}" class="nav-link">Pallet/Packaging</a>
-      <a href="{{ url_for('admin_bom') }}" class="nav-link">BOM</a>
-      <a href="{{ url_for('admin_packing_tiers') }}" class="nav-link">Packing Tiers</a>
-      <span class="nav-sep">|</span>
-      <a href="{{ url_for('admin_cost_upload') }}" class="nav-link">Annual Cost Upload</a>
+
+      <div class="nav-dropdown">
+        <button type="button" class="nav-link nav-dropdown-btn">Catalog &amp; Rates &#9662;</button>
+        <div class="nav-dropdown-menu">
+          <a href="{{ url_for('admin_products') }}">Products</a>
+          <a href="{{ url_for('admin_factors') }}">Factors</a>
+          <a href="{{ url_for('admin_freight') }}">Freight</a>
+          <a href="{{ url_for('admin_prestretch') }}">Pre-Stretch</a>
+        </div>
+      </div>
+
+      <div class="nav-dropdown">
+        <button type="button" class="nav-link nav-dropdown-btn">Costing &#9662;</button>
+        <div class="nav-dropdown-menu">
+          <a href="{{ url_for('admin_cost_preview') }}">Cost Preview</a>
+          <span class="nav-dropdown-sep"></span>
+          <a href="{{ url_for('admin_global_settings') }}">Global Settings</a>
+          <a href="{{ url_for('admin_material_rates') }}">Material Rates</a>
+          <a href="{{ url_for('admin_labor') }}">Labor</a>
+          <a href="{{ url_for('admin_electricity') }}">Electricity</a>
+          <a href="{{ url_for('admin_variable_costs') }}">Variable Costs</a>
+          <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a>
+          <a href="{{ url_for('admin_pallet') }}">Pallet/Packaging</a>
+          <a href="{{ url_for('admin_bom') }}">BOM</a>
+          <a href="{{ url_for('admin_packing_tiers') }}">Packing Tiers</a>
+          <span class="nav-dropdown-sep"></span>
+          <a href="{{ url_for('admin_cost_upload') }}">Annual Cost Upload (full workbook)</a>
+        </div>
+      </div>
+
+      <div class="nav-dropdown">
+        <button type="button" class="nav-link nav-dropdown-btn">Admin &#9662;</button>
+        <div class="nav-dropdown-menu">
+          <a href="{{ url_for('admin_users') }}">Users</a>
+        </div>
+      </div>
       {% endif %}
     </div>
     <div class="topbar-right">
@@ -50,5 +70,31 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+
+  <script>
+    // Click-to-toggle support for nav dropdowns (in addition to CSS hover),
+    // so they also work on touch devices / tablets.
+    document.addEventListener('DOMContentLoaded', function () {
+      var dropdowns = document.querySelectorAll('.nav-dropdown');
+      dropdowns.forEach(function (dd) {
+        var btn = dd.querySelector('.nav-dropdown-btn');
+        var menu = dd.querySelector('.nav-dropdown-menu');
+        if (!btn || !menu) return;
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var isOpen = menu.classList.contains('open');
+          dropdowns.forEach(function (other) {
+            other.querySelector('.nav-dropdown-menu').classList.remove('open');
+          });
+          if (!isOpen) menu.classList.add('open');
+        });
+      });
+      document.addEventListener('click', function () {
+        dropdowns.forEach(function (dd) {
+          dd.querySelector('.nav-dropdown-menu').classList.remove('open');
+        });
+      });
+    });
+  </script>
 </body>
 </html>

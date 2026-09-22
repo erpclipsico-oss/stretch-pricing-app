@@ -12,10 +12,10 @@
     </div>
   </div>
 
-  {% if current_user and current_user.seller_type == 'foreign' %}
+  {% if current_user and current_user.role == 'admin' and current_user.seller_type == 'foreign' %}
   <div class="flash flash-success" style="margin-bottom:14px;">
     🌍 Foreign Seller &mdash; +${{ '%.3f'|format(current_user.price_adjustment_usd_kg or 0) }}/KG applied
-    to every line on this quote.
+    to every line on this quote. (Only admins see this note &mdash; sales reps do not.)
   </div>
   {% endif %}
 
@@ -87,6 +87,10 @@
         <th>Packing type</th>
         <th>Pricing basis</th>
         <th>Qty (pallets)</th>
+        <th>Roll wt (KG)</th>
+        <th>Rolls/Pallet</th>
+        <th>Pallets/Cont. 40'</th>
+        <th>Pallets/Cont. 20'</th>
         <th>Total KG</th>
         <th>Unit $/KG</th>
         <th>Line total $</th>
@@ -106,12 +110,18 @@
 <script>
 const PRODUCTS = [
   {% for p in products %}
-  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}},
+  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}},
   {% endfor %}
 ];
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
+const PRESTRETCH_PACKAGING_TYPES = {{ prestretch_packaging_types|tojson }};
+
+function isPrestretch(productId) {
+  const p = PRODUCTS.find(p => String(p.id) === String(productId));
+  return !!(p && p.is_prestretch);
+}
 
 let lineSeq = 0;
 let currentQuotationId = null;
@@ -145,48 +155,117 @@ function addLine(prefill) {
       </select>
     </td>
     <td><input type="number" class="f-qty" value="1" min="0" step="0.5"></td>
+    <td class="f-rollwt num">&ndash;</td>
+    <td class="f-rpp num">&ndash;</td>
+    <td class="f-ppc40 num">&ndash;</td>
+    <td class="f-ppc20 num">&ndash;</td>
     <td class="f-kg num">0</td>
     <td class="f-unit num">0.000</td>
     <td class="f-total num">$0.00</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('linesBody').appendChild(tr);
-  tr.querySelector('.btn-remove').addEventListener('click', () => { tr.remove(); renumber(); });
+  tr.querySelector('.btn-remove').addEventListener('click', () => {
+    const next = tr.nextElementSibling;
+    tr.remove();
+    if (next && next.classList.contains('prestretch-row')) next.remove();
+    renumber();
+  });
+
+  // Pre-Stretch lines need three extra typed-in inputs (roll wt, core wt,
+  // rolls/pallet) plus a packaging-type choice, since Pre-Stretch is
+  // made-to-order and has no fixed catalog roll weight -- shown as a second
+  // row directly under the line, revealed only when a Pre-Stretch product
+  // is selected.
+  const pr = document.createElement('tr');
+  pr.className = 'prestretch-row';
+  pr.style.display = 'none';
+  pr.innerHTML = `
+    <td></td>
+    <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
+    <td colspan="9">
+      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:0.78rem;">Roll wt (KG)
+          <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
+        <label style="font-size:0.78rem;">Core wt (KG)
+          <input type="number" class="f-ps-corewt" min="0" step="0.01" style="width:70px;"></label>
+        <label style="font-size:0.78rem;">Rolls/Pallet
+          <input type="number" class="f-ps-rpp" min="0" step="1" style="width:70px;"></label>
+        <label style="font-size:0.78rem;">Packaging
+          <select class="f-ps-packaging">
+            ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('')}
+          </select>
+        </label>
+      </span>
+    </td>
+  `;
+  tr.after(pr);
+
+  function syncPrestretchVisibility() {
+    const show = isPrestretch(tr.querySelector('.f-product').value);
+    pr.style.display = show ? '' : 'none';
+    tr.querySelector('.f-packing').disabled = show;
+    tr.querySelector('.f-pallet').disabled = show;
+  }
+  tr.querySelector('.f-product').addEventListener('change', syncPrestretchVisibility);
+  syncPrestretchVisibility();
 }
 
 function renumber() {
-  [...document.querySelectorAll('#linesBody tr')].forEach((tr, i) => {
+  [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')].forEach((tr, i) => {
     tr.children[0].textContent = i + 1;
   });
 }
 
 function readLines() {
-  return [...document.querySelectorAll('#linesBody tr')].map(tr => ({
-    product_id: tr.querySelector('.f-product').value,
-    pallet_type: tr.querySelector('.f-pallet').value,
-    packing_type: tr.querySelector('.f-packing').value,
-    pricing_basis: tr.querySelector('.f-basis').value,
-    quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
-  }));
+  return [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')].map(tr => {
+    const line = {
+      product_id: tr.querySelector('.f-product').value,
+      pallet_type: tr.querySelector('.f-pallet').value,
+      packing_type: tr.querySelector('.f-packing').value,
+      pricing_basis: tr.querySelector('.f-basis').value,
+      quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+    };
+    if (isPrestretch(line.product_id)) {
+      const pr = tr.nextElementSibling;
+      line.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
+      line.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
+      line.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+    }
+    return line;
+  });
 }
 
 async function calculateAll() {
   const country_class = document.getElementById('country_class').value;
   const customer_class = document.getElementById('customer_class').value;
-  const rows = [...document.querySelectorAll('#linesBody tr')];
+  const rows = [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')];
   let subtotal = 0;
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
     const pallet_type = tr.querySelector('.f-pallet').value;
     const pricing_basis = tr.querySelector('.f-basis').value;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
+    const payload = {product_id, country_class, customer_class, quantity_pallets, pallet_type, pricing_basis};
+    if (isPrestretch(product_id)) {
+      const pr = tr.nextElementSibling;
+      payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
+      payload.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
+      payload.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+    }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({product_id, country_class, customer_class, quantity_pallets, pallet_type, pricing_basis})
+      body: JSON.stringify(payload)
     });
     const data = await resp.json();
     if (data.error) continue;
+    tr.querySelector('.f-rollwt').textContent = data.roll_weight_kg ? data.roll_weight_kg.toLocaleString() : '–';
+    tr.querySelector('.f-rpp').textContent = data.rolls_per_pallet ? data.rolls_per_pallet.toLocaleString() : '–';
+    tr.querySelector('.f-ppc40').textContent = (data.pallets_per_container40 || data.pallets_per_container40 === 0) ? data.pallets_per_container40 : '–';
+    tr.querySelector('.f-ppc20').textContent = (data.pallets_per_container20 || data.pallets_per_container20 === 0) ? data.pallets_per_container20 : '–';
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-unit').textContent = data.unit_price_usd_kg.toFixed(3);
     tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
