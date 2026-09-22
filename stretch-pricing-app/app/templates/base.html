@@ -10,10 +10,13 @@
   {% if current_user %}
   <header class="topbar">
     <div class="topbar-left">
-      <span class="brand">🧭 Stretch Pricing</span>
+      <span class="brand"><img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo"> Stretch Pricing</span>
       <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
       <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
       {% if current_user.role == 'admin' %}
+      <a href="{{ url_for('admin_products') }}" class="nav-link">Products</a>
+      <a href="{{ url_for('admin_factors') }}" class="nav-link">Factors</a>
+      <a href="{{ url_for('admin_freight') }}" class="nav-link">Freight</a>
       <a href="{{ url_for('admin_users') }}" class="nav-link">Users</a>
       {% endif %}
     </div>

@@ -3,20 +3,39 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Users</h2></div>
-  <table class="lines-table">
-    <thead><tr><th>Username</th><th>Full name</th><th>Role</th><th>Region</th><th>Active</th></tr></thead>
-    <tbody>
-      {% for u in users %}
-      <tr>
-        <td>{{ u.username }}</td>
-        <td>{{ u.full_name or '-' }}</td>
-        <td>{{ u.role }}</td>
-        <td>{{ u.region or '-' }}</td>
-        <td>{{ 'Yes' if u.active else 'No' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <p class="hint" style="margin-bottom:14px;">
+    "Price adjustment" is added straight onto the quoted $/KG unit price for every quote that user
+    builds &mdash; e.g. set 0.03 for a foreign-seller account that should quote 3&cent;/KG above the
+    normal costing/factors. Leave at 0 for local sellers using standard pricing.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:110px;">Username</span>
+      <span style="width:130px;">Full name</span>
+      <span style="width:100px;">Role</span>
+      <span style="width:100px;">Region</span>
+      <span style="width:110px;">Price adj. $/KG</span>
+      <span style="width:60px;">Active</span>
+    </div>
+    {% for u in users %}
+    <div class="edit-row">
+      <form method="post" action="{{ url_for('admin_user_update', uid=u.id) }}">
+        <span style="width:110px;">{{ u.username }}</span>
+        <input type="text" name="full_name" value="{{ u.full_name or '' }}" style="width:120px;">
+        <select name="role" style="width:100px;">
+          <option value="sales_rep" {% if u.role=='sales_rep' %}selected{% endif %}>Sales rep</option>
+          <option value="admin" {% if u.role=='admin' %}selected{% endif %}>Admin</option>
+        </select>
+        <input type="text" name="region" value="{{ u.region or '' }}" style="width:90px;" placeholder="Egypt / Foreign">
+        <input type="number" step="any" name="price_adjustment_usd_kg" value="{{ u.price_adjustment_usd_kg or 0 }}" style="width:90px;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
+          <input type="checkbox" name="active" {% if u.active %}checked{% endif %} style="width:auto;"> active
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 
 <div class="panel">
@@ -34,5 +53,6 @@
     <div class="field"><label>Password</label><input type="text" name="password" placeholder="ChangeMe123!"></div>
     <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Create user</button></div>
   </form>
+  <p class="hint" style="margin-top:10px;">New users start with price adjustment $0.00 &mdash; set it after creating, in the table above.</p>
 </div>
 {% endblock %}

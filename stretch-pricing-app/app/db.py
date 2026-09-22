@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS user (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'sales_rep',
     region TEXT,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    price_adjustment_usd_kg REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS product (
@@ -99,9 +100,19 @@ def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate(conn)
     _seed_reference_data(conn)
     _seed_default_users(conn)
     conn.close()
+
+
+def _migrate(conn):
+    """Add columns that didn't exist in earlier deployments, so an existing
+    live database (already seeded) picks up new fields without a reset."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(user)").fetchall()}
+    if "price_adjustment_usd_kg" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN price_adjustment_usd_kg REAL NOT NULL DEFAULT 0")
+        conn.commit()
 
 
 def _seed_reference_data(conn):

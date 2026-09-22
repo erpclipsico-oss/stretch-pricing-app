@@ -111,7 +111,9 @@ def create_app():
         country_class = data.get("country_class", "Moderate")
         customer_class = data.get("customer_class", "A")
         qty = float(data.get("quantity_pallets") or 0)
-        unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty)
+        adjustment = g.user["price_adjustment_usd_kg"] or 0
+        unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
+                                             price_adjustment_usd_kg=adjustment)
         gross = round(unit_price * total_kg, 2)
         return jsonify({"unit_price_usd_kg": unit_price, "total_kg": total_kg, "line_gross": gross})
 
@@ -159,12 +161,17 @@ def create_app():
             )
             quotation_id = cur.lastrowid
 
+        creator_id = existing["created_by_id"] if q_id else g.user["id"]
+        creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
+        adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
+
         for l in data.get("lines", []):
             product = db.execute("SELECT * FROM product WHERE id=?", (l.get("product_id"),)).fetchone()
             if not product:
                 continue
             unit_price, total_kg = compute_line(
-                db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0)
+                db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                price_adjustment_usd_kg=adjustment,
             )
             db.execute(
                 """INSERT INTO quotation_line
@@ -272,21 +279,216 @@ def create_app():
         users = db.execute("SELECT * FROM user ORDER BY username").fetchall()
         return render_template("admin_users.html", users=users)
 
+    @app.route("/admin/users/<int:uid>/update", methods=["POST"])
+    @admin_required
+    def admin_user_update(uid):
+        db = g.db
+        db.execute(
+            """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?
+               WHERE id=?""",
+            (
+                request.form.get("full_name", "").strip(),
+                request.form.get("role", "sales_rep"),
+                request.form.get("region", "").strip(),
+                1 if request.form.get("active") == "on" else 0,
+                float(request.form.get("price_adjustment_usd_kg") or 0),
+                uid,
+            ),
+        )
+        db.commit()
+        flash("User updated.", "success")
+        return redirect(url_for("admin_users"))
+
+    # ---------- Admin: rates (products / factors / freight) ----------
+    @app.route("/admin/products", methods=["GET", "POST"])
+    @admin_required
+    def admin_products():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                db.execute(
+                    """INSERT INTO product
+                       (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                        roll_weight_kg, core_weight_kg, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        request.form.get("stretch_ability", "").strip(),
+                        request.form.get("micron", "").strip(),
+                        request.form.get("pallet_size", "Standard").strip(),
+                        request.form.get("auto_manual", "Automatic").strip(),
+                        request.form.get("color", "Transparent").strip(),
+                        float(request.form.get("rolls_per_pallet") or 0),
+                        float(request.form.get("roll_weight_kg") or 0),
+                        float(request.form.get("core_weight_kg") or 0),
+                        float(request.form.get("ex_work_usd_kg") or 0),
+                        float(request.form.get("fob_usd_kg") or 0) or None,
+                        float(request.form.get("cfr_usd_kg") or 0) or None,
+                    ),
+                )
+                db.commit()
+                flash("Product added.", "success")
+            else:
+                pid = request.form.get("product_id")
+                db.execute(
+                    """UPDATE product SET stretch_ability=?, micron=?, rolls_per_pallet=?, roll_weight_kg=?,
+                       core_weight_kg=?, ex_work_usd_kg=?, fob_usd_kg=?, cfr_usd_kg=? WHERE id=?""",
+                    (
+                        request.form.get("stretch_ability", "").strip(),
+                        request.form.get("micron", "").strip(),
+                        float(request.form.get("rolls_per_pallet") or 0),
+                        float(request.form.get("roll_weight_kg") or 0),
+                        float(request.form.get("core_weight_kg") or 0),
+                        float(request.form.get("ex_work_usd_kg") or 0),
+                        float(request.form.get("fob_usd_kg") or 0) or None,
+                        float(request.form.get("cfr_usd_kg") or 0) or None,
+                        pid,
+                    ),
+                )
+                db.commit()
+                flash("Product updated.", "success")
+            return redirect(url_for("admin_products"))
+        products = db.execute(
+            "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
+        ).fetchall()
+        return render_template("admin_products.html", products=products)
+
+    @app.route("/admin/products/<int:pid>/delete", methods=["POST"])
+    @admin_required
+    def admin_product_delete(pid):
+        g.db.execute("DELETE FROM product WHERE id=?", (pid,))
+        g.db.commit()
+        flash("Product deleted.", "success")
+        return redirect(url_for("admin_products"))
+
+    @app.route("/admin/factors", methods=["GET", "POST"])
+    @admin_required
+    def admin_factors():
+        db = g.db
+        if request.method == "POST":
+            fid = request.form.get("factor_id")
+            db.execute(
+                """UPDATE factor SET automatic_standard=?, automatic_power=?, automatic_power_plus=?,
+                   uvi_standard=?, uvi_power=?, uvi_power_plus=?, regid=?, uv_regid=? WHERE id=?""",
+                (
+                    float(request.form.get("automatic_standard") or 0),
+                    float(request.form.get("automatic_power") or 0),
+                    float(request.form.get("automatic_power_plus") or 0),
+                    float(request.form.get("uvi_standard") or 0),
+                    float(request.form.get("uvi_power") or 0),
+                    float(request.form.get("uvi_power_plus") or 0),
+                    float(request.form.get("regid") or 0),
+                    float(request.form.get("uv_regid") or 0),
+                    fid,
+                ),
+            )
+            db.commit()
+            flash("Factor updated.", "success")
+            return redirect(url_for("admin_factors"))
+        factors = db.execute(
+            """SELECT * FROM factor ORDER BY
+               CASE country_class WHEN 'High' THEN 1 WHEN 'Moderate' THEN 2 ELSE 3 END,
+               customer_class,
+               CASE roll_size WHEN 'standard' THEN 1 WHEN 'jumbo' THEN 2 ELSE 3 END"""
+        ).fetchall()
+        return render_template("admin_factors.html", factors=factors)
+
+    @app.route("/admin/freight", methods=["GET", "POST"])
+    @admin_required
+    def admin_freight():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                country = request.form.get("country", "").strip()
+                rate = request.form.get("shipping_rate_usd", "").strip()
+                if country:
+                    db.execute("INSERT INTO freight (country, shipping_rate_usd) VALUES (?, ?)", (country, rate))
+                    db.commit()
+                    flash("Freight route added.", "success")
+            else:
+                fid = request.form.get("freight_id")
+                db.execute(
+                    "UPDATE freight SET country=?, shipping_rate_usd=? WHERE id=?",
+                    (request.form.get("country", "").strip(), request.form.get("shipping_rate_usd", "").strip(), fid),
+                )
+                db.commit()
+                flash("Freight route updated.", "success")
+            return redirect(url_for("admin_freight"))
+        freight = db.execute("SELECT * FROM freight ORDER BY country").fetchall()
+        return render_template("admin_freight.html", freight=freight)
+
+    @app.route("/admin/freight/<int:fid>/delete", methods=["POST"])
+    @admin_required
+    def admin_freight_delete(fid):
+        g.db.execute("DELETE FROM freight WHERE id=?", (fid,))
+        g.db.commit()
+        flash("Freight route deleted.", "success")
+        return redirect(url_for("admin_freight"))
+
     return app
+
+
+COMPANY_NAME = "ALEX INTERNATIONAL FOR PLASTIC INDUSTRY"
+COMPANY_ADDRESS = "Plot (37), Block(B), New Investors Area, Petrochemicals route, Merghem Quebly, Alexandria, Egypt"
+COMPANY_TEL = "Head office: (+203) 4241482    Fax: (+203) 4241482"
+COMPANY_TEL2 = "Factory: (+203) 9680813"
+COMPANY_TEL3 = "Main Stores: (+203) 3600803"
+COMPANY_FAX = "(+203) 3601229"
+COMPANY_EMAIL = "info@clipsicopack.com"
 
 
 def build_pdf(q, lines, totals):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1a1a1a"))
-    elements = [Paragraph("Quotation", title_style), Spacer(1, 6)]
+    company_name_style = ParagraphStyle("CoName", parent=styles["Normal"], fontSize=15, fontName="Helvetica-Bold",
+                                         textColor=colors.HexColor("#1a1a1a"))
+    company_detail_style = ParagraphStyle("CoDetail", parent=styles["Normal"], fontSize=8,
+                                           textColor=colors.HexColor("#444444"), leading=11)
+
+    logo_path = os.path.join(BASE_DIR, "static", "logo.png")
+    company_lines = [
+        Paragraph(COMPANY_NAME, company_name_style),
+        Paragraph(f"Address&nbsp;&nbsp;: {COMPANY_ADDRESS}", company_detail_style),
+        Paragraph(f"Tel&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_TEL}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL2}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL3}", company_detail_style),
+        Paragraph(f"Fax&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_FAX}", company_detail_style),
+        Paragraph(f"Email&nbsp;&nbsp;&nbsp;: {COMPANY_EMAIL}", company_detail_style),
+    ]
+    company_table = Table([[p] for p in company_lines], colWidths=[148 * mm])
+    company_table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+
+    if os.path.exists(logo_path):
+        logo = RLImage(logo_path, width=26 * mm, height=26 * mm * (246 / 209))
+        letterhead = Table([[logo, company_table]], colWidths=[32 * mm, 148 * mm])
+        letterhead.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (0, 0), 0),
+            ("LEFTPADDING", (1, 0), (1, 0), 6),
+        ]))
+    else:
+        letterhead = company_table
+
+    elements = [letterhead, Spacer(1, 10)]
+    elements.append(Table([[""]], colWidths=[180 * mm], rowHeights=[0.75],
+                           style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#cccccc"))])))
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph("Quotation", title_style))
+    elements.append(Spacer(1, 6))
 
     created_at = q["created_at"] or ""
     date_str = created_at[:10] if created_at else "-"

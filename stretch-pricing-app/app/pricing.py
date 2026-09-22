@@ -38,15 +38,17 @@ def get_factor_row(db, country_class, customer_class, roll_size="standard"):
     ).fetchone()
 
 
-def unit_price_for(db, product, country_class, customer_class, roll_size="standard"):
+def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0):
     category = product_category(product)
     row = get_factor_row(db, country_class, customer_class, roll_size)
     factor = (row[category] if row is not None else 0.0) or 0.0
-    return round(product["ex_work_usd_kg"] * (1 + factor), 4)
+    base = product["ex_work_usd_kg"] * (1 + factor)
+    return round(base + (price_adjustment_usd_kg or 0), 4)
 
 
-def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard"):
-    unit_price = unit_price_for(db, product, country_class, customer_class, roll_size)
+def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
+                  price_adjustment_usd_kg=0):
+    unit_price = unit_price_for(db, product, country_class, customer_class, roll_size, price_adjustment_usd_kg)
     rolls_per_pallet = product["rolls_per_pallet"] or 0
     roll_weight = product["roll_weight_kg"] or 0
     total_kg = round((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)

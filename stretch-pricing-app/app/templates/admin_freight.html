@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Freight · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Freight rates</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Reference shipping cost shown next to each destination on the quote builder (not yet
+    automatically added into the quoted unit price). Edit a row and click Save.
+  </p>
+  <div class="edit-grid">
+    {% for f in freight %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="freight_id" value="{{ f.id }}">
+        <div class="edit-cell"><span class="col-label">Country / destination</span><input type="text" name="country" value="{{ f.country }}" style="width:220px;"></div>
+        <div class="edit-cell"><span class="col-label">Shipping rate (USD)</span><input type="text" name="shipping_rate_usd" value="{{ f.shipping_rate_usd }}" style="width:120px;"></div>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_freight_delete', fid=f.id) }}" onsubmit="return confirm('Delete this freight route?');">
+        <button type="submit" class="btn-remove" title="Delete">✕</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No freight routes yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add freight route</h2></div>
+  <form method="post" class="grid grid-4">
+    <input type="hidden" name="action" value="add">
+    <div class="field"><label>Country / destination</label><input type="text" name="country" required></div>
+    <div class="field"><label>Shipping rate (USD)</label><input type="text" name="shipping_rate_usd" placeholder="e.g. 450 or 550-600"></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Add route</button></div>
+  </form>
+</div>
+{% endblock %}
