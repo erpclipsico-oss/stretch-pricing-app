@@ -33,6 +33,40 @@ def _material_rate(conn, key, default=0.0):
     return row["value"] if row is not None and row["value"] is not None else default
 
 
+def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None):
+    """Returns a plain dict standing in for a product row, with roll weight /
+    core weight / width overridden by the values a quotation line actually
+    entered (these vary per customer order -- see COST_ENGINE.md v9 note --
+    so the catalog's roll_weight_kg/core_weight_kg/width_mm are only
+    defaults). A dict works everywhere a sqlite3.Row is used below since
+    every accessor here does plain product[...] indexing / product.keys().
+    roll_weight_kg and width_mm are only overridden when a positive number
+    is given (0/blank means "use the catalog value"); core_weight_kg of 0 is
+    a valid, meaningful override (no core) so it's only skipped when the
+    value is missing entirely."""
+    d = dict(product)
+    if roll_weight_kg not in (None, ""):
+        try:
+            v = float(roll_weight_kg)
+            if v > 0:
+                d["roll_weight_kg"] = v
+        except (TypeError, ValueError):
+            pass
+    if core_weight_kg not in (None, ""):
+        try:
+            d["core_weight_kg"] = max(float(core_weight_kg), 0)
+        except (TypeError, ValueError):
+            pass
+    if width_mm not in (None, ""):
+        try:
+            v = float(width_mm)
+            if v > 0:
+                d["width_mm"] = v
+        except (TypeError, ValueError):
+            pass
+    return d
+
+
 ROLL_TYPES = ["St", "P", "P_plus", "RIGID"]
 
 
@@ -242,26 +276,35 @@ def lookup_packing_tier(conn, auto_manual, roll_weight_kg, pallet_type=None):
     return min(rows, key=lambda r: abs((r["match_weight_kg"] or 0) - weight))
 
 
-def effective_rolls_per_pallet(conn, product, pallet_type=None):
-    """Rolls/pallet for costing and quote totals: prefers the Details-sheet
+def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+    """Rolls/pallet for costing and quote totals: an explicit per-line
+    override (the rep typed in a known rolls/pallet count for a non-catalog
+    roll weight) wins outright; otherwise prefers the Details-sheet
     packing_tier match (by the product's actual roll weight + the quote
     line's chosen pallet type), falling back to the product's own manually-
     entered rolls_per_pallet field when no tier matches (e.g. a product with
     no roll weight set yet)."""
+    if rolls_per_pallet_override:
+        try:
+            v = float(rolls_per_pallet_override)
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            pass
     tier = lookup_packing_tier(conn, product["auto_manual"], product["roll_weight_kg"], pallet_type)
     if tier and tier["rolls_per_pallet"]:
         return tier["rolls_per_pallet"]
     return product["rolls_per_pallet"] or 0
 
 
-def packaging_cost_per_roll_usd(conn, product, pallet_type=None):
+def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
     per pallet, with the jumbo (>25kg) special case that excludes the base
     Pallet line item (mirrors 'Pallet component'!(D11-D6)/G on row 40).
     Rolls/pallet now comes from the Details-sheet packing_tier lookup
     (exact gross-weight bucket x pallet type), not a single hardcoded
     per-product value -- see lookup_packing_tier()."""
-    rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type)
+    rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
     if rolls_per_pallet <= 0:
         return 0.0
     key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"])
@@ -290,7 +333,7 @@ def core_cost_usd(conn, product):
 
 # ---------------------------------------------------------------- Main EX-Work computation
 
-def compute_ex_work_usd_kg(conn, product, pallet_type=None):
+def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None):
     """Full replication of Stretch!AG (EX-Work Cost (KG) - gross weight)
     for the standard product-row case (covers the great majority of SKUs:
     any roll with a Stretch Ability % and a Micron, Automatic or Manual
@@ -327,7 +370,7 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None):
     # cost is 0 unless/until that's added. See COST_ENGINE.md.
 
     core_cost = core_cost_usd(conn, product)
-    packaging_cost = packaging_cost_per_roll_usd(conn, product, pallet_type)
+    packaging_cost = packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override)
 
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate

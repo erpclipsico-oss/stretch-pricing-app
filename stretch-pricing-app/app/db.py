@@ -57,6 +57,15 @@ CREATE TABLE IF NOT EXISTS freight (
     shipping_rate_usd TEXT
 );
 
+-- FOB cost differs by which Egyptian port the shipment loads from (port
+-- handling/customs/inland-trucking fees) -- a flat $ amount per quotation,
+-- editable in admin since rates aren't fixed (v10).
+CREATE TABLE IF NOT EXISTS loading_port (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    port TEXT UNIQUE NOT NULL,
+    fob_addon_usd REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS quotation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quotation_no TEXT UNIQUE,
@@ -312,6 +321,32 @@ def _migrate(conn):
             "ALTER TABLE quotation_line ADD COLUMN prestretch_packaging_type TEXT NOT NULL DEFAULT 'no_boxes'"
         )
         conn.commit()
+
+    # ---- Per-line custom roll spec for EVERY product, not just Pre-Stretch
+    # (v9): actual roll weight, core weight and width vary by customer order,
+    # so these are left as open/editable fields on each quotation line,
+    # pre-filled from the product catalog but overridable; NULL means "use
+    # the catalog default" (see cost_engine.with_overrides()).
+    line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
+    if "custom_roll_weight_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_roll_weight_kg REAL")
+        conn.commit()
+    if "custom_core_weight_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_core_weight_kg REAL")
+        conn.commit()
+    if "custom_width_mm" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_width_mm REAL")
+        conn.commit()
+    if "custom_rolls_per_pallet" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_rolls_per_pallet REAL")
+        conn.commit()
+
+    # Seed the two Egyptian loading ports with their FOB add-on (idempotent,
+    # keyed by the unique port name, so it won't duplicate or clobber a rate
+    # the owner has since edited in admin).
+    conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Alexandria (Egypt)', 1500)")
+    conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Damietta (Egypt)', 1800)")
+    conn.commit()
 
 
 def _seed_reference_data(conn):

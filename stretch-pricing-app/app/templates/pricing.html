@@ -22,7 +22,11 @@
   <div class="grid grid-4">
     <div class="field">
       <label>Loading Port</label>
-      <input type="text" id="loading_port" value="Alexandria (Egypt)">
+      <select id="loading_port">
+        {% for p in loading_ports %}
+        <option value="{{ p.port }}">{{ p.port }} (+${{ '%.0f'|format(p.fob_addon_usd) }} FOB)</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="field">
       <label>Destination</label>
@@ -88,6 +92,8 @@
         <th>Pricing basis</th>
         <th>Qty (pallets)</th>
         <th>Roll wt (KG)</th>
+        <th>Core wt (KG)</th>
+        <th>Width (mm)</th>
         <th>Rolls/Pallet</th>
         <th>Pallets/Cont. 40'</th>
         <th>Pallets/Cont. 20'</th>
@@ -101,22 +107,38 @@
   </table>
 
   <div class="totals-box">
-    <div><span>Subtotal</span><strong id="subtotalCell">$0.00</strong></div>
+    <div><span>Subtotal (EX-Work)</span><strong id="subtotalCell">$0.00</strong></div>
     <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
-    <div class="grand"><span>Total</span><strong id="totalCell">$0.00</strong></div>
+    <div class="grand"><span>FOB Total</span><strong id="fobTotalCell">$0.00</strong></div>
+    <div class="grand"><span>CIF Total</span><strong id="cifTotalCell">$0.00</strong></div>
   </div>
 </div>
 
 <script>
 const PRODUCTS = [
   {% for p in products %}
-  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}},
+  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}},
   {% endfor %}
 ];
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
 const PRESTRETCH_PACKAGING_TYPES = {{ prestretch_packaging_types|tojson }};
+const LOADING_PORTS = [
+  {% for p in loading_ports %}
+  {port: {{ p.port|tojson }}, fob_addon_usd: {{ p.fob_addon_usd or 0 }}},
+  {% endfor %}
+];
+const FREIGHT = [
+  {% for f in freight %}
+  {country: {{ f.country|tojson }}, shipping_rate_usd: {{ f.shipping_rate_usd|tojson }}},
+  {% endfor %}
+];
+
+function firstNumber(str) {
+  const m = String(str == null ? '' : str).match(/[\d.]+/);
+  return m ? parseFloat(m[0]) : 0;
+}
 
 function isPrestretch(productId) {
   const p = PRODUCTS.find(p => String(p.id) === String(productId));
@@ -155,7 +177,9 @@ function addLine(prefill) {
       </select>
     </td>
     <td><input type="number" class="f-qty" value="1" min="0" step="0.5"></td>
-    <td class="f-rollwt num">&ndash;</td>
+    <td><input type="number" class="f-rollwt" min="0" step="0.01" style="width:70px;" title="Actual roll weight for this order (editable per customer)"></td>
+    <td><input type="number" class="f-corewt" min="0" step="0.01" style="width:70px;" title="Actual core weight for this order (editable per customer)"></td>
+    <td><input type="number" class="f-width" min="0" step="1" style="width:70px;" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td class="f-rpp num">&ndash;</td>
     <td class="f-ppc40 num">&ndash;</td>
     <td class="f-ppc20 num">&ndash;</td>
@@ -183,7 +207,7 @@ function addLine(prefill) {
   pr.innerHTML = `
     <td></td>
     <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
-    <td colspan="9">
+    <td colspan="11">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <label style="font-size:0.78rem;">Roll wt (KG)
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
@@ -201,11 +225,32 @@ function addLine(prefill) {
   `;
   tr.after(pr);
 
+  function prefillRollSpec() {
+    const p = PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value));
+    if (!p) return;
+    tr.querySelector('.f-rollwt').value = p.roll_weight_kg || '';
+    tr.querySelector('.f-corewt').value = p.core_weight_kg || '';
+    tr.querySelector('.f-width').value = p.width_mm || '';
+  }
+
   function syncPrestretchVisibility() {
     const show = isPrestretch(tr.querySelector('.f-product').value);
     pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
     tr.querySelector('.f-pallet').disabled = show;
+    // Pre-Stretch already has its own dedicated roll wt / core wt inputs
+    // (made-to-order, no catalog default, no Width field) -- the generic
+    // per-line roll-spec inputs on the main row don't apply to it.
+    tr.querySelector('.f-rollwt').disabled = show;
+    tr.querySelector('.f-corewt').disabled = show;
+    tr.querySelector('.f-width').disabled = show;
+    if (show) {
+      tr.querySelector('.f-rollwt').value = '';
+      tr.querySelector('.f-corewt').value = '';
+      tr.querySelector('.f-width').value = '';
+    } else {
+      prefillRollSpec();
+    }
   }
   tr.querySelector('.f-product').addEventListener('change', syncPrestretchVisibility);
   syncPrestretchVisibility();
@@ -232,6 +277,13 @@ function readLines() {
       line.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
       line.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
       line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+    } else {
+      const rollwt = tr.querySelector('.f-rollwt').value;
+      const corewt = tr.querySelector('.f-corewt').value;
+      const width = tr.querySelector('.f-width').value;
+      if (rollwt !== '') line.custom_roll_weight_kg = parseFloat(rollwt);
+      if (corewt !== '') line.custom_core_weight_kg = parseFloat(corewt);
+      if (width !== '') line.custom_width_mm = parseFloat(width);
     }
     return line;
   });
@@ -254,6 +306,13 @@ async function calculateAll() {
       payload.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
       payload.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
       payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+    } else {
+      const rollwt = tr.querySelector('.f-rollwt').value;
+      const corewt = tr.querySelector('.f-corewt').value;
+      const width = tr.querySelector('.f-width').value;
+      if (rollwt !== '') payload.custom_roll_weight_kg = parseFloat(rollwt);
+      if (corewt !== '') payload.custom_core_weight_kg = parseFloat(corewt);
+      if (width !== '') payload.custom_width_mm = parseFloat(width);
     }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
@@ -262,7 +321,17 @@ async function calculateAll() {
     });
     const data = await resp.json();
     if (data.error) continue;
-    tr.querySelector('.f-rollwt').textContent = data.roll_weight_kg ? data.roll_weight_kg.toLocaleString() : '–';
+    if (!isPrestretch(product_id)) {
+      // Reflect back the roll wt / core wt the server actually costed with
+      // (in case a blank/invalid entry fell back to the catalog default),
+      // without clobbering the field while the rep is still typing in it.
+      if (document.activeElement !== tr.querySelector('.f-rollwt') && data.roll_weight_kg) {
+        tr.querySelector('.f-rollwt').value = data.roll_weight_kg;
+      }
+      if (document.activeElement !== tr.querySelector('.f-corewt') && (data.core_weight_kg || data.core_weight_kg === 0)) {
+        tr.querySelector('.f-corewt').value = data.core_weight_kg;
+      }
+    }
     tr.querySelector('.f-rpp').textContent = data.rolls_per_pallet ? data.rolls_per_pallet.toLocaleString() : '–';
     tr.querySelector('.f-ppc40').textContent = (data.pallets_per_container40 || data.pallets_per_container40 === 0) ? data.pallets_per_container40 : '–';
     tr.querySelector('.f-ppc20').textContent = (data.pallets_per_container20 || data.pallets_per_container20 === 0) ? data.pallets_per_container20 : '–';
@@ -274,9 +343,26 @@ async function calculateAll() {
   const discountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
   const discount = subtotal * discountPct / 100;
   const total = subtotal - discount;
-  document.getElementById('subtotalCell').textContent = '$' + subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('discountCell').textContent = '-$' + discount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('totalCell').textContent = '$' + total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+  // FOB Total = EX-Work total (after discount) + the selected loading
+  // port's FOB add-on. CIF Total = FOB Total + freight to the selected
+  // destination. Mirrors compute_totals() in app.py exactly, so the number
+  // shown here while building the quote matches what gets saved/printed.
+  const portName = document.getElementById('loading_port').value;
+  const port = LOADING_PORTS.find(p => p.port === portName);
+  const fobAddon = port ? (port.fob_addon_usd || 0) : 0;
+  const fobTotal = total + fobAddon;
+
+  const destName = document.getElementById('destination').value;
+  const freightRow = FREIGHT.find(f => f.country === destName);
+  const freightAmt = freightRow ? firstNumber(freightRow.shipping_rate_usd) : 0;
+  const cifTotal = fobTotal + freightAmt;
+
+  const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('subtotalCell').textContent = money(subtotal);
+  document.getElementById('discountCell').textContent = '-' + money(discount);
+  document.getElementById('fobTotalCell').textContent = money(fobTotal);
+  document.getElementById('cifTotalCell').textContent = money(cifTotal);
 }
 
 async function saveQuotation() {

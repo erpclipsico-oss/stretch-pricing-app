@@ -45,17 +45,19 @@ def get_factor_row(db, country_class, customer_class, roll_size="standard"):
 
 
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
-                    pallet_type=None):
+                    pallet_type=None, rolls_per_pallet_override=None):
     category = product_category(product)
     row = get_factor_row(db, country_class, customer_class, roll_size)
     factor = (row[category] if row is not None else 0.0) or 0.0
-    ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type)
+    ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
+                                                  rolls_per_pallet_override=rolls_per_pallet_override)
     base = ex_work * (1 + factor)
     return round(base + (price_adjustment_usd_kg or 0), 4)
 
 
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
-                  price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg"):
+                  price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
+                  roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis controls which roll weight the line's total KG (and
@@ -70,12 +72,20 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     confirmed with the business owner: "gross" and "per KG" are the same
     total-weight basis, just displayed differently ($/Roll vs $/KG) on the
     quote/PDF.
+
+    roll_weight_kg / core_weight_kg / width_mm / rolls_per_pallet_override:
+    per-quotation-line overrides of the product catalog's defaults, since
+    the actual roll weight, core weight, width and (for non-standard
+    weights) rolls/pallet vary by customer order for EVERY product, not
+    just Pre-Stretch (see cost_engine.with_overrides()). None means "use
+    the catalog value" for each.
     """
-    rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, product, pallet_type)
-    unit_price = unit_price_for(db, product, country_class, customer_class, roll_size, price_adjustment_usd_kg,
-                                 pallet_type=pallet_type)
-    gross_roll_weight = product["roll_weight_kg"] or 0
-    net_roll_weight = max(gross_roll_weight - (product["core_weight_kg"] or 0), 0)
+    effective = cost_engine.with_overrides(product, roll_weight_kg, core_weight_kg, width_mm)
+    rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective, pallet_type, rolls_per_pallet_override)
+    unit_price = unit_price_for(db, effective, country_class, customer_class, roll_size, price_adjustment_usd_kg,
+                                 pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override)
+    gross_roll_weight = effective["roll_weight_kg"] or 0
+    net_roll_weight = max(gross_roll_weight - (effective["core_weight_kg"] or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
     total_kg = round((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)
     return unit_price, total_kg

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Loading Ports · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Loading ports (FOB add-on)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    The flat $ amount added to the EX-Work total to get the FOB Total for a quote loading from
+    this port (port handling / customs / inland trucking). Rates move &mdash; edit a row and click Save.
+  </p>
+  <div class="edit-grid">
+    {% for p in loading_ports %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="port_id" value="{{ p.id }}">
+        <div class="edit-cell"><span class="col-label">Port</span><input type="text" name="port" value="{{ p.port }}" style="width:220px;"></div>
+        <div class="edit-cell"><span class="col-label">FOB add-on (USD)</span><input type="number" name="fob_addon_usd" value="{{ p.fob_addon_usd }}" step="0.01" style="width:120px;"></div>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_loading_port_delete', pid=p.id) }}" onsubmit="return confirm('Delete this loading port?');">
+        <button type="submit" class="btn-remove" title="Delete">✕</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No loading ports yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add loading port</h2></div>
+  <form method="post" class="grid grid-4">
+    <input type="hidden" name="action" value="add">
+    <div class="field"><label>Port</label><input type="text" name="port" required placeholder="e.g. Safaga (Egypt)"></div>
+    <div class="field"><label>FOB add-on (USD)</label><input type="number" name="fob_addon_usd" step="0.01" placeholder="e.g. 1500"></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Add port</button></div>
+  </form>
+</div>
+{% endblock %}

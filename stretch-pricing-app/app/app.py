@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -93,6 +94,7 @@ def create_app():
         ).fetchall()
         products = [dict(p, label=product_label(p), is_prestretch=is_prestretch(p)) for p in products_rows]
         freight = g.db.execute("SELECT * FROM freight ORDER BY country").fetchall()
+        loading_ports = g.db.execute("SELECT * FROM loading_port ORDER BY port").fetchall()
         pallet_types = ["Standard Pallet", "Euro Pallet"]
         packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
         payment_terms = ["Cash (0 days)", "30 days", "60 days", "90 days"]
@@ -102,6 +104,7 @@ def create_app():
             "pricing.html",
             products=products,
             freight=freight,
+            loading_ports=loading_ports,
             pallet_types=pallet_types,
             packing_types=packing_types,
             payment_terms=payment_terms,
@@ -144,18 +147,31 @@ def create_app():
                 "pallets_per_container20": None,
             })
 
+        custom_roll_weight_kg = data.get("custom_roll_weight_kg")
+        custom_core_weight_kg = data.get("custom_core_weight_kg")
+        custom_width_mm = data.get("custom_width_mm")
+        custom_rolls_per_pallet = data.get("custom_rolls_per_pallet")
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
                                              price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
-                                             pricing_basis=pricing_basis)
+                                             pricing_basis=pricing_basis,
+                                             roll_weight_kg=custom_roll_weight_kg,
+                                             core_weight_kg=custom_core_weight_kg,
+                                             width_mm=custom_width_mm,
+                                             rolls_per_pallet_override=custom_rolls_per_pallet)
         gross = round(unit_price * total_kg, 2)
-        rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, product, pallet_type)
-        tier = cost_engine.lookup_packing_tier(g.db, product["auto_manual"], product["roll_weight_kg"], pallet_type)
+        effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
+                                                         custom_width_mm)
+        rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, effective_product, pallet_type,
+                                                                    custom_rolls_per_pallet)
+        tier = cost_engine.lookup_packing_tier(g.db, product["auto_manual"], effective_product["roll_weight_kg"],
+                                                pallet_type)
         return jsonify({
             "unit_price_usd_kg": unit_price,
             "total_kg": total_kg,
             "line_gross": gross,
-            "roll_weight_kg": product["roll_weight_kg"] or 0,
-            "core_weight_kg": product["core_weight_kg"] or 0,
+            "roll_weight_kg": effective_product["roll_weight_kg"] or 0,
+            "core_weight_kg": effective_product["core_weight_kg"] or 0,
+            "width_mm": effective_product["width_mm"] if "width_mm" in effective_product else 0,
             "rolls_per_pallet": rolls_per_pallet,
             "pallets_per_container40": (tier["pallets_per_container40"] if tier else None),
             "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
@@ -240,18 +256,29 @@ def create_app():
                 )
                 continue
 
+            custom_roll_weight_kg = l.get("custom_roll_weight_kg")
+            custom_core_weight_kg = l.get("custom_core_weight_kg")
+            custom_width_mm = l.get("custom_width_mm")
+            custom_rolls_per_pallet = l.get("custom_rolls_per_pallet")
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
+                roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+                width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
             )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                    custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
-                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis),
+                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis,
+                 (float(custom_roll_weight_kg) if custom_roll_weight_kg not in (None, "") else None),
+                 (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
+                 (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
+                 (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None)),
             )
 
         db.commit()
@@ -317,6 +344,20 @@ def create_app():
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
+    def _fob_addon_for_port(db, port_name):
+        row = db.execute("SELECT fob_addon_usd FROM loading_port WHERE port=?", (port_name,)).fetchone()
+        return (row["fob_addon_usd"] if row else 0) or 0
+
+    def _freight_for_destination(db, destination):
+        row = db.execute("SELECT shipping_rate_usd FROM freight WHERE country=?", (destination,)).fetchone()
+        if not row or not row["shipping_rate_usd"]:
+            return 0.0
+        # shipping_rate_usd is free-text (an admin may enter "550-600"); pull
+        # the first number out of it rather than crashing on a non-numeric
+        # string, and use that as the CIF freight add-on.
+        m = re.search(r"[\d.]+", str(row["shipping_rate_usd"]))
+        return float(m.group(0)) if m else 0.0
+
     def compute_totals(db, q, lines=None):
         if lines is None:
             line_rows = db.execute("SELECT * FROM quotation_line WHERE quotation_id=?", (q["id"],)).fetchall()
@@ -326,7 +367,21 @@ def create_app():
                 lines.append({"line_total": round(gross * (1 - (l["line_discount_pct"] or 0) / 100), 2)})
         subtotal = round(sum(l["line_total"] for l in lines), 2)
         total = round(subtotal * (1 - (q["global_discount_pct"] or 0) / 100), 2)
-        return {"subtotal": subtotal, "total": total}
+
+        # FOB Total = EX-Work total (after discount) + the selected loading
+        # port's flat handling/customs/trucking add-on (Alexandria vs
+        # Damietta -- editable in Admin > Loading Ports, since these rates
+        # move). CIF Total = FOB Total + freight to the selected
+        # destination (from the existing Freight table). Both are shown to
+        # the client as the FOB and CIF offers side by side; the raw
+        # freight $ figure itself is not broken out as its own line, same
+        # treatment as the hidden foreign-seller markup.
+        fob_addon = _fob_addon_for_port(db, q["loading_port"] if "loading_port" in q.keys() else None)
+        fob_total = round(total + fob_addon, 2)
+        freight_amt = _freight_for_destination(db, q["destination"] if "destination" in q.keys() else None)
+        cif_total = round(fob_total + freight_amt, 2)
+
+        return {"subtotal": subtotal, "total": total, "fob_total": fob_total, "cif_total": cif_total}
 
     # ---------- Simple admin: users ----------
     @app.route("/admin/users", methods=["GET", "POST"])
@@ -504,6 +559,40 @@ def create_app():
         g.db.commit()
         flash("Freight route deleted.", "success")
         return redirect(url_for("admin_freight"))
+
+    @app.route("/admin/loading-ports", methods=["GET", "POST"])
+    @admin_required
+    def admin_loading_ports():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                port = request.form.get("port", "").strip()
+                addon = request.form.get("fob_addon_usd") or 0
+                if port:
+                    db.execute("INSERT INTO loading_port (port, fob_addon_usd) VALUES (?, ?)",
+                               (port, float(addon)))
+                    db.commit()
+                    flash("Loading port added.", "success")
+            else:
+                pid = request.form.get("port_id")
+                db.execute(
+                    "UPDATE loading_port SET port=?, fob_addon_usd=? WHERE id=?",
+                    (request.form.get("port", "").strip(), float(request.form.get("fob_addon_usd") or 0), pid),
+                )
+                db.commit()
+                flash("Loading port updated.", "success")
+            return redirect(url_for("admin_loading_ports"))
+        loading_ports = db.execute("SELECT * FROM loading_port ORDER BY port").fetchall()
+        return render_template("admin_loading_ports.html", loading_ports=loading_ports)
+
+    @app.route("/admin/loading-ports/<int:pid>/delete", methods=["POST"])
+    @admin_required
+    def admin_loading_port_delete(pid):
+        g.db.execute("DELETE FROM loading_port WHERE id=?", (pid,))
+        g.db.commit()
+        flash("Loading port deleted.", "success")
+        return redirect(url_for("admin_loading_ports"))
 
     @app.route("/admin/products/recalculate", methods=["POST"])
     @admin_required
@@ -1041,10 +1130,11 @@ def build_pdf(q, lines, totals):
     elements.append(Spacer(1, 14))
 
     totals_rows = [
-        ["Subtotal", f"${totals['subtotal']:,.2f}"],
+        ["Subtotal (EX-Work)", f"${totals['subtotal']:,.2f}"],
         [f"Global Discount ({q['global_discount_pct'] or 0}%)",
          f"-${round(totals['subtotal'] - totals['total'], 2):,.2f}"],
-        ["Total", f"${totals['total']:,.2f}"],
+        [f"FOB Total ({q['loading_port'] or '-'})", f"${totals['fob_total']:,.2f}"],
+        [f"CIF Total ({q['destination'] or '-'})", f"${totals['cif_total']:,.2f}"],
     ]
     totals_table = Table(totals_rows, colWidths=[400, 90])
     totals_table.setStyle(TableStyle([
