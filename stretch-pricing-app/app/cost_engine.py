@@ -229,15 +229,25 @@ def pallet_component_total_usd(conn, packing_key):
     total += (pc["box_qty"] or 0) * _material_rate(conn, "box") / dollar_rate
     total += (pc["cartoon_angle_qty"] or 0) * _material_rate(conn, "cartoon_angle") / dollar_rate
     total += (pc["scotch_tape_qty"] or 0) * _material_rate(conn, "scotch_tape") / dollar_rate
+    if "air_bag_qty" in pc.keys():
+        total += (pc["air_bag_qty"] or 0) * _material_rate(conn, "air_bag") / dollar_rate
+    if "pe_bag_qty" in pc.keys():
+        total += (pc["pe_bag_qty"] or 0) * _material_rate(conn, "pe_bag") / dollar_rate
     return total
 
 
-def _pallet_key_for(auto_manual, pallet_size):
+def _pallet_key_for(auto_manual, pallet_size, packaging_group=None):
     """auto_manual: 'Automatic' | 'Manual(5kg)' | 'Manual(2.3~3.5kg)' |
     'Manual(2.2kg)' | 'Manual(1.5kg)'. pallet_size: 'Standard' (USD/120x100)
-    or 'Euro' (EUR/120x80)."""
+    or 'Euro' (EUR/120x80). packaging_group: a product-level override (see
+    product.packaging_group / db.py's _seed_box_packaging_v3) that bypasses
+    the normal Automatic/Manual lookup entirely -- e.g. 12-micron 300%
+    film, which is boxed (roll -> PE bag -> box) rather than packed the
+    standard Automatic way, regardless of its auto_manual value."""
     is_eur = "euro" in (pallet_size or "").lower()
     suffix = "eur" if is_eur else "usd"
+    if packaging_group:
+        return f"{packaging_group}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
         if "5kg" in am or "5 kg" in am:
@@ -307,7 +317,8 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
     rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
     if rolls_per_pallet <= 0:
         return 0.0
-    key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"])
+    packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
+    key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group)
     total = pallet_component_total_usd(conn, key)
     roll_weight = product["roll_weight_kg"] or 0
     if roll_weight > 25 and key.startswith("automatic"):

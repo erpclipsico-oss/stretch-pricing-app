@@ -16,6 +16,7 @@ cost_upload.py's own comments for the earlier bug this guards against).
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -149,6 +150,8 @@ TABLE_CONFIGS = {
             ("rolls_per_box", "Rolls/Box", True),
             ("cartoon_angle_qty", "Cartoon Angle Qty", True),
             ("scotch_tape_qty", "Scotch Tape Qty", True),
+            ("air_bag_qty", "Air Bags Qty", True),
+            ("pe_bag_qty", "PE Bag Qty (kg)", True),
         ],
     },
     "bom_row": {
@@ -209,7 +212,11 @@ def export_table_excel(conn, table_key):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = cfg["label"][:31] or "Sheet1"
+    # Excel sheet titles forbid \ / ? * [ ] : and are capped at 31 chars --
+    # strip those out rather than let a label like "Pallet / Packaging
+    # Component" crash the export.
+    safe_title = re.sub(r"[\\/?*\[\]:]", "", cfg["label"])[:31].strip()
+    ws.title = safe_title or "Sheet1"
 
     headers = ["Row ID (keep)"] + [h for _, h, _ in cfg["columns"]]
     ws.append(headers)

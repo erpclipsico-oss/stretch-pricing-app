@@ -464,7 +464,8 @@ def create_app():
                 pid = request.form.get("product_id")
                 db.execute(
                     """UPDATE product SET stretch_ability=?, micron=?, rolls_per_pallet=?, roll_weight_kg=?,
-                       core_weight_kg=?, width_mm=?, ex_work_usd_kg=?, fob_usd_kg=?, cfr_usd_kg=? WHERE id=?""",
+                       core_weight_kg=?, width_mm=?, packaging_group=?, ex_work_usd_kg=?, fob_usd_kg=?,
+                       cfr_usd_kg=? WHERE id=?""",
                     (
                         request.form.get("stretch_ability", "").strip(),
                         request.form.get("micron", "").strip(),
@@ -472,6 +473,7 @@ def create_app():
                         float(request.form.get("roll_weight_kg") or 0),
                         float(request.form.get("core_weight_kg") or 0),
                         float(request.form.get("width_mm") or 0) or None,
+                        request.form.get("packaging_group", "").strip() or None,
                         float(request.form.get("ex_work_usd_kg") or 0),
                         float(request.form.get("fob_usd_kg") or 0) or None,
                         float(request.form.get("cfr_usd_kg") or 0) or None,
@@ -769,13 +771,15 @@ def create_app():
             pid = request.form.get("pallet_id")
             db.execute(
                 """UPDATE pallet_component SET pallet_qty=?, cardboard_qty=?, cap_qty=?, corrugated_kg=?,
-                   stretch_kg=?, box_qty=?, rolls_per_box=?, cartoon_angle_qty=?, scotch_tape_qty=? WHERE id=?""",
+                   stretch_kg=?, box_qty=?, rolls_per_box=?, cartoon_angle_qty=?, scotch_tape_qty=?,
+                   air_bag_qty=?, pe_bag_qty=? WHERE id=?""",
                 (
                     float(request.form.get("pallet_qty") or 0), float(request.form.get("cardboard_qty") or 0),
                     float(request.form.get("cap_qty") or 0), float(request.form.get("corrugated_kg") or 0),
                     float(request.form.get("stretch_kg") or 0), float(request.form.get("box_qty") or 0),
                     float(request.form.get("rolls_per_box") or 0), float(request.form.get("cartoon_angle_qty") or 0),
-                    float(request.form.get("scotch_tape_qty") or 0), pid,
+                    float(request.form.get("scotch_tape_qty") or 0),
+                    float(request.form.get("air_bag_qty") or 0), float(request.form.get("pe_bag_qty") or 0), pid,
                 ),
             )
             db.commit()

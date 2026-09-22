@@ -250,6 +250,9 @@ def init_db():
     _seed_prestretch_settings(conn)
     _seed_missing_products(conn)
     _seed_freight_v2(conn)
+    _seed_packaging_v2(conn)
+    _seed_box_packaging_v3(conn)
+    _seed_full_import_v4(conn)
     conn.close()
 
 
@@ -342,12 +345,148 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_rolls_per_pallet REAL")
         conn.commit()
 
+    # ---- Product-specific packaging override (v15): a handful of products
+    # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
+    # rather than the standard Automatic "straight on the pallet, wrapped in
+    # stretch film" packaging, per the reference workbook's dedicated
+    # "Packaging for Boxes" section for those SKUs. NULL (the default, for
+    # every existing product) means "use the normal Automatic/Manual +
+    # pallet-type lookup" -- see cost_engine._pallet_key_for(); setting this
+    # to a pallet_component packing-key prefix (e.g. 'box_12m300') makes that
+    # product always cost against the '<prefix>_usd'/'<prefix>_eur'
+    # pallet_component rows instead, regardless of auto_manual.
+    product_cols = {row["name"] for row in conn.execute("PRAGMA table_info(product)").fetchall()}
+    if "packaging_group" not in product_cols:
+        conn.execute("ALTER TABLE product ADD COLUMN packaging_group TEXT")
+        conn.commit()
+
     # Seed the two Egyptian loading ports with their FOB add-on (idempotent,
     # keyed by the unique port name, so it won't duplicate or clobber a rate
     # the owner has since edited in admin).
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Alexandria (Egypt)', 1500)")
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Damietta (Egypt)', 1800)")
     conn.commit()
+
+
+def _seed_packaging_v2(conn):
+    """Add Air bags and PE Bag as packaging material inputs (v14 -- the
+    owner pointed out these were missing vs. their reference material list)
+    and the matching pallet_component quantity columns so they can be
+    costed in. The new material rates are seeded (idempotent, keyed by the
+    unique material_key) but the per-pallet QUANTITY columns default to 0 --
+    there is no source-of-truth quantity for "air bags per pallet" in this
+    app's data yet, so leaving them at 0 keeps every existing price
+    unchanged until the owner fills in the real quantity for each packing
+    variant in Admin > Pallet/Packaging."""
+    conn.execute(
+        "INSERT OR IGNORE INTO material_rate (material_key, label, category, unit, value) "
+        "VALUES ('air_bag', 'Air bags', 'packaging', 'piece', 200)"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO material_rate (material_key, label, category, unit, value) "
+        "VALUES ('pe_bag', 'PE Bag', 'packaging', 'kilo', 150)"
+    )
+    conn.commit()
+    pc_cols = {row["name"] for row in conn.execute("PRAGMA table_info(pallet_component)").fetchall()}
+    if "air_bag_qty" not in pc_cols:
+        conn.execute("ALTER TABLE pallet_component ADD COLUMN air_bag_qty REAL NOT NULL DEFAULT 0")
+        conn.commit()
+    if "pe_bag_qty" not in pc_cols:
+        conn.execute("ALTER TABLE pallet_component ADD COLUMN pe_bag_qty REAL NOT NULL DEFAULT 0")
+        conn.commit()
+
+
+# Box/PE-Bag quantities per pallet variant, straight from the reference
+# workbook's 'Pallet component' sheet, "2) Packaging for Boxes" section
+# (columns N-V, "12m 300%(16 kg)"). Box qty is a PIECE count (same 'box'
+# material rate as the Manual small/large-box variants -- the sheet's
+# "kilo" unit label on that row is a copy/paste artifact from the row
+# above it; the $ value only reconciles as pieces at the existing box
+# rate). 12-micron 300% is a real, sellable catalog product (the owner
+# confirmed it -- and confirmed it's the ONLY product with this special
+# roll-in-a-PE-bag-then-in-a-box packaging; everything else, including the
+# 12-micron 350% product, uses the normal Automatic/Manual packaging).
+BOX_PACKAGING_V3 = [
+    # packing_key,       label,                                  pallet_size_label,  cardboard, cap, stretch_kg, box_qty, pe_bag_kg
+    ("box_12m300_usd", "12m 300% (16kg) - Boxed (USD Pallet)", "120cm x 100cm", 2, 1, 0.5, 46, 2.3),
+    ("box_12m300_eur", "12m 300% (16kg) - Boxed (EUR Pallet)", "120cm x 80cm", 4, 0, 0.65, 46, 2.3),
+]
+
+# Reference sheet has air bags ONLY on the Manual + EUR-pallet packing
+# variants (Large Box 2.3~3.5, Small Box 2.2, Small Box 1.5, Small Box 5 --
+# all EUR), at 0.5 air bag per pallet; every USD Manual variant and every
+# Automatic variant has none.
+AIR_BAG_EUR_PACKING_KEYS = [
+    "manual_largebox_eur", "manual_smallbox22_eur", "manual_smallbox15_eur", "manual_smallbox5_eur",
+]
+
+
+def _seed_box_packaging_v3(conn):
+    """v16 -- owner confirmed (from the reference workbook they'd already
+    uploaded, cross-checked against v15's first guess) that 12-micron 300%
+    film is a real, sellable product -- the ONLY one packed roll-in-a-PE-
+    bag-then-in-a-box, rather than the standard Automatic straight-on-pallet
+    packing every other product (including 12-micron 350%) uses -- and that
+    air bags are a Manual+EUR-pallet-only line item. Adds the dedicated
+    'Boxed' pallet_component variant (idempotent, keyed by the unique
+    packing_key) and, ONE TIME ONLY (gated so it never clobbers a manual
+    admin edit on a later restart):
+      - sets air_bag_qty=0.5 on the four existing Manual EUR variants
+      - adds the 12-micron/300% catalog product itself (it didn't exist
+        before) with packaging_group='box_12m300', so its cost actually
+        uses the Boxed variant; EX-Work is computed fresh from the cost
+        engine right after insert. FOB/CFR are left blank for the owner to
+        fill in in Admin > Products -- there's no reference figure for them
+        yet.
+    """
+    for packing_key, label, pallet_size_label, cardboard, cap, stretch_kg, box_qty, pe_bag_kg in BOX_PACKAGING_V3:
+        conn.execute(
+            """INSERT OR IGNORE INTO pallet_component
+               (packing_key, label, pallet_size_label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg,
+                stretch_kg, box_qty, rolls_per_box, cartoon_angle_qty, scotch_tape_qty, air_bag_qty, pe_bag_qty)
+               VALUES (?, ?, ?, 1, ?, ?, 0, ?, ?, 0, 0, 0, 0, ?)""",
+            (packing_key, label, pallet_size_label, cardboard, cap, stretch_kg, box_qty, pe_bag_kg),
+        )
+    conn.commit()
+
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='box_packaging_v3_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    for packing_key in AIR_BAG_EUR_PACKING_KEYS:
+        conn.execute("UPDATE pallet_component SET air_bag_qty=0.5 WHERE packing_key=?", (packing_key,))
+
+    # 12-micron/350% is NOT special -- make sure it (and anything else) is
+    # left on the standard Automatic/Manual packaging lookup.
+    conn.execute("UPDATE product SET packaging_group=NULL WHERE packaging_group='box_12m350'")
+
+    existing_300 = conn.execute(
+        "SELECT 1 FROM product WHERE micron='12' AND stretch_ability LIKE '%300%'"
+    ).fetchone()
+    if not existing_300:
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg, packaging_group)
+               VALUES ('300% (Power plus)', '12', 'Standard', 'Automatic', 'Transparent', 46, 16, 1.8,
+                       0, NULL, NULL, 'box_12m300')"""
+        )
+        conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("box_packaging_v3_seeded", "Box packaging v3 seeded (internal marker)", 1,
+         "Internal marker: the 12m 300% Boxed packaging variant, the 12-micron/300% catalog "
+         "product, and the Manual+EUR air-bag defaults have been loaded. Do not delete this "
+         "row -- it stops the one-time refresh from running again and overwriting manual "
+         "edits made in Admin > Pallet/Packaging, Admin > Products, or a product's packaging "
+         "group."),
+    )
+    conn.commit()
+    from . import cost_engine
+    cost_engine.recalculate_all_products(conn)
 
 
 def _seed_freight_v2(conn):
@@ -728,6 +867,206 @@ def _seed_packing_tiers(conn):
              box_per_pallet, rolls_per_pallet, p40, p20),
         )
     conn.commit()
+
+
+def _seed_full_import_v4(conn):
+    """v17 -- owner-supplied reference workbook 'Stretch_Export_Pricing_H1.36':
+    full one-time refresh of material rates, BOM, products (Stretch sheet),
+    electricity/production-capacity, fixed costs, labor roster, factors and
+    pallet-component quantities from that workbook, per the owner's explicit
+    "enter ALL the products and BOMs, update material prices, take ALL the
+    data in it and apply it" instruction.
+
+    Gated behind a global_setting marker (like every other one-time refresh
+    in this file) so a later gunicorn worker / Render restart never re-runs
+    this and clobbers an admin's manual edit made earlier in the same boot.
+    Called LAST in init_db() so it always has the final say over whatever
+    the earlier seed steps loaded.
+
+    Deliberately NOT touched by this import (see PR/report for the reasoning
+    behind each):
+      - 'pe_bag' material rate: stays at the owner's explicit 150 EGP/kg
+        instruction from an earlier conversation turn, not the ~95 EGP/kg
+        this workbook's Pallet component sheet implies.
+      - bom_row's C4 column: the workbook's explicit 'C4' fraction always
+        equals 1 minus the sum of the other resins on that row (verified
+        against every sampled row), which is exactly what
+        cost_engine.material_composition()'s c4_fraction leftover
+        computation already reproduces -- so no schema change or extra
+        column is needed; importing the other 7 fractions is sufficient.
+      - factor.regid / factor.uv_regid: the new Factors sheet splits Rigid
+        factors by micron bucket ("8&9" vs "10&12" automatic, plus separate
+        "Rigid"/"UV&Rigid" columns) in a way the existing single-value
+        regid/uv_regid columns can't represent without guessing which
+        bucket an admin meant -- left as-is rather than risk a wrong value.
+      - 'Labor Jan 2026' sheet: NOT used as the labor source. It's a
+        company-wide monthly payroll ledger (security, cleaning, warehouse,
+        admin -- not just production) with no base/increase-rate shape, so
+        it doesn't map onto labor_employee's schema or scope. 'Direct
+        Labor' (this app's existing table's shape and role-for-role match:
+        'رئيس وردية' / 'عامل انتاج' production floor staff) is used instead.
+      - REGID Film 'Super"10/12/15"' rows on the Stretch sheet: these use a
+        different Auto/Manual + Pallet-size numeric coding than the rest of
+        the sheet with no legend found in the workbook to decode safely, so
+        they are left out rather than risk inserting a mis-specified SKU.
+    """
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='full_import_h136_v4_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    with open(os.path.join(BASE_DIR, "data", "full_import_h136.json"), encoding="utf-8") as f:
+        data = json.load(f)
+
+    # 1) Material rates (resin + packaging), except pe_bag (see docstring).
+    for key, value in data["material_rates"].items():
+        conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (value, key))
+    conn.commit()
+
+    # 2) BOM: full replace (both roll tiers, all stretch multipliers x microns).
+    conn.execute("DELETE FROM bom_row")
+    for b in data["bom_rows"]:
+        conn.execute(
+            """INSERT OR IGNORE INTO bom_row
+               (stretch_multiplier, micron, roll_tier, exceed3518, exceed3812, exceedxp,
+                vista6000, enable, ld258, vista6202)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (b["stretch_multiplier"], b["micron"], b["roll_tier"], b["exceed3518"], b["exceed3812"],
+             b["exceedxp"], b["vista6000"], b["enable"], b["ld258"], b["vista6202"]),
+        )
+    conn.commit()
+
+    # 3) Products: update existing (match by stretch_ability+micron+roll_weight_kg)
+    # or insert new jumbo-roll SKUs the Stretch sheet lists that the catalog is
+    # missing. fob_usd_kg/cfr_usd_kg come straight from the sheet; ex_work_usd_kg
+    # is left for recalculate_all_products() at the end (never hardcoded from
+    # the sheet's own EX-Work column, which is this app's job to compute).
+    inserted_products = []
+    updated_products = 0
+    for sp in data["stretch_products"]:
+        micron_str = str(int(sp["micron"])) if float(sp["micron"]).is_integer() else str(sp["micron"])
+        row = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=?",
+            (sp["stretch_ability"], micron_str, sp["roll_weight_kg"]),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE product SET fob_usd_kg=?, cfr_usd_kg=? WHERE id=?",
+                (sp["fob_usd_kg"], sp["cfr_usd_kg"], row["id"]),
+            )
+            updated_products += 1
+        else:
+            conn.execute(
+                """INSERT INTO product
+                   (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                    roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
+                   VALUES (?,?,?,?,?,?,?,?,?,0,?,?)""",
+                (sp["stretch_ability"], micron_str, "Standard", "Automatic", "Transparent",
+                 sp["rolls_per_pallet"], sp["roll_weight_kg"], 1.8, 500,
+                 sp["fob_usd_kg"], sp["cfr_usd_kg"]),
+            )
+            inserted_products.append(f"{sp['stretch_ability']} / {micron_str}mic / {sp['roll_weight_kg']}kg")
+    conn.commit()
+
+    # 4) Electricity (kW/ton) and production capacity (tons/day): full replace.
+    conn.execute("DELETE FROM electricity_power")
+    for micron, roll_type, kw in data["electricity_power"]:
+        conn.execute(
+            "INSERT OR IGNORE INTO electricity_power (micron, roll_type, kw_per_ton) VALUES (?,?,?)",
+            (micron, roll_type, kw),
+        )
+    conn.execute("DELETE FROM production_capacity")
+    for micron, roll_type, tons in data["production_capacity"]:
+        conn.execute(
+            "INSERT OR IGNORE INTO production_capacity (micron, roll_type, tons_per_day) VALUES (?,?,?)",
+            (micron, roll_type, tons),
+        )
+    conn.commit()
+
+    # 5) Fixed cost items: keyed UPDATE by name where it already exists (so the
+    # labor-synced 'اجور عمال الانتاج' / 'اضافي عمال الانتاج' rows, which are
+    # NOT in this sheet-sourced list, are left untouched and still driven live
+    # by sync_labor_to_fixed_costs()); INSERT any sheet line item that's new.
+    for category, name, value in data["fixed_cost_items"]:
+        row = conn.execute(
+            "SELECT id FROM fixed_cost_item WHERE name=? AND category=?", (name, category)
+        ).fetchone()
+        if row:
+            conn.execute("UPDATE fixed_cost_item SET value_egp=? WHERE id=?", (value, row["id"]))
+        else:
+            conn.execute(
+                "INSERT INTO fixed_cost_item (category, name, value_egp) VALUES (?,?,?)",
+                (category, name, value),
+            )
+    conn.commit()
+
+    # 6) Labor roster: update base wage + increase rate for each existing
+    # employee (matched by name -- every name in this sheet already exists in
+    # the roster). See docstring for why 'Labor Jan 2026' is not used here.
+    for name, role, base, rate in data["labor_employees"]:
+        conn.execute(
+            "UPDATE labor_employee SET role=?, base_2023_egp=?, increase_rate=? WHERE name=?",
+            (role, base, rate, name),
+        )
+    conn.commit()
+    from . import cost_engine
+    cost_engine.sync_labor_to_fixed_costs(conn)
+
+    # 7) Factors: update the Automatic/UVI columns only (see docstring for why
+    # regid/uv_regid are left alone).
+    for (country_class, customer_class, roll_size, auto_std, auto_pow, auto_pp,
+         uvi_std, uvi_pow, uvi_pp) in data["factors"]:
+        conn.execute(
+            """UPDATE factor SET automatic_standard=?, automatic_power=?, automatic_power_plus=?,
+               uvi_standard=?, uvi_power=?, uvi_power_plus=?
+               WHERE country_class=? AND customer_class=? AND roll_size=?""",
+            (auto_std, auto_pow, auto_pp, uvi_std, uvi_pow, uvi_pp,
+             country_class, customer_class, roll_size),
+        )
+    conn.commit()
+
+    # 8) Pallet component: reconcile quantities on existing packing_keys that
+    # differ from this newer sheet, and seed the two extra boxed variants
+    # (12m 350% and the 15/17m-350%/35m-250% block) as inert, available rows
+    # -- not wired to any product's packaging_group (owner confirmed only the
+    # 12-micron/300% product uses special box packaging).
+    for packing_key, updates in data["pallet_component_updates"].items():
+        set_clause = ", ".join(f"{col}=?" for col in updates)
+        conn.execute(
+            f"UPDATE pallet_component SET {set_clause} WHERE packing_key=?",
+            (*updates.values(), packing_key),
+        )
+    for (packing_key, label, pallet_size_label, cardboard, cap, corrugated, stretch_kg, box_qty,
+         pe_bag_kg) in data["pallet_component_inserts"]:
+        conn.execute(
+            """INSERT OR IGNORE INTO pallet_component
+               (packing_key, label, pallet_size_label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg,
+                stretch_kg, box_qty, rolls_per_box, cartoon_angle_qty, scotch_tape_qty, air_bag_qty, pe_bag_qty)
+               VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?)""",
+            (packing_key, label, pallet_size_label, cardboard, cap, corrugated, stretch_kg, box_qty, pe_bag_kg),
+        )
+    conn.commit()
+
+    # 9) Pre-Stretch packaging totals (see prestretch_packaging_noboxes_usd /
+    # prestretch_packaging_boxes_usd help text) -- updated to this sheet's
+    # 'Pallet component'!Q11/V11 totals.
+    for key, value in data["global_setting_updates"].items():
+        conn.execute("UPDATE global_setting SET value=? WHERE key=?", (value, key))
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("full_import_h136_v4_seeded", "Full H1.36 workbook import v4 seeded (internal marker)", 1,
+         "Internal marker: material rates, BOM, products, electricity/production-capacity, fixed "
+         "costs, labor roster, factors and pallet-component quantities have been refreshed from "
+         "'Stretch_Export_Pricing_H1.36'. Do not delete this row -- it stops the one-time import "
+         "from running again and overwriting manual admin edits made after this boot. "
+         f"New products inserted at seed time: {len(inserted_products)}; existing products "
+         f"updated: {updated_products}."),
+    )
+    conn.commit()
+    cost_engine.recalculate_all_products(conn)
 
 
 def _seed_default_users(conn):

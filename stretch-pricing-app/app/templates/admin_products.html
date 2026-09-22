@@ -26,6 +26,13 @@
         <div class="edit-cell"><span class="col-label">Roll kg</span><input type="number" step="any" name="roll_weight_kg" value="{{ p.roll_weight_kg or 0 }}" style="width:65px;"></div>
         <div class="edit-cell"><span class="col-label">Core kg</span><input type="number" step="any" name="core_weight_kg" value="{{ p.core_weight_kg or 0 }}" style="width:65px;"></div>
         <div class="edit-cell"><span class="col-label">Width mm</span><input type="number" step="any" name="width_mm" value="{{ p.width_mm or '' }}" placeholder="500" style="width:65px;"></div>
+        <div class="edit-cell">
+          <span class="col-label">Packaging</span>
+          <select name="packaging_group" style="width:150px;" title="Overrides the normal Automatic/Manual packaging lookup -- 'Bag then box' packs each roll into a PE bag then a box (12-micron 300% film), instead of the standard straight-on-pallet wrap.">
+            <option value="" {% if not p.packaging_group %}selected{% endif %}>Standard (Automatic/Manual)</option>
+            <option value="box_12m300" {% if p.packaging_group == 'box_12m300' %}selected{% endif %}>Bag then box -- 12m 300% (16kg)</option>
+          </select>
+        </div>
         <div class="edit-cell"><span class="col-label">EX-Work $/KG (cached)</span><input type="number" step="any" name="ex_work_usd_kg" value="{{ p.ex_work_usd_kg }}" style="width:80px;"></div>
         <div class="edit-cell"><span class="col-label">FOB $/KG</span><input type="number" step="any" name="fob_usd_kg" value="{{ p.fob_usd_kg or '' }}" style="width:80px;"></div>
         <div class="edit-cell"><span class="col-label">CFR $/KG</span><input type="number" step="any" name="cfr_usd_kg" value="{{ p.cfr_usd_kg or '' }}" style="width:80px;"></div>

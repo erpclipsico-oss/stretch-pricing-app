@@ -21,7 +21,8 @@
       <span style="width:50px;">Cap</span><span style="width:70px;">Corrug. kg</span>
       <span style="width:60px;">Stretch kg</span><span style="width:55px;">Box qty</span>
       <span style="width:65px;">Rolls/box</span><span style="width:60px;">Ctn angle</span>
-      <span style="width:60px;">Tape</span><span style="width:90px;">$/pallet</span>
+      <span style="width:60px;">Tape</span><span style="width:60px;">Air bags</span>
+      <span style="width:60px;">PE bag kg</span><span style="width:90px;">$/pallet</span>
     </div>
     {% for r in rows %}
     <div class="edit-row">
@@ -45,6 +46,10 @@
         <input type="number" step="any" name="rolls_per_box" value="{{ r.rolls_per_box }}" style="width:65px;">
         <input type="number" step="any" name="cartoon_angle_qty" value="{{ r.cartoon_angle_qty }}" style="width:60px;">
         <input type="number" step="any" name="scotch_tape_qty" value="{{ r.scotch_tape_qty }}" style="width:60px;">
+        <input type="number" step="any" name="air_bag_qty" value="{{ r.air_bag_qty }}" style="width:60px;"
+               title="Air bags per pallet -- no source quantity yet, fill in the real count for this packing variant">
+        <input type="number" step="any" name="pe_bag_qty" value="{{ r.pe_bag_qty }}" style="width:60px;"
+               title="PE Bag kg per pallet -- no source quantity yet, fill in the real amount for this packing variant">
         <span style="width:90px;">${{ totals[r.packing_key] }}</span>
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </form>

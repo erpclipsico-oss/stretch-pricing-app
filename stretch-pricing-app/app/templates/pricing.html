@@ -96,7 +96,6 @@
         <th>Roll kg</th>
         <th>Core kg</th>
         <th>Rolls/pallet</th>
-        <th>Pallets/cont 40'</th>
         <th>Discount %</th>
         <th>EXW $/kg</th>
         <th>FOB $/kg</th>
@@ -185,7 +184,6 @@ function addLine(prefill) {
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
-    <td class="f-ppc40 num">&ndash;</td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-exw num">0.000</td>
     <td class="f-fob num">0.000</td>
@@ -213,7 +211,7 @@ function addLine(prefill) {
   pr.innerHTML = `
     <td></td>
     <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
-    <td colspan="13">
+    <td colspan="12">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <label style="font-size:0.78rem;">Roll wt (KG)
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
@@ -351,7 +349,6 @@ async function calculateAll() {
         tr.querySelector('.f-rpp').value = data.rolls_per_pallet;
       }
     }
-    tr.querySelector('.f-ppc40').textContent = (data.pallets_per_container40 || data.pallets_per_container40 === 0) ? data.pallets_per_container40 : '–';
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(3);
     const lineDiscountPct = parseFloat(tr.querySelector('.f-discount').value || 0);
