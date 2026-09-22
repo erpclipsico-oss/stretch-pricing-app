@@ -33,7 +33,7 @@ def _material_rate(conn, key, default=0.0):
     return row["value"] if row is not None and row["value"] is not None else default
 
 
-def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None):
+def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None, auto_manual=None):
     """Returns a plain dict standing in for a product row, with roll weight /
     core weight / width overridden by the values a quotation line actually
     entered (these vary per customer order -- see COST_ENGINE.md v9 note --
@@ -43,7 +43,20 @@ def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=N
     roll_weight_kg and width_mm are only overridden when a positive number
     is given (0/blank means "use the catalog value"); core_weight_kg of 0 is
     a valid, meaningful override (no core) so it's only skipped when the
-    value is missing entirely."""
+    value is missing entirely.
+
+    auto_manual (v21 bug fix): the quotation LINE's own "Packing type"
+    choice (Automatic / Manual(5kg) / Manual(2.3~3.5kg) / Manual(2.2kg) /
+    Manual(1.5kg)) now overrides the product catalog's auto_manual for
+    costing -- margin_pct_for(), packaging_cost_per_roll_usd() and
+    effective_rolls_per_pallet() all read product["auto_manual"], so this
+    is the single place that override has to land. Previously the rep's
+    per-line Packing type selection was only ever stored on the saved
+    quotation_line row for display and never actually affected the price,
+    which always priced strictly off the selected product's own catalog
+    Automatic/Manual value -- reported by the owner as a bug (comparing to
+    the reference app, where changing Packing type visibly changes the
+    price) and fixed here."""
     d = dict(product)
     if roll_weight_kg not in (None, ""):
         try:
@@ -64,6 +77,8 @@ def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=N
                 d["width_mm"] = v
         except (TypeError, ValueError):
             pass
+    if auto_manual not in (None, ""):
+        d["auto_manual"] = auto_manual
     return d
 
 
@@ -429,9 +444,6 @@ EXTRAS_SETTING_KEYS = {
     "foreign_seller_pct": "extra_foreign_seller_pct",
 }
 
-_NON_COLOR_VALUES = {"", "transparent", "clear", "natural"}
-
-
 def extras_settings(conn):
     """Current value of all three Extras settings, as a plain dict."""
     return {
@@ -441,15 +453,12 @@ def extras_settings(conn):
     }
 
 
-def color_extra_usd_kg(conn, product):
-    """'Color extra': an additional $/KG surcharge for any product whose
-    catalog color isn't Transparent/Clear/Natural (products have no
-    per-quotation-line color field, so this reads the product's own
-    catalog `color`)."""
-    color = ""
-    if product is not None and "color" in product.keys():
-        color = (product["color"] or "").strip().lower()
-    if color in _NON_COLOR_VALUES:
+def color_extra_usd_kg(conn, colored):
+    """'Color extra': an additional $/KG surcharge, applied whenever the
+    quotation LINE's own "Colored" checkbox is ticked (v21.1 -- matches the
+    reference app exactly: a per-line Colored checkbox, not a property of
+    the product/catalog). `colored` is the line's own flag, truthy/falsy."""
+    if not colored:
         return 0.0
     return _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25)
 

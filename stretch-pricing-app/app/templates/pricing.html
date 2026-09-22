@@ -76,6 +76,7 @@
         <th>Pallet type</th>
         <th>Packing type</th>
         <th>Price basis</th>
+        <th title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
         <th>Qty (pallets)</th>
         <th>Width (mm)</th>
         <th>Roll kg</th>
@@ -164,6 +165,7 @@ function addLine(prefill) {
         ${PRICING_BASES.map(b => `<option value="${b[0]}" ${b[0]==='per_kg' ? 'selected' : ''}>${b[1]}</option>`).join('')}
       </select>
     </td>
+    <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5"></td>
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
@@ -196,7 +198,7 @@ function addLine(prefill) {
   pr.innerHTML = `
     <td></td>
     <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
-    <td colspan="12">
+    <td colspan="13">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <label style="font-size:0.78rem;">Roll wt (KG)
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
@@ -261,6 +263,7 @@ function readLines() {
       pallet_type: tr.querySelector('.f-pallet').value,
       packing_type: tr.querySelector('.f-packing').value,
       pricing_basis: tr.querySelector('.f-basis').value,
+      colored: tr.querySelector('.f-colored').checked,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     };
@@ -297,9 +300,11 @@ async function calculateAll() {
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
     const pallet_type = tr.querySelector('.f-pallet').value;
+    const packing_type = tr.querySelector('.f-packing').value;
     const pricing_basis = tr.querySelector('.f-basis').value;
+    const colored = tr.querySelector('.f-colored').checked;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
-    const payload = {product_id, quantity_pallets, pallet_type, pricing_basis};
+    const payload = {product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored};
     if (isPrestretch(product_id)) {
       const pr = tr.nextElementSibling;
       payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);

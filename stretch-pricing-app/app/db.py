@@ -369,6 +369,13 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_rolls_per_pallet REAL")
         conn.commit()
 
+    # ---- Extras (v21.1): this line's own "Colored" checkbox, independent
+    # of the product's catalog color -- drives the Extras "Color extra"
+    # $/KG surcharge (see cost_engine.color_extra_usd_kg()).
+    if "colored" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN colored INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+
     # ---- Product-specific packaging override (v15): a handful of products
     # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
     # rather than the standard Automatic "straight on the pallet, wrapped in

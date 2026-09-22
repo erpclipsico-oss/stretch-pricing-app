@@ -126,6 +126,7 @@ def create_app():
         pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
+        colored = bool(data.get("colored"))
 
         if is_prestretch(product):
             roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
@@ -135,7 +136,7 @@ def create_app():
             unit_price, total_kg = compute_prestretch_line(
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
-                seller_type=seller_type,
+                seller_type=seller_type, colored=colored,
             )
             gross = round(unit_price * total_kg, 2)
             return jsonify({
@@ -153,6 +154,10 @@ def create_app():
         custom_core_weight_kg = data.get("custom_core_weight_kg")
         custom_width_mm = data.get("custom_width_mm")
         custom_rolls_per_pallet = data.get("custom_rolls_per_pallet")
+        # v21.1: the line's own Packing type selection now drives the price
+        # (see cost_engine.with_overrides()'s auto_manual param) instead of
+        # always pricing off the selected product's own catalog Auto/Manual.
+        auto_manual_override = data.get("packing_type") or None
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
                                              price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                              pricing_basis=pricing_basis,
@@ -160,14 +165,15 @@ def create_app():
                                              core_weight_kg=custom_core_weight_kg,
                                              width_mm=custom_width_mm,
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
-                                             seller_type=seller_type)
+                                             seller_type=seller_type,
+                                             auto_manual_override=auto_manual_override, colored=colored)
         gross = round(unit_price * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
-                                                         custom_width_mm)
+                                                         custom_width_mm, auto_manual=auto_manual_override)
         rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, effective_product, pallet_type,
                                                                     custom_rolls_per_pallet)
-        tier = cost_engine.lookup_packing_tier(g.db, product["auto_manual"], effective_product["roll_weight_kg"],
-                                                pallet_type)
+        tier = cost_engine.lookup_packing_tier(g.db, effective_product["auto_manual"],
+                                                effective_product["roll_weight_kg"], pallet_type)
         return jsonify({
             "unit_price_usd_kg": unit_price,
             "total_kg": total_kg,
@@ -236,6 +242,8 @@ def create_app():
             pallet_type = l.get("pallet_type", "Standard Pallet")
             pricing_basis = l.get("pricing_basis", "per_kg")
 
+            colored = bool(l.get("colored"))
+
             if is_prestretch(product):
                 roll_weight_kg = float(l.get("prestretch_roll_weight_kg") or 0)
                 core_weight_kg = float(l.get("prestretch_core_weight_kg") or 0)
@@ -245,18 +253,18 @@ def create_app():
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
-                    seller_type=creator_seller_type,
+                    seller_type=creator_seller_type, colored=colored,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
                        (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                        unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                        unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
                         prestretch_roll_weight_kg, prestretch_core_weight_kg, prestretch_rolls_per_pallet,
                         prestretch_packaging_type)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
                      float(l.get("quantity_pallets") or 0), unit_price, total_kg,
-                     float(l.get("line_discount_pct") or 0), pricing_basis,
+                     float(l.get("line_discount_pct") or 0), pricing_basis, int(colored),
                      roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type),
                 )
                 continue
@@ -265,22 +273,28 @@ def create_app():
             custom_core_weight_kg = l.get("custom_core_weight_kg")
             custom_width_mm = l.get("custom_width_mm")
             custom_rolls_per_pallet = l.get("custom_rolls_per_pallet")
+            # v21.1: the line's own Packing type selection (Automatic /
+            # Manual(5kg) / Manual(2.3~3.5kg) / Manual(2.2kg) / Manual(1.5kg))
+            # now actually drives the price (margin + packaging cost), not
+            # just the product's own catalog Automatic/Manual value -- see
+            # cost_engine.with_overrides()'s auto_manual param.
+            auto_manual_override = l.get("packing_type") or None
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
-                seller_type=creator_seller_type,
+                seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
             )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
-                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis,
+                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis, int(colored),
                  (float(custom_roll_weight_kg) if custom_roll_weight_kg not in (None, "") else None),
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
