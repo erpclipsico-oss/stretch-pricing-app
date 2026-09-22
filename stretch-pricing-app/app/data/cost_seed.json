@@ -1,0 +1,2111 @@
+{
+  "global_settings": [
+    {
+      "key": "dollar_rate",
+      "label": "Dollar Rate (EGP per USD)",
+      "value": 45,
+      "help": "'Material pricing' F1. Converts EGP-denominated packaging/labor/fixed costs to USD."
+    },
+    {
+      "key": "dollar_rate_prestretch",
+      "label": "Dollar Rate - Prestretch (EGP per USD)",
+      "value": 45,
+      "help": "'Material pricing' F2. Used for pre-stretch film core costing."
+    },
+    {
+      "key": "color_rate_per_ton",
+      "label": "Color additive rate ($/ton)",
+      "value": 250,
+      "help": "'Material pricing' M1. Added when Color=Colored."
+    },
+    {
+      "key": "prestretch_rate_per_ton",
+      "label": "Prestretch rate ($/ton)",
+      "value": 90,
+      "help": "'Material pricing' M3."
+    },
+    {
+      "key": "capacity_usage_pct",
+      "label": "Capacity Usage % (machine utilization)",
+      "value": 0.8,
+      "help": "'Conversion cost' I2 / 'تكاليف ثابتة' L1. Assumed factory utilization used to convert daily tons capacity into monthly production tons for spreading fixed and variable overhead."
+    },
+    {
+      "key": "fob_cost_per_container",
+      "label": "FOB Cost $ / Container",
+      "value": 650,
+      "help": "'Material pricing' E5."
+    },
+    {
+      "key": "shipping_rate_per_container",
+      "label": "Shipping Rate $ / Container",
+      "value": 850,
+      "help": "'Material pricing' E8."
+    },
+    {
+      "key": "material_interest_rate",
+      "label": "Material interest rate (fraction)",
+      "value": 0.0,
+      "help": "'تكاليف متغيرة' D5 = ((3.216%+5.35%)/4)*(1-22.5%). Interest cost on resin purchased on credit; applied to the sum of material composition costs. NOTE: the source workbook currently has this line disabled for the month (a neighbouring cell's note: removed this month due to how the material-interest file is being managed, covered instead by credit interest), i.e. effectively 0 in the live workbook. Stored here as an editable rate defaulting to the computed 1.66% so it can be turned back on by an admin; set to 0 to match the current live workbook behaviour."
+    },
+    {
+      "key": "electricity_fixed_capacity_kw",
+      "label": "Contracted capacity (kW)",
+      "value": 885,
+      "help": "'Electricity' D2."
+    },
+    {
+      "key": "electricity_fixed_tariff_egp",
+      "label": "Fixed tariff (EGP/kW/month)",
+      "value": 60,
+      "help": "'Electricity' G2."
+    },
+    {
+      "key": "electricity_variable_tariff_egp_per_kwh",
+      "label": "Variable tariff (EGP/kWh)",
+      "value": 1.32,
+      "help": "'Electricity' B6."
+    },
+    {
+      "key": "waste_factor",
+      "label": "Material waste factor",
+      "value": 1.01,
+      "help": "Stretch sheet material-cost formulas multiply by 1.01 (waste allowance)."
+    },
+    {
+      "key": "scrap_interest_factor",
+      "label": "Material scrap/handling factor",
+      "value": 1.031,
+      "help": "Stretch sheet material-cost formulas multiply by 1.031 (handling/scrap allowance)."
+    }
+  ],
+  "material_rates": [
+    {
+      "material_key": "c4",
+      "label": "C4",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1140
+    },
+    {
+      "material_key": "exceed3518",
+      "label": "Exceed 3518",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1240
+    },
+    {
+      "material_key": "exceed3812",
+      "label": "Exceed 3812",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1340
+    },
+    {
+      "material_key": "exceedxp",
+      "label": "Exceed XP",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1340
+    },
+    {
+      "material_key": "vista6000",
+      "label": "Vista 6000",
+      "category": "resin",
+      "unit": "ton",
+      "value": 2000
+    },
+    {
+      "material_key": "enable",
+      "label": "Enable",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1250
+    },
+    {
+      "material_key": "uvi",
+      "label": "UVI",
+      "category": "resin",
+      "unit": "ton",
+      "value": 8222.222222222223
+    },
+    {
+      "material_key": "ld",
+      "label": "LD",
+      "category": "resin",
+      "unit": "ton",
+      "value": 1405
+    },
+    {
+      "material_key": "vista",
+      "label": "Vista",
+      "category": "resin",
+      "unit": "ton",
+      "value": 3000
+    },
+    {
+      "material_key": "core",
+      "label": "Core",
+      "category": "packaging",
+      "unit": "kilo",
+      "value": 29
+    },
+    {
+      "material_key": "stretch",
+      "label": "Stretch wrap",
+      "category": "packaging",
+      "unit": "kilo",
+      "value": 60
+    },
+    {
+      "material_key": "corrugated_sheets",
+      "label": "Corrugated sheets",
+      "category": "packaging",
+      "unit": "kilo",
+      "value": 34
+    },
+    {
+      "material_key": "cardboard",
+      "label": "Cardboard 400~500",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 19
+    },
+    {
+      "material_key": "cap",
+      "label": "Cap 1100~1200",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 36
+    },
+    {
+      "material_key": "pallet",
+      "label": "Pallet",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 490
+    },
+    {
+      "material_key": "box",
+      "label": "Box",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 28
+    },
+    {
+      "material_key": "cartoon_angle",
+      "label": "Cartoon angle",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 17
+    },
+    {
+      "material_key": "scotch_tape",
+      "label": "Scotch tape",
+      "category": "packaging",
+      "unit": "piece",
+      "value": 20
+    },
+    {
+      "material_key": "core_prestretch",
+      "label": "Core - prestretch",
+      "category": "packaging",
+      "unit": "kilo",
+      "value": 30
+    }
+  ],
+  "labor_employees": [
+    {
+      "name": "اشرف عيسى",
+      "role": "رئيس وردية",
+      "base_2023_egp": 3600,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "عبد المعز",
+      "role": "رئيس وردية",
+      "base_2023_egp": 3600,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "محمد حسن احمد مرسي",
+      "role": "رئيس وردية",
+      "base_2023_egp": 3600,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "محمود محمد ابونيه",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2750,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "سعد الحامدي",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2400,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "صابر كامل عطية",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2500,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "احمد حسين محمد",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2000,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "عيسى اشرف عيسى",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2000,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "حماده كامل محمد ابراهيم",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2200,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "محمد عبد الحميد عبد الهادي",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2200,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "احمد فوزى رمضان",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2500,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "صبحى احمد حموده",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2700,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "سعيد محمد سعيد",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2200,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "احمد محمود عطية الشيشتاوي",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2500,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "محمد جابر",
+      "role": "عامل انتاج",
+      "base_2023_egp": 3500,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "ابراهيم محمد صبري السيد",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2000,
+      "increase_rate": 0.3
+    },
+    {
+      "name": "محمد ثابت ابوضيف",
+      "role": "عامل انتاج",
+      "base_2023_egp": 2000,
+      "increase_rate": 0.3
+    }
+  ],
+  "electricity_power": [
+    {
+      "micron": 8,
+      "roll_type": "St",
+      "kw_per_ton": 0
+    },
+    {
+      "micron": 8,
+      "roll_type": "P",
+      "kw_per_ton": 0
+    },
+    {
+      "micron": 8,
+      "roll_type": "P_plus",
+      "kw_per_ton": 1493
+    },
+    {
+      "micron": 8,
+      "roll_type": "RIGID",
+      "kw_per_ton": 1685
+    },
+    {
+      "micron": 9,
+      "roll_type": "St",
+      "kw_per_ton": 0
+    },
+    {
+      "micron": 9,
+      "roll_type": "P",
+      "kw_per_ton": 0
+    },
+    {
+      "micron": 9,
+      "roll_type": "P_plus",
+      "kw_per_ton": 1327
+    },
+    {
+      "micron": 10,
+      "roll_type": "RIGID",
+      "kw_per_ton": 1482
+    },
+    {
+      "micron": 10,
+      "roll_type": "St",
+      "kw_per_ton": 1056
+    },
+    {
+      "micron": 10,
+      "roll_type": "P",
+      "kw_per_ton": 1140
+    },
+    {
+      "micron": 10,
+      "roll_type": "P_plus",
+      "kw_per_ton": 1194
+    },
+    {
+      "micron": 12,
+      "roll_type": "RIGID",
+      "kw_per_ton": 1328
+    },
+    {
+      "micron": 12,
+      "roll_type": "St",
+      "kw_per_ton": 871
+    },
+    {
+      "micron": 12,
+      "roll_type": "P",
+      "kw_per_ton": 929
+    },
+    {
+      "micron": 12,
+      "roll_type": "P_plus",
+      "kw_per_ton": 950
+    },
+    {
+      "micron": 15,
+      "roll_type": "RIGID",
+      "kw_per_ton": 899
+    },
+    {
+      "micron": 17,
+      "roll_type": "St",
+      "kw_per_ton": 793
+    },
+    {
+      "micron": 17,
+      "roll_type": "P",
+      "kw_per_ton": 846
+    },
+    {
+      "micron": 17,
+      "roll_type": "P_plus",
+      "kw_per_ton": 928
+    },
+    {
+      "micron": 17,
+      "roll_type": "RIGID",
+      "kw_per_ton": 793
+    },
+    {
+      "micron": 20,
+      "roll_type": "St",
+      "kw_per_ton": 674
+    },
+    {
+      "micron": 20,
+      "roll_type": "P",
+      "kw_per_ton": 719
+    },
+    {
+      "micron": 20,
+      "roll_type": "P_plus",
+      "kw_per_ton": 789
+    },
+    {
+      "micron": 20,
+      "roll_type": "RIGID",
+      "kw_per_ton": 674
+    },
+    {
+      "micron": 23,
+      "roll_type": "St",
+      "kw_per_ton": 712
+    },
+    {
+      "micron": 23,
+      "roll_type": "P",
+      "kw_per_ton": 777
+    },
+    {
+      "micron": 23,
+      "roll_type": "P_plus",
+      "kw_per_ton": 854
+    },
+    {
+      "micron": 23,
+      "roll_type": "RIGID",
+      "kw_per_ton": 586
+    },
+    {
+      "micron": 30,
+      "roll_type": "St",
+      "kw_per_ton": 699
+    },
+    {
+      "micron": 30,
+      "roll_type": "P",
+      "kw_per_ton": 699
+    },
+    {
+      "micron": 30,
+      "roll_type": "P_plus",
+      "kw_per_ton": 738
+    }
+  ],
+  "production_capacity": [
+    {
+      "micron": 8,
+      "roll_type": "St",
+      "tons_per_day": 0
+    },
+    {
+      "micron": 8,
+      "roll_type": "P",
+      "tons_per_day": 0
+    },
+    {
+      "micron": 8,
+      "roll_type": "P_plus",
+      "tons_per_day": 8.2
+    },
+    {
+      "micron": 9,
+      "roll_type": "St",
+      "tons_per_day": 0
+    },
+    {
+      "micron": 9,
+      "roll_type": "P",
+      "tons_per_day": 0
+    },
+    {
+      "micron": 9,
+      "roll_type": "P_plus",
+      "tons_per_day": 9.2
+    },
+    {
+      "micron": 10,
+      "roll_type": "St",
+      "tons_per_day": 11.6
+    },
+    {
+      "micron": 10,
+      "roll_type": "P",
+      "tons_per_day": 10.7
+    },
+    {
+      "micron": 10,
+      "roll_type": "P_plus",
+      "tons_per_day": 10.3
+    },
+    {
+      "micron": 12,
+      "roll_type": "St",
+      "tons_per_day": 14.1
+    },
+    {
+      "micron": 12,
+      "roll_type": "P",
+      "tons_per_day": 13.2
+    },
+    {
+      "micron": 12,
+      "roll_type": "P_plus",
+      "tons_per_day": 12.9
+    },
+    {
+      "micron": 17,
+      "roll_type": "St",
+      "tons_per_day": 19.9
+    },
+    {
+      "micron": 17,
+      "roll_type": "P",
+      "tons_per_day": 18.7
+    },
+    {
+      "micron": 17,
+      "roll_type": "P_plus",
+      "tons_per_day": 17
+    },
+    {
+      "micron": 20,
+      "roll_type": "St",
+      "tons_per_day": 23.4
+    },
+    {
+      "micron": 20,
+      "roll_type": "P",
+      "tons_per_day": 22
+    },
+    {
+      "micron": 20,
+      "roll_type": "P_plus",
+      "tons_per_day": 20
+    },
+    {
+      "micron": 23,
+      "roll_type": "St",
+      "tons_per_day": 27
+    },
+    {
+      "micron": 23,
+      "roll_type": "P",
+      "tons_per_day": 24.7
+    },
+    {
+      "micron": 23,
+      "roll_type": "P_plus",
+      "tons_per_day": 22.5
+    },
+    {
+      "micron": 30,
+      "roll_type": "St",
+      "tons_per_day": 27.8
+    },
+    {
+      "micron": 30,
+      "roll_type": "P",
+      "tons_per_day": 27.8
+    },
+    {
+      "micron": 30,
+      "roll_type": "P_plus",
+      "tons_per_day": 26.4
+    },
+    {
+      "micron": 8,
+      "roll_type": "RIGID",
+      "tons_per_day": 4.9
+    },
+    {
+      "micron": 10,
+      "roll_type": "RIGID",
+      "tons_per_day": 6.1
+    },
+    {
+      "micron": 12,
+      "roll_type": "RIGID",
+      "tons_per_day": 7.3
+    },
+    {
+      "micron": 15,
+      "roll_type": "RIGID",
+      "tons_per_day": 9.2
+    },
+    {
+      "micron": 17,
+      "roll_type": "RIGID",
+      "tons_per_day": 10.4
+    },
+    {
+      "micron": 20,
+      "roll_type": "RIGID",
+      "tons_per_day": 12.2
+    },
+    {
+      "micron": 23,
+      "roll_type": "RIGID",
+      "tons_per_day": 14
+    }
+  ],
+  "variable_cost_items": [
+    {
+      "name": "اكرامية مفرقعات",
+      "value_egp_per_ton": 32.323232323232325
+    },
+    {
+      "name": "عمولة استرداد خطاب ضمان",
+      "value_egp_per_ton": 6.0606060606060606
+    }
+  ],
+  "fixed_cost_items": [
+    {
+      "category": "production",
+      "name": "كهرباء بريموباك",
+      "value_egp": 53100
+    },
+    {
+      "category": "production",
+      "name": "مياه",
+      "value_egp": 1456.6499999999999
+    },
+    {
+      "category": "production",
+      "name": "اجور عمال الانتاج",
+      "value_egp": 57525
+    },
+    {
+      "category": "production",
+      "name": "اضافي عمال الانتاج",
+      "value_egp": 23010
+    },
+    {
+      "category": "production",
+      "name": "مرتبات صناعية غ.م.",
+      "value_egp": 138446.21198999998
+    },
+    {
+      "category": "production",
+      "name": "اضافي مرتبات صناعية غ.م.",
+      "value_egp": 24538.092480000003
+    },
+    {
+      "category": "production",
+      "name": "تأمينات اجتماعية",
+      "value_egp": 36111.386960724994
+    },
+    {
+      "category": "production",
+      "name": "انتقالات وماموريات",
+      "value_egp": 22319.333333333332
+    },
+    {
+      "category": "production",
+      "name": "علاج",
+      "value_egp": 1000
+    },
+    {
+      "category": "production",
+      "name": "مكافأت",
+      "value_egp": 3906.6666666666665
+    },
+    {
+      "category": "production",
+      "name": "اعياد و مناسبات",
+      "value_egp": 60900
+    },
+    {
+      "category": "production",
+      "name": "مصروف الاهلاك \"عام\"",
+      "value_egp": 27906.586175000004
+    },
+    {
+      "category": "production",
+      "name": "مصروف الاهلاك \"بريموباك\"",
+      "value_egp": 285118.71599999996
+    },
+    {
+      "category": "production",
+      "name": "مصروف الاهلاك \"Uni Tech\"",
+      "value_egp": 30840.7001666667
+    },
+    {
+      "category": "production",
+      "name": "ايجار مخزن",
+      "value_egp": 21046.144680000005
+    },
+    {
+      "category": "production",
+      "name": "صيانة و قطع غيار بريموباك",
+      "value_egp": 95023.34449214255
+    },
+    {
+      "category": "production",
+      "name": "م.سيارات",
+      "value_egp": 19701.15
+    },
+    {
+      "category": "production",
+      "name": "م.كلاركات",
+      "value_egp": 4755.483870967742
+    },
+    {
+      "category": "production",
+      "name": "امن صناعي",
+      "value_egp": 5195.141271818182
+    },
+    {
+      "category": "production",
+      "name": "اخرى",
+      "value_egp": 77406
+    },
+    {
+      "category": "selling",
+      "name": "عمولات و مصروفات بنكية",
+      "value_egp": 16459.819258064515
+    },
+    {
+      "category": "selling",
+      "name": "رسوم و تراخيص",
+      "value_egp": 12148.274745866904
+    },
+    {
+      "category": "selling",
+      "name": "معارض",
+      "value_egp": 43827.130545565764
+    },
+    {
+      "category": "selling",
+      "name": "اخرى",
+      "value_egp": 49523.208288983245
+    },
+    {
+      "category": "selling",
+      "name": "رواتب بيع",
+      "value_egp": 25295.4153
+    },
+    {
+      "category": "selling",
+      "name": "تأمينات اجتماعية",
+      "value_egp": 5105.8125
+    },
+    {
+      "category": "selling",
+      "name": "اخرى",
+      "value_egp": 5007.389692206604
+    },
+    {
+      "category": "admin",
+      "name": "رواتب ادارة",
+      "value_egp": 118813.0029
+    },
+    {
+      "category": "admin",
+      "name": "اضافي",
+      "value_egp": 10000.2672
+    },
+    {
+      "category": "admin",
+      "name": "تأمينات اجتماعية",
+      "value_egp": 24299.88466025
+    },
+    {
+      "category": "admin",
+      "name": "انتقالات وماموريات",
+      "value_egp": 4659.241935483871
+    },
+    {
+      "category": "admin",
+      "name": "اعياد و مناسبات",
+      "value_egp": 26100
+    },
+    {
+      "category": "admin",
+      "name": "مكافأت و حوافز",
+      "value_egp": 15024.193548387097
+    },
+    {
+      "category": "admin",
+      "name": "رسوم و تراخيص",
+      "value_egp": 77479.87862903226
+    },
+    {
+      "category": "admin",
+      "name": "اتعاب و استشارات",
+      "value_egp": 3048.3870967741937
+    },
+    {
+      "category": "admin",
+      "name": "الادارة العليا",
+      "value_egp": 59420.467741935485
+    },
+    {
+      "category": "admin",
+      "name": "مرافق",
+      "value_egp": 4283.41935483871
+    },
+    {
+      "category": "admin",
+      "name": "ايجار",
+      "value_egp": 13846.062381404176
+    },
+    {
+      "category": "admin",
+      "name": "اخرى",
+      "value_egp": 43346.52580645162
+    },
+    {
+      "category": "admin",
+      "name": "مصروف الاهلاك الاداري",
+      "value_egp": 6592.566629032259
+    },
+    {
+      "category": "financial",
+      "name": "عمولات و مصروفات بنكية",
+      "value_egp": 28653.820025806453
+    },
+    {
+      "category": "financial",
+      "name": "دمغات و فوائد",
+      "value_egp": 7258.073225806452
+    },
+    {
+      "category": "financial",
+      "name": "فوائد و دمغات بريموباك",
+      "value_egp": 70366.37666666666
+    }
+  ],
+  "pallet_components": [
+    {
+      "packing_key": "automatic_usd",
+      "label": "Automatic - USD Pallet",
+      "pallet_size_label": "120cm x 100cm",
+      "pallet_qty": 1,
+      "cardboard_qty": 2,
+      "cap_qty": 1,
+      "corrugated_kg": 0.4,
+      "stretch_kg": 0.5,
+      "box_qty": 0,
+      "rolls_per_box": 0,
+      "cartoon_angle_qty": 0,
+      "scotch_tape_qty": 0,
+      "override_note": null
+    },
+    {
+      "packing_key": "automatic_eur",
+      "label": "Automatic - EUR Pallet",
+      "pallet_size_label": "120cm x 80cm",
+      "pallet_qty": 1,
+      "cardboard_qty": 4,
+      "cap_qty": 0,
+      "corrugated_kg": 0.65,
+      "stretch_kg": 0.65,
+      "box_qty": 0,
+      "rolls_per_box": 0,
+      "cartoon_angle_qty": 0,
+      "scotch_tape_qty": 0,
+      "override_note": null
+    },
+    {
+      "packing_key": "automatic_prestretch_usd",
+      "label": "Automatic Prestretch - USD Pallet",
+      "pallet_size_label": "120cm x 100cm",
+      "pallet_qty": 1,
+      "cardboard_qty": 5,
+      "cap_qty": 0,
+      "corrugated_kg": 1.5,
+      "stretch_kg": 0.5,
+      "box_qty": 0,
+      "rolls_per_box": 0,
+      "cartoon_angle_qty": 0,
+      "scotch_tape_qty": 0,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_largebox_usd",
+      "label": "Manual - Large Box 2.3~3.5kg (USD Pallet)",
+      "pallet_size_label": "120cm x 100cm",
+      "box_qty": 60,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_largebox_eur",
+      "label": "Manual - Large Box 2.3~3.5kg (EUR Pallet)",
+      "pallet_size_label": "120cm x 80cm",
+      "box_qty": 36,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_smallbox22_usd",
+      "label": "Manual - Small Box 2.2kg (USD Pallet)",
+      "pallet_size_label": "120cm x 100cm",
+      "box_qty": 80,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_smallbox22_eur",
+      "label": "Manual - Small Box 2.2kg (EUR Pallet)",
+      "pallet_size_label": "120cm x 80cm",
+      "box_qty": 64,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_smallbox15_usd",
+      "label": "Manual - Small Box 1.5kg (USD Pallet)",
+      "pallet_size_label": "120cm x 100cm",
+      "box_qty": 112,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": "Hend: Based on Abdel Karim's revision (phone call in the presence of Eng. Rami) - instead of 80. (Original Arabic note on this cell: بناء على تعديل عبد الكريم (مكالمة في حضور م/رامي) بدلا من 80)"
+    },
+    {
+      "packing_key": "manual_smallbox15_eur",
+      "label": "Manual - Small Box 1.5kg (EUR Pallet)",
+      "pallet_size_label": "120cm x 80cm",
+      "box_qty": 84,
+      "rolls_per_box": 6,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_smallbox5_usd",
+      "label": "Manual - Small Box 5kg (USD Pallet)",
+      "pallet_size_label": "120cm x 100cm",
+      "box_qty": 64,
+      "rolls_per_box": 4,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    },
+    {
+      "packing_key": "manual_smallbox5_eur",
+      "label": "Manual - Small Box 5kg (EUR Pallet)",
+      "pallet_size_label": "120cm x 80cm",
+      "box_qty": 48,
+      "rolls_per_box": 4,
+      "cartoon_angle_qty": 4,
+      "scotch_tape_qty": 2,
+      "cardboard_qty": 0,
+      "cap_qty": 0,
+      "corrugated_kg": 0,
+      "stretch_kg": 1,
+      "pallet_qty": 1,
+      "override_note": null
+    }
+  ],
+  "bom_rows": [
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 8,
+      "roll_tier": "standard",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 8,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 9,
+      "roll_tier": "standard",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 9,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.486,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.486,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.386,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.386,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.441,
+      "exceed3812": 0.194,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.67,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.02,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.441,
+      "exceed3812": 0.194,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.63,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.02,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.485,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.485,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.384,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.768,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.032,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.384,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.768,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.032,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}BOM · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Bill of Materials (BOM)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Material composition (weight fraction, 0–1) per Stretch-Ability multiplier × Micron × Roll tier
+    (standard = roll ≤25kg, jumbo = roll &gt;25kg). "C4" is not stored — it is always the remainder
+    (1 − sum of the other fractions), exactly like the workbook's BOM sheet. A product's Stretch Ability
+    text (e.g. "300% (Power plus)") is matched to its multiplier (3.0) automatically.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:50px;">Mult.</span><span style="width:60px;">Micron</span><span style="width:70px;">Tier</span>
+      <span style="width:75px;">C4 (calc)</span><span style="width:75px;">Exceed3518</span><span style="width:75px;">Exceed3812</span>
+      <span style="width:70px;">ExceedXP</span><span style="width:75px;">Vista6000</span><span style="width:60px;">Enable</span>
+      <span style="width:55px;">LD258</span><span style="width:65px;">Vista6202</span>
+    </div>
+    {% for r in rows %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="bom_id" value="{{ r.id }}">
+        <span style="width:50px;">{{ r.stretch_multiplier }}</span>
+        <span style="width:60px;">{{ r.micron }}</span>
+        <span style="width:70px;">{{ r.roll_tier }}</span>
+        <span style="width:75px;">{{ "%.3f"|format(1 - (r.exceed3518 + r.exceed3812 + r.exceedxp + r.vista6000 + r.enable + r.ld258 + r.vista6202)) }}</span>
+        <input type="number" step="any" name="exceed3518" value="{{ r.exceed3518 }}" style="width:75px;">
+        <input type="number" step="any" name="exceed3812" value="{{ r.exceed3812 }}" style="width:75px;">
+        <input type="number" step="any" name="exceedxp" value="{{ r.exceedxp }}" style="width:70px;">
+        <input type="number" step="any" name="vista6000" value="{{ r.vista6000 }}" style="width:75px;">
+        <input type="number" step="any" name="enable" value="{{ r.enable }}" style="width:60px;">
+        <input type="number" step="any" name="ld258" value="{{ r.ld258 }}" style="width:55px;">
+        <input type="number" step="any" name="vista6202" value="{{ r.vista6202 }}" style="width:65px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No BOM rows yet.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

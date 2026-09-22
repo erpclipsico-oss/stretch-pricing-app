@@ -25,11 +25,12 @@ body {
   align-items: center;
   padding: 12px 24px;
 }
-.topbar-left { display: flex; align-items: center; gap: 20px; }
+.topbar-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; row-gap: 6px; }
 .brand { font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
 .brand-logo { height: 24px; width: auto; display: block; }
-.nav-link { color: #d1d5db; text-decoration: none; font-size: 0.95rem; }
+.nav-link { color: #d1d5db; text-decoration: none; font-size: 0.9rem; }
 .nav-link:hover { color: white; }
+.nav-sep { color: #4b5563; }
 .topbar-right { display: flex; align-items: center; gap: 14px; }
 .user-chip { color: #9ca3af; font-size: 0.85rem; }
 

@@ -12,6 +12,13 @@
     </div>
   </div>
 
+  {% if current_user and current_user.seller_type == 'foreign' %}
+  <div class="flash flash-success" style="margin-bottom:14px;">
+    🌍 Foreign Seller &mdash; +${{ '%.3f'|format(current_user.price_adjustment_usd_kg or 0) }}/KG applied
+    to every line on this quote.
+  </div>
+  {% endif %}
+
   <div class="grid grid-4">
     <div class="field">
       <label>Loading Port</label>
@@ -78,6 +85,7 @@
         <th>Product</th>
         <th>Pallet type</th>
         <th>Packing type</th>
+        <th>Pricing basis</th>
         <th>Qty (pallets)</th>
         <th>Total KG</th>
         <th>Unit $/KG</th>
@@ -103,6 +111,7 @@ const PRODUCTS = [
 ];
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
+const PRICING_BASES = {{ pricing_bases|tojson }};
 
 let lineSeq = 0;
 let currentQuotationId = null;
@@ -130,6 +139,11 @@ function addLine(prefill) {
         ${PACKING_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
       </select>
     </td>
+    <td>
+      <select class="f-basis">
+        ${PRICING_BASES.map(b => `<option value="${b[0]}" ${b[0]==='per_kg' ? 'selected' : ''}>${b[1]}</option>`).join('')}
+      </select>
+    </td>
     <td><input type="number" class="f-qty" value="1" min="0" step="0.5"></td>
     <td class="f-kg num">0</td>
     <td class="f-unit num">0.000</td>
@@ -151,6 +165,7 @@ function readLines() {
     product_id: tr.querySelector('.f-product').value,
     pallet_type: tr.querySelector('.f-pallet').value,
     packing_type: tr.querySelector('.f-packing').value,
+    pricing_basis: tr.querySelector('.f-basis').value,
     quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
   }));
 }
@@ -162,11 +177,13 @@ async function calculateAll() {
   let subtotal = 0;
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
+    const pallet_type = tr.querySelector('.f-pallet').value;
+    const pricing_basis = tr.querySelector('.f-basis').value;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({product_id, country_class, customer_class, quantity_pallets})
+      body: JSON.stringify({product_id, country_class, customer_class, quantity_pallets, pallet_type, pricing_basis})
     });
     const data = await resp.json();
     if (data.error) continue;

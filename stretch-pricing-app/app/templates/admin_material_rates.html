@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Material Rates · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    From the workbook's 'Material pricing' sheet. These are already in USD/ton and are used directly
+    (no exchange-rate conversion) in the material-composition cost for every product's BOM.
+  </p>
+  <form method="post">
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:100px;">$/ton</span></div>
+      {% for m in resin %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="panel-header" style="margin-top:24px;"><h2>Material pricing — packaging (EGP/unit)</h2></div>
+    <p class="hint" style="margin-bottom:14px;">
+      Local-currency packaging/consumable rates (Core, Pallet, Cardboard, etc.). Divided by the
+      <a href="{{ url_for('admin_global_settings') }}">Dollar Rate</a> wherever they feed into a $ cost
+      (Core cost, Pallet component packaging cost).
+    </p>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+      {% for m in packaging %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <span style="width:80px;">{{ m.unit }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save all</button></div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Variable Costs · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Variable costs — تكاليف متغيرة</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Small per-ton overhead add-ons (bank-letter commissions etc.) added on top of variable electricity
+    cost when computing the Conversion Cost per ton. The
+    <a href="{{ url_for('admin_global_settings') }}">Material interest rate</a> (also part of this sheet
+    in the workbook) is edited on the Global Settings page since it applies as a % rather than a flat
+    EGP/ton value.
+  </p>
+  <form method="post">
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:280px;">Item</span><span style="width:120px;">EGP/ton</span></div>
+      {% for i in items %}
+      <div class="edit-row">
+        <span style="width:280px;">{{ i.name }}</span>
+        <input type="number" step="any" name="value_{{ i.id }}" value="{{ i.value_egp_per_ton }}" style="width:120px;">
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save all</button></div>
+  </form>
+</div>
+{% endblock %}

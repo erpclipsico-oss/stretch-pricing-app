@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Fixed Costs · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Fixed costs — تكاليف ثابتة</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Monthly overhead (production, selling, admin, financial) from the workbook's 'تكاليف ثابتة' sheet.
+    The grand total is spread across each micron/roll-type's monthly production tons (see
+    <a href="{{ url_for('admin_electricity') }}">Electricity capacity</a>) to get the fixed-cost-per-ton
+    component of Conversion Cost. The "اجور عمال الانتاج" / "اضافي عمال الانتاج" lines are kept in sync
+    automatically from the <a href="{{ url_for('admin_labor') }}">Direct Labor</a> roster — edit them there.
+  </p>
+  <form method="post">
+    {% for category, items in by_category.items() %}
+    <h3 style="margin-top:18px; text-transform:capitalize;">{{ category }}</h3>
+    <div class="edit-grid">
+      {% for it in items %}
+      <div class="edit-row">
+        <span style="width:340px;">{{ it.name }}</span>
+        <input type="number" step="any" name="value_{{ it.id }}" value="{{ '%.2f'|format(it.value_egp) }}" style="width:130px;">
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div style="margin-top:14px;">
+      <button type="submit" class="btn btn-primary">Save all</button>
+      <span class="hint">Grand total: <strong>{{ "%.0f"|format(total) }} EGP/month</strong></span>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add fixed cost item</h2></div>
+  <form method="post" class="grid grid-4">
+    <input type="hidden" name="action" value="add">
+    <div class="field">
+      <label>Category</label>
+      <select name="category">
+        <option value="production">Production</option>
+        <option value="selling">Selling</option>
+        <option value="admin">Admin</option>
+        <option value="financial">Financial</option>
+      </select>
+    </div>
+    <div class="field"><label>Name</label><input type="text" name="name" required></div>
+    <div class="field"><label>Value (EGP)</label><input type="number" step="any" name="value_egp" required></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Add</button></div>
+  </form>
+</div>
+{% endblock %}

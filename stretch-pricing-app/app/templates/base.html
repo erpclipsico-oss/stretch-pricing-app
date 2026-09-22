@@ -18,6 +18,19 @@
       <a href="{{ url_for('admin_factors') }}" class="nav-link">Factors</a>
       <a href="{{ url_for('admin_freight') }}" class="nav-link">Freight</a>
       <a href="{{ url_for('admin_users') }}" class="nav-link">Users</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('admin_cost_preview') }}" class="nav-link">Cost Preview</a>
+      <a href="{{ url_for('admin_global_settings') }}" class="nav-link">Global Settings</a>
+      <a href="{{ url_for('admin_material_rates') }}" class="nav-link">Material Rates</a>
+      <a href="{{ url_for('admin_labor') }}" class="nav-link">Labor</a>
+      <a href="{{ url_for('admin_electricity') }}" class="nav-link">Electricity</a>
+      <a href="{{ url_for('admin_variable_costs') }}" class="nav-link">Variable Costs</a>
+      <a href="{{ url_for('admin_fixed_costs') }}" class="nav-link">Fixed Costs</a>
+      <a href="{{ url_for('admin_pallet') }}" class="nav-link">Pallet/Packaging</a>
+      <a href="{{ url_for('admin_bom') }}" class="nav-link">BOM</a>
+      <a href="{{ url_for('admin_packing_tiers') }}" class="nav-link">Packing Tiers</a>
+      <span class="nav-sep">|</span>
+      <a href="{{ url_for('admin_cost_upload') }}" class="nav-link">Annual Cost Upload</a>
       {% endif %}
     </div>
     <div class="topbar-right">

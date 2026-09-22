@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Electricity · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Electricity — machine power (kW/ton)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    From the workbook's 'Electricity' sheet: kilowatt-hours consumed per ton of film produced, by micron
+    and machine/roll type (St=Standard, P=Power, P_plus=Power+, RIGID). Multiplied by the
+    <a href="{{ url_for('admin_global_settings') }}">variable electricity tariff (EGP/kWh)</a> to get the
+    variable electricity cost per ton that feeds the Conversion Cost.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row"><span style="width:80px;">Micron</span><span style="width:80px;">Roll type</span><span style="width:100px;">kW/ton</span></div>
+    {% for r in power %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="table" value="power">
+        <input type="hidden" name="row_id" value="{{ r.id }}">
+        <span style="width:80px;">{{ r.micron }}</span>
+        <span style="width:80px;">{{ r.roll_type }}</span>
+        <input type="number" step="any" name="kw_per_ton" value="{{ r.kw_per_ton }}" style="width:100px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Electricity — production capacity (tons/day)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Daily production capacity per micron/roll-type at full utilization. Multiplied by
+    <a href="{{ url_for('admin_global_settings') }}">Capacity Usage %</a> and 30 days to get monthly
+    production tons, which is the base that total fixed costs are spread over.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row"><span style="width:80px;">Micron</span><span style="width:80px;">Roll type</span><span style="width:100px;">Tons/day</span></div>
+    {% for r in capacity %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="table" value="capacity">
+        <input type="hidden" name="row_id" value="{{ r.id }}">
+        <span style="width:80px;">{{ r.micron }}</span>
+        <span style="width:80px;">{{ r.roll_type }}</span>
+        <input type="number" step="any" name="tons_per_day" value="{{ r.tons_per_day }}" style="width:100px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

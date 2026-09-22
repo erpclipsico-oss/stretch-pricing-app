@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from datetime import datetime, timezone
 from functools import wraps
@@ -11,6 +12,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db, init_db
 from .pricing import compute_line, product_label, product_category
+from . import cost_engine
+from . import cost_upload
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -92,6 +95,7 @@ def create_app():
         pallet_types = ["Standard Pallet", "Euro Pallet"]
         packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
         payment_terms = ["Cash (0 days)", "30 days", "60 days", "90 days"]
+        pricing_bases = [("gross", "$/Roll (Gross)"), ("net", "$/Roll (Net)"), ("per_kg", "$/KG")]
         return render_template(
             "pricing.html",
             products=products,
@@ -99,6 +103,7 @@ def create_app():
             pallet_types=pallet_types,
             packing_types=packing_types,
             payment_terms=payment_terms,
+            pricing_bases=pricing_bases,
         )
 
     @app.route("/api/calculate-line", methods=["POST"])
@@ -111,9 +116,12 @@ def create_app():
         country_class = data.get("country_class", "Moderate")
         customer_class = data.get("customer_class", "A")
         qty = float(data.get("quantity_pallets") or 0)
+        pallet_type = data.get("pallet_type")
+        pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
-                                             price_adjustment_usd_kg=adjustment)
+                                             price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                             pricing_basis=pricing_basis)
         gross = round(unit_price * total_kg, 2)
         return jsonify({"unit_price_usd_kg": unit_price, "total_kg": total_kg, "line_gross": gross})
 
@@ -169,18 +177,20 @@ def create_app():
             product = db.execute("SELECT * FROM product WHERE id=?", (l.get("product_id"),)).fetchone()
             if not product:
                 continue
+            pallet_type = l.get("pallet_type", "Standard Pallet")
+            pricing_basis = l.get("pricing_basis", "per_kg")
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
-                price_adjustment_usd_kg=adjustment,
+                price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
             )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                    unit_price_usd_kg, total_kg, line_discount_pct)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (quotation_id, product["id"], l.get("pallet_type", "Standard Pallet"),
+                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
-                 unit_price, total_kg, float(l.get("line_discount_pct") or 0)),
+                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis),
             )
 
         db.commit()
@@ -234,12 +244,15 @@ def create_app():
                LEFT JOIN product p ON p.id = ql.product_id WHERE ql.quotation_id=?""",
             (qid,),
         ).fetchall()
+        basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG"}
         lines = []
         for l in line_rows:
             label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
             gross = l["unit_price_usd_kg"] * l["total_kg"]
             line_total = round(gross * (1 - (l["line_discount_pct"] or 0) / 100), 2)
-            lines.append(dict(l, label=label, line_total=line_total))
+            basis = l["pricing_basis"] if "pricing_basis" in l.keys() and l["pricing_basis"] else "per_kg"
+            lines.append(dict(l, label=label, line_total=line_total,
+                               pricing_basis_label=basis_labels.get(basis, "$/KG")))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
@@ -264,12 +277,14 @@ def create_app():
             full_name = request.form.get("full_name", "").strip()
             role = request.form.get("role", "sales_rep")
             region = request.form.get("region", "").strip()
+            seller_type = request.form.get("seller_type", "local")
             password = request.form.get("password") or "ChangeMe123!"
             exists = db.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
             if username and not exists:
                 db.execute(
-                    "INSERT INTO user (username, full_name, password_hash, role, region) VALUES (?,?,?,?,?)",
-                    (username, full_name, generate_password_hash(password), role, region),
+                    """INSERT INTO user (username, full_name, password_hash, role, region, seller_type)
+                       VALUES (?,?,?,?,?,?)""",
+                    (username, full_name, generate_password_hash(password), role, region, seller_type),
                 )
                 db.commit()
                 flash(f"User {username} created.", "success")
@@ -284,14 +299,15 @@ def create_app():
     def admin_user_update(uid):
         db = g.db
         db.execute(
-            """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?
-               WHERE id=?""",
+            """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
+               seller_type=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
                 request.form.get("region", "").strip(),
                 1 if request.form.get("active") == "on" else 0,
                 float(request.form.get("price_adjustment_usd_kg") or 0),
+                request.form.get("seller_type", "local"),
                 uid,
             ),
         )
@@ -332,13 +348,14 @@ def create_app():
                 pid = request.form.get("product_id")
                 db.execute(
                     """UPDATE product SET stretch_ability=?, micron=?, rolls_per_pallet=?, roll_weight_kg=?,
-                       core_weight_kg=?, ex_work_usd_kg=?, fob_usd_kg=?, cfr_usd_kg=? WHERE id=?""",
+                       core_weight_kg=?, width_mm=?, ex_work_usd_kg=?, fob_usd_kg=?, cfr_usd_kg=? WHERE id=?""",
                     (
                         request.form.get("stretch_ability", "").strip(),
                         request.form.get("micron", "").strip(),
                         float(request.form.get("rolls_per_pallet") or 0),
                         float(request.form.get("roll_weight_kg") or 0),
                         float(request.form.get("core_weight_kg") or 0),
+                        float(request.form.get("width_mm") or 0) or None,
                         float(request.form.get("ex_work_usd_kg") or 0),
                         float(request.form.get("fob_usd_kg") or 0) or None,
                         float(request.form.get("cfr_usd_kg") or 0) or None,
@@ -367,18 +384,19 @@ def create_app():
         db = g.db
         if request.method == "POST":
             fid = request.form.get("factor_id")
+            # The admin form takes/shows whole percentages (e.g. "15" = 15%);
+            # the factor table itself still stores the decimal fraction
+            # (0.15), exactly as the cost-engine math (unit_price_for)
+            # expects -- this converts at the UI boundary only.
+            def pct(name):
+                return (float(request.form.get(name) or 0)) / 100.0
             db.execute(
                 """UPDATE factor SET automatic_standard=?, automatic_power=?, automatic_power_plus=?,
                    uvi_standard=?, uvi_power=?, uvi_power_plus=?, regid=?, uv_regid=? WHERE id=?""",
                 (
-                    float(request.form.get("automatic_standard") or 0),
-                    float(request.form.get("automatic_power") or 0),
-                    float(request.form.get("automatic_power_plus") or 0),
-                    float(request.form.get("uvi_standard") or 0),
-                    float(request.form.get("uvi_power") or 0),
-                    float(request.form.get("uvi_power_plus") or 0),
-                    float(request.form.get("regid") or 0),
-                    float(request.form.get("uv_regid") or 0),
+                    pct("automatic_standard"), pct("automatic_power"), pct("automatic_power_plus"),
+                    pct("uvi_standard"), pct("uvi_power"), pct("uvi_power_plus"),
+                    pct("regid"), pct("uv_regid"),
                     fid,
                 ),
             )
@@ -425,6 +443,310 @@ def create_app():
         g.db.commit()
         flash("Freight route deleted.", "success")
         return redirect(url_for("admin_freight"))
+
+    @app.route("/admin/products/recalculate", methods=["POST"])
+    @admin_required
+    def admin_products_recalculate():
+        cost_engine.recalculate_all_products(g.db)
+        flash("EX-Work cost recalculated for all products from current cost-engine inputs.", "success")
+        return redirect(url_for("admin_products"))
+
+    # ---------- Admin: cost engine (raw costs behind EX-Work) ----------
+    @app.route("/admin/cost/global-settings", methods=["GET", "POST"])
+    @admin_required
+    def admin_global_settings():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute("SELECT key FROM global_setting").fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+            db.commit()
+            flash("Global cost settings updated.", "success")
+            return redirect(url_for("admin_global_settings"))
+        settings = db.execute("SELECT * FROM global_setting ORDER BY label").fetchall()
+        return render_template("admin_global_settings.html", settings=settings)
+
+    @app.route("/admin/cost/materials", methods=["GET", "POST"])
+    @admin_required
+    def admin_material_rates():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute("SELECT id FROM material_rate").fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            db.commit()
+            flash("Material rates updated.", "success")
+            return redirect(url_for("admin_material_rates"))
+        resin = db.execute("SELECT * FROM material_rate WHERE category='resin' ORDER BY label").fetchall()
+        packaging = db.execute("SELECT * FROM material_rate WHERE category='packaging' ORDER BY label").fetchall()
+        return render_template("admin_material_rates.html", resin=resin, packaging=packaging)
+
+    @app.route("/admin/cost/labor", methods=["GET", "POST"])
+    @admin_required
+    def admin_labor():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                db.execute(
+                    "INSERT INTO labor_employee (name, role, base_2023_egp, increase_rate) VALUES (?,?,?,?)",
+                    (request.form.get("name", "").strip(), request.form.get("role", "").strip(),
+                     float(request.form.get("base_2023_egp") or 0), float(request.form.get("increase_rate") or 0)),
+                )
+                db.commit()
+                flash("Employee added.", "success")
+            else:
+                eid = request.form.get("employee_id")
+                db.execute(
+                    """UPDATE labor_employee SET name=?, role=?, base_2023_egp=?, increase_rate=?,
+                       active=? WHERE id=?""",
+                    (request.form.get("name", "").strip(), request.form.get("role", "").strip(),
+                     float(request.form.get("base_2023_egp") or 0), float(request.form.get("increase_rate") or 0),
+                     1 if request.form.get("active") == "on" else 0, eid),
+                )
+                db.commit()
+                flash("Employee updated.", "success")
+            cost_engine.sync_labor_to_fixed_costs(db)
+            return redirect(url_for("admin_labor"))
+        employees = db.execute("SELECT * FROM labor_employee ORDER BY active DESC, name").fetchall()
+        fixed_total = sum((e["base_2023_egp"] or 0) * (1 + (e["increase_rate"] or 0)) for e in employees if e["active"])
+        variable_total = sum(((e["base_2023_egp"] or 0) * (1 + (e["increase_rate"] or 0)) / 8) * 4
+                              for e in employees if e["active"])
+        return render_template("admin_labor.html", employees=employees,
+                                fixed_total=round(fixed_total, 2), variable_total=round(variable_total, 2))
+
+    @app.route("/admin/cost/labor/<int:eid>/delete", methods=["POST"])
+    @admin_required
+    def admin_labor_delete(eid):
+        g.db.execute("DELETE FROM labor_employee WHERE id=?", (eid,))
+        g.db.commit()
+        cost_engine.sync_labor_to_fixed_costs(g.db)
+        flash("Employee removed.", "success")
+        return redirect(url_for("admin_labor"))
+
+    @app.route("/admin/cost/electricity", methods=["GET", "POST"])
+    @admin_required
+    def admin_electricity():
+        db = g.db
+        if request.method == "POST":
+            table = request.form.get("table")
+            rid = request.form.get("row_id")
+            if table == "power":
+                val = request.form.get("kw_per_ton")
+                db.execute("UPDATE electricity_power SET kw_per_ton=? WHERE id=?", (float(val or 0), rid))
+            elif table == "capacity":
+                val = request.form.get("tons_per_day")
+                db.execute("UPDATE production_capacity SET tons_per_day=? WHERE id=?", (float(val or 0), rid))
+            db.commit()
+            flash("Electricity data updated.", "success")
+            return redirect(url_for("admin_electricity"))
+        power = db.execute("SELECT * FROM electricity_power ORDER BY roll_type, micron").fetchall()
+        capacity = db.execute("SELECT * FROM production_capacity ORDER BY roll_type, micron").fetchall()
+        return render_template("admin_electricity.html", power=power, capacity=capacity)
+
+    @app.route("/admin/cost/variable-costs", methods=["GET", "POST"])
+    @admin_required
+    def admin_variable_costs():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute("SELECT id FROM variable_cost_item").fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE variable_cost_item SET value_egp_per_ton=? WHERE id=?",
+                               (float(val), row["id"]))
+            db.commit()
+            flash("Variable cost items updated.", "success")
+            return redirect(url_for("admin_variable_costs"))
+        items = db.execute("SELECT * FROM variable_cost_item ORDER BY id").fetchall()
+        return render_template("admin_variable_costs.html", items=items)
+
+    @app.route("/admin/cost/fixed-costs", methods=["GET", "POST"])
+    @admin_required
+    def admin_fixed_costs():
+        db = g.db
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "add":
+                db.execute(
+                    "INSERT INTO fixed_cost_item (category, name, value_egp) VALUES (?,?,?)",
+                    (request.form.get("category", "production"), request.form.get("name", "").strip(),
+                     float(request.form.get("value_egp") or 0)),
+                )
+                db.commit()
+                flash("Fixed cost item added.", "success")
+            else:
+                for row in db.execute("SELECT id FROM fixed_cost_item").fetchall():
+                    val = request.form.get(f"value_{row['id']}")
+                    if val is not None and val != "":
+                        db.execute("UPDATE fixed_cost_item SET value_egp=? WHERE id=?", (float(val), row["id"]))
+                db.commit()
+                flash("Fixed cost items updated.", "success")
+            return redirect(url_for("admin_fixed_costs"))
+        items = db.execute("SELECT * FROM fixed_cost_item ORDER BY category, id").fetchall()
+        by_category = {}
+        for it in items:
+            by_category.setdefault(it["category"], []).append(it)
+        total = sum(it["value_egp"] or 0 for it in items)
+        return render_template("admin_fixed_costs.html", by_category=by_category, total=round(total, 2))
+
+    @app.route("/admin/cost/fixed-costs/<int:fid>/delete", methods=["POST"])
+    @admin_required
+    def admin_fixed_cost_delete(fid):
+        g.db.execute("DELETE FROM fixed_cost_item WHERE id=?", (fid,))
+        g.db.commit()
+        flash("Fixed cost item removed.", "success")
+        return redirect(url_for("admin_fixed_costs"))
+
+    @app.route("/admin/cost/pallet", methods=["GET", "POST"])
+    @admin_required
+    def admin_pallet():
+        db = g.db
+        if request.method == "POST":
+            pid = request.form.get("pallet_id")
+            db.execute(
+                """UPDATE pallet_component SET pallet_qty=?, cardboard_qty=?, cap_qty=?, corrugated_kg=?,
+                   stretch_kg=?, box_qty=?, rolls_per_box=?, cartoon_angle_qty=?, scotch_tape_qty=? WHERE id=?""",
+                (
+                    float(request.form.get("pallet_qty") or 0), float(request.form.get("cardboard_qty") or 0),
+                    float(request.form.get("cap_qty") or 0), float(request.form.get("corrugated_kg") or 0),
+                    float(request.form.get("stretch_kg") or 0), float(request.form.get("box_qty") or 0),
+                    float(request.form.get("rolls_per_box") or 0), float(request.form.get("cartoon_angle_qty") or 0),
+                    float(request.form.get("scotch_tape_qty") or 0), pid,
+                ),
+            )
+            db.commit()
+            flash("Pallet / packaging component updated.", "success")
+            return redirect(url_for("admin_pallet"))
+        rows = db.execute("SELECT * FROM pallet_component ORDER BY label").fetchall()
+        totals = {r["packing_key"]: round(cost_engine.pallet_component_total_usd(db, r["packing_key"]), 4)
+                   for r in rows}
+        return render_template("admin_pallet.html", rows=rows, totals=totals)
+
+    @app.route("/admin/cost/bom", methods=["GET", "POST"])
+    @admin_required
+    def admin_bom():
+        db = g.db
+        if request.method == "POST":
+            bid = request.form.get("bom_id")
+            db.execute(
+                """UPDATE bom_row SET exceed3518=?, exceed3812=?, exceedxp=?, vista6000=?, enable=?,
+                   ld258=?, vista6202=? WHERE id=?""",
+                (
+                    float(request.form.get("exceed3518") or 0), float(request.form.get("exceed3812") or 0),
+                    float(request.form.get("exceedxp") or 0), float(request.form.get("vista6000") or 0),
+                    float(request.form.get("enable") or 0), float(request.form.get("ld258") or 0),
+                    float(request.form.get("vista6202") or 0), bid,
+                ),
+            )
+            db.commit()
+            flash("BOM row updated.", "success")
+            return redirect(url_for("admin_bom"))
+        rows = db.execute(
+            "SELECT * FROM bom_row ORDER BY stretch_multiplier, roll_tier, micron"
+        ).fetchall()
+        return render_template("admin_bom.html", rows=rows)
+
+    @app.route("/admin/cost/packing-tiers", methods=["GET", "POST"])
+    @admin_required
+    def admin_packing_tiers():
+        db = g.db
+        if request.method == "POST":
+            tid = request.form.get("tier_id")
+            def num(name):
+                v = request.form.get(name)
+                return float(v) if v not in (None, "") else None
+            db.execute(
+                """UPDATE packing_tier SET match_weight_kg=?, rolls_per_box=?, box_per_pallet=?,
+                   rolls_per_pallet=?, pallets_per_container40=?, pallets_per_container20=? WHERE id=?""",
+                (
+                    num("match_weight_kg") or 0, num("rolls_per_box"), num("box_per_pallet"),
+                    num("rolls_per_pallet") or 0, num("pallets_per_container40"), num("pallets_per_container20"),
+                    tid,
+                ),
+            )
+            db.commit()
+            flash("Packing tier updated.", "success")
+            return redirect(url_for("admin_packing_tiers"))
+        rows = db.execute(
+            "SELECT * FROM packing_tier ORDER BY category, pallet_type, match_weight_kg"
+        ).fetchall()
+        return render_template("admin_packing_tiers.html", rows=rows)
+
+    # ---------- Admin: annual cost upload (diff-review-confirm) ----------
+    @app.route("/admin/cost-upload", methods=["GET", "POST"])
+    @admin_required
+    def admin_cost_upload():
+        db = g.db
+        if request.method == "POST" and "workbook" in request.files:
+            f = request.files["workbook"]
+            if not f or not f.filename:
+                flash("Choose an .xlsx file first.", "error")
+                return redirect(url_for("admin_cost_upload"))
+            import tempfile
+            tmp_path = os.path.join(tempfile.gettempdir(), f"cost_upload_{session.get('user_id')}.xlsx")
+            f.save(tmp_path)
+            try:
+                changes, unchanged_count = cost_upload.diff_workbook(db, tmp_path)
+            except Exception as e:
+                flash(f"Could not read that workbook: {e}", "error")
+                return redirect(url_for("admin_cost_upload"))
+            session["cost_upload_path"] = tmp_path
+            session["cost_upload_filename"] = f.filename
+            return render_template("admin_cost_upload.html", stage="review", changes=changes,
+                                    unchanged_count=unchanged_count, filename=f.filename)
+
+        if request.method == "POST" and request.form.get("action") == "apply":
+            tmp_path = session.get("cost_upload_path")
+            filename = session.get("cost_upload_filename", "upload.xlsx")
+            if not tmp_path or not os.path.exists(tmp_path):
+                flash("Upload session expired -- please upload the file again.", "error")
+                return redirect(url_for("admin_cost_upload"))
+            changes, unchanged_count = cost_upload.diff_workbook(db, tmp_path)
+            cost_upload.apply_changes(db, changes)
+            db.execute(
+                "INSERT INTO cost_upload_log (created_at, created_by, filename, summary_json) VALUES (?,?,?,?)",
+                (datetime.now(timezone.utc).isoformat(), g.user["username"], filename,
+                 cost_upload.summarize_for_log(changes)),
+            )
+            db.commit()
+            cost_engine.recalculate_all_products(db)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            session.pop("cost_upload_path", None)
+            session.pop("cost_upload_filename", None)
+            flash(f"Applied {len(changes)} change(s) from {filename}. Product EX-Work costs recalculated.",
+                  "success")
+            return redirect(url_for("admin_cost_upload"))
+
+        recent_rows = db.execute(
+            "SELECT * FROM cost_upload_log ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+        recent = []
+        for r in recent_rows:
+            try:
+                n = len(json.loads(r["summary_json"] or "[]"))
+            except Exception:
+                n = 0
+            recent.append(dict(r, change_count=n))
+        return render_template("admin_cost_upload.html", stage="upload", recent=recent)
+
+    @app.route("/admin/cost/preview")
+    @admin_required
+    def admin_cost_preview():
+        db = g.db
+        products = db.execute(
+            "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
+        ).fetchall()
+        rows = []
+        for p in products:
+            bd = cost_engine.breakdown(db, p)
+            rows.append({"product": p, "label": product_label(p), "breakdown": bd})
+        return render_template("admin_cost_preview.html", rows=rows)
 
     return app
 
@@ -508,15 +830,16 @@ def build_pdf(q, lines, totals):
     elements.append(meta_table)
     elements.append(Spacer(1, 14))
 
-    header = ["#", "Product", "Pallet", "Packing", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
+    header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
     rows = [header]
     for i, line in enumerate(lines, start=1):
         rows.append([
             str(i), line["label"], line["pallet_type"], line["packing_type"],
+            line.get("pricing_basis_label", "$/KG"),
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
             f"{line['unit_price_usd_kg']:.3f}", f"{line['line_total']:,.2f}",
         ])
-    table = Table(rows, colWidths=[20, 130, 70, 70, 60, 55, 55, 65])
+    table = Table(rows, colWidths=[16, 108, 58, 58, 62, 48, 48, 48, 60])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

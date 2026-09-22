@@ -14,7 +14,7 @@
   </div>
   <table class="lines-table">
     <thead>
-      <tr><th>Product</th><th>Pallet</th><th>Packing</th><th>Qty</th><th>Total KG</th><th>Unit $/KG</th><th>Line total</th></tr>
+      <tr><th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th><th>Qty</th><th>Total KG</th><th>Unit $/KG</th><th>Line total</th></tr>
     </thead>
     <tbody>
       {% for l in lines %}
@@ -22,6 +22,7 @@
         <td>{{ l.label }}</td>
         <td>{{ l.pallet_type }}</td>
         <td>{{ l.packing_type }}</td>
+        <td>{{ l.pricing_basis_label }}</td>
         <td class="num">{{ l.quantity_pallets }}</td>
         <td class="num">{{ '%.1f'|format(l.total_kg) }}</td>
         <td class="num">{{ '%.3f'|format(l.unit_price_usd_kg) }}</td>

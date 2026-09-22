@@ -4,23 +4,25 @@
 <div class="panel">
   <div class="panel-header"><h2>Margin factors</h2></div>
   <p class="hint" style="margin-bottom:14px;">
-    These percentages (as decimals, e.g. 0.17 = 17%) are added on top of a product's EX-Work rate,
-    based on the quote's Country Classification, Customer Classification, and product category.
-    Edit a row and click Save.
+    Enter whole percentages here (e.g. type <strong>15</strong> to mean 15%) &mdash; these margins are
+    added on top of a product's EX-Work rate, based on the quote's Country Classification, Customer
+    Classification, and product category (Standard / Power / Power+, Automatic or UVI). Edit a row and
+    click Save. (Internally these are still stored as decimal fractions for the pricing math; this
+    screen just converts for you so nobody has to type "0.15" to mean 15%.)
   </p>
   <div class="edit-grid">
     <div class="edit-row header-row">
       <span style="width:70px;">Country</span>
       <span style="width:40px;">Cust.</span>
       <span style="width:70px;">Roll size</span>
-      <span style="width:75px;">Auto Std</span>
-      <span style="width:75px;">Auto Power</span>
-      <span style="width:75px;">Auto Power+</span>
-      <span style="width:75px;">UVI Std</span>
-      <span style="width:75px;">UVI Power</span>
-      <span style="width:75px;">UVI Power+</span>
-      <span style="width:60px;">Regid</span>
-      <span style="width:60px;">UV&amp;Regid</span>
+      <span style="width:75px;">Auto Std %</span>
+      <span style="width:75px;">Auto Power %</span>
+      <span style="width:75px;">Auto Power+ %</span>
+      <span style="width:75px;">UVI Std %</span>
+      <span style="width:75px;">UVI Power %</span>
+      <span style="width:75px;">UVI Power+ %</span>
+      <span style="width:60px;">Regid %</span>
+      <span style="width:60px;">UV&amp;Regid %</span>
     </div>
     {% for f in factors %}
     <div class="edit-row">
@@ -29,14 +31,14 @@
         <span style="width:70px;">{{ f.country_class }}</span>
         <span style="width:40px;">{{ f.customer_class }}</span>
         <span style="width:70px;">{{ f.roll_size }}</span>
-        <input type="number" step="any" name="automatic_standard" value="{{ f.automatic_standard }}" style="width:70px;">
-        <input type="number" step="any" name="automatic_power" value="{{ f.automatic_power }}" style="width:70px;">
-        <input type="number" step="any" name="automatic_power_plus" value="{{ f.automatic_power_plus }}" style="width:70px;">
-        <input type="number" step="any" name="uvi_standard" value="{{ f.uvi_standard }}" style="width:70px;">
-        <input type="number" step="any" name="uvi_power" value="{{ f.uvi_power }}" style="width:70px;">
-        <input type="number" step="any" name="uvi_power_plus" value="{{ f.uvi_power_plus }}" style="width:70px;">
-        <input type="number" step="any" name="regid" value="{{ f.regid }}" style="width:55px;">
-        <input type="number" step="any" name="uv_regid" value="{{ f.uv_regid }}" style="width:55px;">
+        <input type="number" step="any" name="automatic_standard" value="{{ (f.automatic_standard * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="automatic_power" value="{{ (f.automatic_power * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="automatic_power_plus" value="{{ (f.automatic_power_plus * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="uvi_standard" value="{{ (f.uvi_standard * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="uvi_power" value="{{ (f.uvi_power * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="uvi_power_plus" value="{{ (f.uvi_power_plus * 100) | round(3) }}" style="width:70px;">
+        <input type="number" step="any" name="regid" value="{{ (f.regid * 100) | round(3) }}" style="width:55px;">
+        <input type="number" step="any" name="uv_regid" value="{{ (f.uv_regid * 100) | round(3) }}" style="width:55px;">
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </form>
     </div>

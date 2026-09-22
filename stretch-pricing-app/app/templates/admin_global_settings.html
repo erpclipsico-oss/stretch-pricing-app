@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Global Cost Settings · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Global cost engine settings</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Exchange rates and factory-wide assumptions used throughout the cost engine
+    (see <a href="{{ url_for('admin_cost_preview') }}">Cost Preview</a> for the effect on each product).
+  </p>
+  <form method="post">
+    <div class="edit-grid">
+      <div class="edit-row header-row">
+        <span style="width:320px;">Setting</span>
+        <span style="width:120px;">Value</span>
+      </div>
+      {% for s in settings %}
+      <div class="edit-row">
+        <div class="edit-cell" style="width:320px;">
+          <strong>{{ s.label }}</strong>
+          {% if s.help %}<div class="hint" style="margin-top:2px;">{{ s.help }}</div>{% endif %}
+        </div>
+        <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:120px;">
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save all</button></div>
+  </form>
+</div>
+{% endblock %}

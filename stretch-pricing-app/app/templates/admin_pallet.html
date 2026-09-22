@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Pallet Component · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Pallet / Packaging Component</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    From the workbook's 'Pallet component' sheet: quantities of each packaging item per pallet, for every
+    Automatic/Manual × USD/EUR-pallet combination. Costs use the material rates on the
+    <a href="{{ url_for('admin_material_rates') }}">Material Rates</a> page and the
+    <a href="{{ url_for('admin_global_settings') }}">Dollar Rate</a>. The computed $/pallet total is shown
+    on the right; the quote builder divides this by the product's Rolls/Pallet to get the per-roll
+    packaging cost (Stretch sheet column AD).
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:230px;">Packing type</span>
+      <span style="width:60px;">Pallet</span><span style="width:60px;">Cardboard</span>
+      <span style="width:50px;">Cap</span><span style="width:70px;">Corrug. kg</span>
+      <span style="width:60px;">Stretch kg</span><span style="width:55px;">Box qty</span>
+      <span style="width:65px;">Rolls/box</span><span style="width:60px;">Ctn angle</span>
+      <span style="width:60px;">Tape</span><span style="width:90px;">$/pallet</span>
+    </div>
+    {% for r in rows %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="pallet_id" value="{{ r.id }}">
+        <div class="edit-cell" style="width:230px;">
+          <strong>{{ r.label }}</strong>
+          {% if r.override_note %}
+          <div class="hint" style="margin-top:2px; color:#b45309;" title="{{ r.override_note }}">
+            ⚠ Manual override on file — see note below.
+          </div>
+          {% endif %}
+        </div>
+        <input type="number" step="any" name="pallet_qty" value="{{ r.pallet_qty }}" style="width:60px;">
+        <input type="number" step="any" name="cardboard_qty" value="{{ r.cardboard_qty }}" style="width:60px;">
+        <input type="number" step="any" name="cap_qty" value="{{ r.cap_qty }}" style="width:50px;">
+        <input type="number" step="any" name="corrugated_kg" value="{{ r.corrugated_kg }}" style="width:70px;">
+        <input type="number" step="any" name="stretch_kg" value="{{ r.stretch_kg }}" style="width:60px;">
+        <input type="number" step="any" name="box_qty" value="{{ r.box_qty }}" style="width:55px;"
+               {% if r.override_note %}title="{{ r.override_note }}"{% endif %}>
+        <input type="number" step="any" name="rolls_per_box" value="{{ r.rolls_per_box }}" style="width:65px;">
+        <input type="number" step="any" name="cartoon_angle_qty" value="{{ r.cartoon_angle_qty }}" style="width:60px;">
+        <input type="number" step="any" name="scotch_tape_qty" value="{{ r.scotch_tape_qty }}" style="width:60px;">
+        <span style="width:90px;">${{ totals[r.packing_key] }}</span>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% if r.override_note %}
+    <div class="edit-row" style="background:#fffbeb; border-left:3px solid #f59e0b;">
+      <span style="font-size:0.78rem; color:#92400e;">{{ r.override_note }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

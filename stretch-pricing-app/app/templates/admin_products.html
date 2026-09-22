@@ -2,10 +2,18 @@
 {% block title %}Products · Stretch Pricing{% endblock %}
 {% block content %}
 <div class="panel">
-  <div class="panel-header"><h2>Products &amp; base rates</h2></div>
+  <div class="panel-header">
+    <h2>Products &amp; base rates</h2>
+    <form method="post" action="{{ url_for('admin_products_recalculate') }}" class="panel-actions">
+      <button type="submit" class="btn btn-outline btn-sm">Recalculate EX-Work cost from cost engine</button>
+    </form>
+  </div>
   <p class="hint" style="margin-bottom:14px;">
-    "EX-Work $/KG" is the base rate used in quotes (multiplied by the country/customer
-    margin factor on the <a href="{{ url_for('admin_factors') }}">Factors</a> page). Edit a row and click Save.
+    "EX-Work $/KG" is quoted live from the <a href="{{ url_for('admin_cost_preview') }}">cost engine</a>
+    (Material pricing, BOM, Pallet/Packaging, Conversion cost, etc.) every time a quote is priced — the
+    value shown below is a cached snapshot for reference only. Use "Recalculate" after editing any cost
+    input to refresh this snapshot. The country/customer margin factor is then applied on top
+    (see <a href="{{ url_for('admin_factors') }}">Factors</a>).
   </p>
   <div class="edit-grid">
     {% for p in products %}
@@ -17,7 +25,8 @@
         <div class="edit-cell"><span class="col-label">Rolls/pallet</span><input type="number" step="any" name="rolls_per_pallet" value="{{ p.rolls_per_pallet or 0 }}" style="width:70px;"></div>
         <div class="edit-cell"><span class="col-label">Roll kg</span><input type="number" step="any" name="roll_weight_kg" value="{{ p.roll_weight_kg or 0 }}" style="width:65px;"></div>
         <div class="edit-cell"><span class="col-label">Core kg</span><input type="number" step="any" name="core_weight_kg" value="{{ p.core_weight_kg or 0 }}" style="width:65px;"></div>
-        <div class="edit-cell"><span class="col-label">EX-Work $/KG</span><input type="number" step="any" name="ex_work_usd_kg" value="{{ p.ex_work_usd_kg }}" style="width:80px;"></div>
+        <div class="edit-cell"><span class="col-label">Width mm</span><input type="number" step="any" name="width_mm" value="{{ p.width_mm or '' }}" placeholder="500" style="width:65px;"></div>
+        <div class="edit-cell"><span class="col-label">EX-Work $/KG (cached)</span><input type="number" step="any" name="ex_work_usd_kg" value="{{ p.ex_work_usd_kg }}" style="width:80px;"></div>
         <div class="edit-cell"><span class="col-label">FOB $/KG</span><input type="number" step="any" name="fob_usd_kg" value="{{ p.fob_usd_kg or '' }}" style="width:80px;"></div>
         <div class="edit-cell"><span class="col-label">CFR $/KG</span><input type="number" step="any" name="cfr_usd_kg" value="{{ p.cfr_usd_kg or '' }}" style="width:80px;"></div>
         <button type="submit" class="btn btn-primary btn-sm">Save</button>

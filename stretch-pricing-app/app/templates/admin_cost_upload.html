@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Annual Cost Upload · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Annual Cost Upload</h2></div>
+
+  {% if stage == 'upload' %}
+  <p class="hint" style="margin-bottom:14px;">
+    Upload the same-style pricing workbook (Material pricing, اجور مباشرة, تكاليف متغيرة, تكاليف ثابتة
+    sheets) with this year's updated figures. Nothing is written to the database yet &mdash; you'll see
+    a full before/after review first, and only figures you confirm are applied.
+  </p>
+  <form method="post" enctype="multipart/form-data" class="grid grid-4">
+    <div class="field"><label>Workbook (.xlsx)</label><input type="file" name="workbook" accept=".xlsx" required></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Upload &amp; review changes</button></div>
+  </form>
+
+  {% if recent %}
+  <h3 style="margin-top:24px;">Recent uploads</h3>
+  <table class="lines-table">
+    <thead><tr><th>Date</th><th>By</th><th>File</th><th>Changes</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td>{{ r.created_at[:19] if r.created_at else '-' }}</td>
+        <td>{{ r.created_by }}</td>
+        <td>{{ r.filename }}</td>
+        <td>{{ r.change_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
+  {% if stage == 'review' %}
+  <p class="hint" style="margin-bottom:14px;">
+    Reviewing <strong>{{ filename }}</strong>. {{ changes|length }} changed item(s), {{ unchanged_count }}
+    unchanged item(s) not shown. Nothing has been applied yet.
+  </p>
+  {% if changes %}
+  <table class="lines-table">
+    <thead><tr><th>Category</th><th>Item</th><th>Old value</th><th>New value</th><th>% change</th></tr></thead>
+    <tbody>
+      {% for c in changes %}
+      <tr>
+        <td>{{ c.category }}</td>
+        <td>{{ c.item }}</td>
+        <td class="num">{{ c.old }}</td>
+        <td class="num">{{ c.new }}</td>
+        <td class="num" style="color: {{ 'crimson' if c.pct_change < 0 else '#166534' }};">
+          {{ '%+.1f'|format(c.pct_change) }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" style="margin-top:16px; display:flex; gap:10px;">
+    <input type="hidden" name="action" value="apply">
+    <button type="submit" class="btn btn-success">✔ Apply these {{ changes|length }} change(s)</button>
+    <a href="{{ url_for('admin_cost_upload') }}" class="btn btn-outline">Cancel</a>
+  </form>
+  {% else %}
+  <p class="empty">No differences found &mdash; every matched figure in the uploaded workbook is already
+    identical to the current database.</p>
+  <a href="{{ url_for('admin_cost_upload') }}" class="btn btn-outline">Back</a>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

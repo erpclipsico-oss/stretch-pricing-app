@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Packing Tiers · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Packing Tiers (by exact roll weight)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    From the workbook's 'Details' sheet: rolls/box, box/pallet, rolls/pallet and pallets/container
+    (40'/20') for every roll-weight bucket (Manual 5kg / 2.3~3.5kg / 2.2kg / 1.5kg, Jumbo 50kg / 55kg,
+    Standard Roll 16kg) x pallet type (Standard/Euro). A quote line's rolls-per-pallet and packaging
+    cost is looked up here by matching the product's actual roll weight to the nearest bucket for its
+    Auto/Manual type and the line's chosen pallet type &mdash; not a single fixed value per product.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:90px;">Category</span>
+      <span style="width:150px;">Weight bucket</span>
+      <span style="width:80px;">Pallet type</span>
+      <span style="width:90px;">Match wt (kg)</span>
+      <span style="width:80px;">Rolls/Box</span>
+      <span style="width:80px;">Box/Pallet</span>
+      <span style="width:90px;">Rolls/Pallet</span>
+      <span style="width:100px;">Pallet/Cont.40'</span>
+      <span style="width:100px;">Pallet/Cont.20'</span>
+    </div>
+    {% for r in rows %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="tier_id" value="{{ r.id }}">
+        <span style="width:90px;">{{ r.category }}</span>
+        <span style="width:150px;">{{ r.weight_label }}</span>
+        <span style="width:80px;">{{ r.pallet_type }}</span>
+        <input type="number" step="any" name="match_weight_kg" value="{{ r.match_weight_kg }}" style="width:80px;">
+        <input type="number" step="any" name="rolls_per_box" value="{{ r.rolls_per_box if r.rolls_per_box is not none else '' }}" style="width:70px;">
+        <input type="number" step="any" name="box_per_pallet" value="{{ r.box_per_pallet if r.box_per_pallet is not none else '' }}" style="width:70px;">
+        <input type="number" step="any" name="rolls_per_pallet" value="{{ r.rolls_per_pallet }}" style="width:80px;">
+        <input type="number" step="any" name="pallets_per_container40" value="{{ r.pallets_per_container40 if r.pallets_per_container40 is not none else '' }}" style="width:90px;">
+        <input type="number" step="any" name="pallets_per_container20" value="{{ r.pallets_per_container20 if r.pallets_per_container20 is not none else '' }}" style="width:90px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No packing tiers yet.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
