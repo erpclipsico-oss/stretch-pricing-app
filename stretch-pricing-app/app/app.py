@@ -125,6 +125,7 @@ def create_app():
         pallet_type = data.get("pallet_type")
         pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
+        seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
 
         if is_prestretch(product):
             roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
@@ -134,6 +135,7 @@ def create_app():
             unit_price, total_kg = compute_prestretch_line(
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                seller_type=seller_type,
             )
             gross = round(unit_price * total_kg, 2)
             return jsonify({
@@ -157,7 +159,8 @@ def create_app():
                                              roll_weight_kg=custom_roll_weight_kg,
                                              core_weight_kg=custom_core_weight_kg,
                                              width_mm=custom_width_mm,
-                                             rolls_per_pallet_override=custom_rolls_per_pallet)
+                                             rolls_per_pallet_override=custom_rolls_per_pallet,
+                                             seller_type=seller_type)
         gross = round(unit_price * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
                                                          custom_width_mm)
@@ -224,6 +227,7 @@ def create_app():
         creator_id = existing["created_by_id"] if q_id else g.user["id"]
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
         adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
+        creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
 
         for l in data.get("lines", []):
             product = db.execute("SELECT * FROM product WHERE id=?", (l.get("product_id"),)).fetchone()
@@ -241,6 +245,7 @@ def create_app():
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                    seller_type=creator_seller_type,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
@@ -265,6 +270,7 @@ def create_app():
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
+                seller_type=creator_seller_type,
             )
             db.execute(
                 """INSERT INTO quotation_line

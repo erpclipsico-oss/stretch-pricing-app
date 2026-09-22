@@ -416,6 +416,56 @@ def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=No
     return (row["margin_pct"] or 0.0) / 100.0
 
 
+# ---------------------------------------------------------------- Extras (v21, Pricing Settings > Extras)
+# Three surcharges from the reference app's "Extras" tab, stacked on top of
+# the normal EX-Work + margin unit price. See db.EXTRAS_GLOBAL_SETTINGS for
+# the seeded defaults/labels (editable in Admin > Global Cost Settings) and
+# pricing.py's unit_price_for()/prestretch_unit_price_for() for where each
+# one is actually applied.
+
+EXTRAS_SETTING_KEYS = {
+    "color": "extra_color_usd_kg",
+    "prestretch": "extra_prestretch_usd_kg",
+    "foreign_seller_pct": "extra_foreign_seller_pct",
+}
+
+_NON_COLOR_VALUES = {"", "transparent", "clear", "natural"}
+
+
+def extras_settings(conn):
+    """Current value of all three Extras settings, as a plain dict."""
+    return {
+        "color_usd_kg": _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25),
+        "prestretch_usd_kg": _get_setting(conn, EXTRAS_SETTING_KEYS["prestretch"], 0.12),
+        "foreign_seller_pct": _get_setting(conn, EXTRAS_SETTING_KEYS["foreign_seller_pct"], 1.0),
+    }
+
+
+def color_extra_usd_kg(conn, product):
+    """'Color extra': an additional $/KG surcharge for any product whose
+    catalog color isn't Transparent/Clear/Natural (products have no
+    per-quotation-line color field, so this reads the product's own
+    catalog `color`)."""
+    color = ""
+    if product is not None and "color" in product.keys():
+        color = (product["color"] or "").strip().lower()
+    if color in _NON_COLOR_VALUES:
+        return 0.0
+    return _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25)
+
+
+def foreign_seller_extra_multiplier(conn, seller_type):
+    """'Foreign sellers extra': an extra PERCENTAGE markup (not $/KG) on
+    top of the final unit price, for any rep whose account is marked
+    'foreign' (user.seller_type) -- stacked on top of that same user's
+    existing fixed $/KG Foreign Seller adjustment, not a replacement for
+    it. Returns a multiplier (1.0 = no change)."""
+    if seller_type != "foreign":
+        return 1.0
+    pct = _get_setting(conn, EXTRAS_SETTING_KEYS["foreign_seller_pct"], 1.0)
+    return 1 + (pct / 100.0)
+
+
 # ---------------------------------------------------------------- Main EX-Work computation
 
 def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None):

@@ -276,6 +276,7 @@ def init_db():
     _seed_box_packaging_v3(conn)
     _seed_full_import_v4(conn)
     _seed_margin_factor_v5(conn)
+    _seed_extras_settings(conn)
     conn.close()
 
 
@@ -627,6 +628,44 @@ PRESTRETCH_GLOBAL_SETTINGS = [
      "'With Boxes' (D79=2): divided by Rolls/Pallet, plus 1/6 of a Box's cost "
      "('Material pricing'!C21/F2/6, i.e. the 'box' material rate)."),
 ]
+
+
+# v21: "Pricing Settings > Extras" (Hesham Natora reference app) -- three
+# surcharges applied on top of the normal margin-priced unit price, per the
+# owner's explicit instruction to add this section AND apply it (not just
+# store the numbers). See cost_engine.color_extra_usd_kg()/extras_settings()
+# and pricing.py's unit_price_for()/prestretch_unit_price_for() for where
+# each one is actually used.
+EXTRAS_GLOBAL_SETTINGS = [
+    # key, label, value, help
+    ("extra_color_usd_kg", "Extras - Color extra ($/KG)", 0.25,
+     "Added to the unit price of any line whose product color is not "
+     "Transparent/Clear/Natural (Pricing Settings > Extras > 'Color extra')."),
+    ("extra_prestretch_usd_kg", "Extras - Prestretch extra ($/KG)", 0.12,
+     "Added to the unit price of every Pre-Stretch line, on top of its "
+     "normal EX-Work + margin ('Extras > Prestretch extra')."),
+    ("extra_foreign_seller_pct", "Extras - Foreign sellers extra (% of selling price)", 1.0,
+     "Applied as an extra percentage markup (not $/KG) on top of the final "
+     "unit price -- stacked on top of the existing fixed Foreign Seller "
+     "$/KG adjustment on the Users page -- for any rep whose account is "
+     "marked 'Foreign' ('Extras > Foreign sellers extra', mode = Percent of "
+     "selling price). Enter as a plain percentage, e.g. 1 = 1%."),
+]
+
+
+def _seed_extras_settings(conn):
+    """Per-key idempotent (like _seed_prestretch_settings) so these three
+    settings get added to an already-deployed live DB too, without ever
+    overwriting a value the owner has since edited in Admin."""
+    for key, label, value, help_text in EXTRAS_GLOBAL_SETTINGS:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (key, label, value, help_text),
+        )
+    conn.commit()
 
 
 def _seed_missing_products(conn):
