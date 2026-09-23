@@ -96,10 +96,16 @@ def create_app():
         products_rows = g.db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
         ).fetchall()
-        product_labels = disambiguate_labels(products_rows)
+        # v39 -- no more "(16kg roll)"/"(50kg roll)" suffix on the product
+        # dropdown, per the owner: the Roll KG field next to it is freely
+        # editable for every line anyway, so the catalog's own default
+        # weight isn't a meaningful distinguishing label to her. Two
+        # catalog rows with the same micron+Stretch Ability now show the
+        # exact same text in the dropdown; disambiguate_labels() is still
+        # used elsewhere (e.g. admin_cost_preview) where that matters.
         products = [
-            dict(p, label=lbl, is_prestretch=is_prestretch(p))
-            for p, lbl in zip(products_rows, product_labels)
+            dict(p, label=product_label(p), is_prestretch=is_prestretch(p))
+            for p in products_rows
         ]
         strap_products_rows = g.db.execute(
             "SELECT * FROM strap_product ORDER BY line_key, code"
