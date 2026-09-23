@@ -18,7 +18,24 @@ called fresh every time a price is needed, so edits take effect
 immediately (no caching/staleness within a request).
 """
 
+import decimal
 import re
+
+
+def round_half_up(value, decimals=2):
+    """Standard "round half up" (a final digit of 5 or more always rounds
+    the digit before it up), NOT Python's built-in round(), which uses
+    banker's rounding (round-half-to-even) -- round(0.125, 2) is 0.12 in
+    plain Python, not 0.13, because 2 is already even. Used everywhere a
+    price/weight/total gets its final display rounding, so quoted numbers
+    always follow the rounding rule everyone actually learned in school.
+    Goes through Decimal (via repr of the float) rather than a float
+    epsilon trick, since this is money -- it needs to be exact, not just
+    "close enough" for a couple of extra decimal places."""
+    if value is None:
+        return 0.0
+    quant = decimal.Decimal(1).scaleb(-decimals)
+    return float(decimal.Decimal(repr(value)).quantize(quant, rounding=decimal.ROUND_HALF_UP))
 
 
 # ---------------------------------------------------------------- helpers
@@ -188,6 +205,26 @@ UV_TYPES = [
     ("UVI_6m_Standard", "UVI 6m Standard"),
     ("UV_Rigid", "UV Rigid"),
 ]
+
+# v39 -- the UV picker in the builder is now a single "UV" checkbox instead
+# of a 7-way dropdown, per the owner: it's always the 6-month warranty tier
+# (never 12m), and which Power/Power_Plus/Standard/Rigid variant applies is
+# derived automatically from the *same* product's own Stretch Ability text
+# that already drives its normal (non-UV) margin lookup -- roll_type_bucket()
+# -- rather than asked as a separate choice. UV_Rigid stands alone (no 6m/
+# 12m split for Rigid in the seeded margin_factor table).
+UV_TYPE_FOR_ROLL_TYPE = {
+    "St": "UVI_6m_Standard",
+    "P": "UVI_6m_Power",
+    "P_plus": "UVI_6m_Power_Plus",
+    "RIGID": "UV_Rigid",
+}
+
+
+def uv_type_for_product(stretch_ability):
+    """The UV_TYPES key to use when the UV checkbox is on for a product
+    with this Stretch Ability -- see UV_TYPE_FOR_ROLL_TYPE above."""
+    return UV_TYPE_FOR_ROLL_TYPE.get(roll_type_bucket(stretch_ability), "UVI_6m_Standard")
 
 
 # ---------------------------------------------------------------- Electricity / Conversion cost

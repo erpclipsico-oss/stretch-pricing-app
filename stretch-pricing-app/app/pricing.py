@@ -126,7 +126,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     price = base + (price_adjustment_usd_kg or 0)
     if apply_extras:
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
-    return round(price, 2)
+    return cost_engine.round_half_up(price, 2)
 
 
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
@@ -165,7 +165,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     gross_roll_weight = effective["roll_weight_kg"] or 0
     net_roll_weight = max(gross_roll_weight - (effective["core_weight_kg"] or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
-    total_kg = round((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)
+    total_kg = cost_engine.round_half_up((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)
     return unit_price, total_kg
 
 
@@ -261,7 +261,7 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
     )
     packaging_cost = prestretch_packaging_cost_usd(db, rolls_per_pallet, net_weight, packaging_type)
     total = material_cost + core_cost + other_costs + packaging_cost
-    return round(total / roll_weight, 4)
+    return cost_engine.round_half_up(total / roll_weight, 4)
 
 
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
@@ -290,7 +290,7 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     base += cost_engine._get_setting(db, "extra_prestretch_usd_kg", 0.12)
     price = base + (price_adjustment_usd_kg or 0)
     price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
-    return round(price, 2)
+    return cost_engine.round_half_up(price, 2)
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
@@ -307,5 +307,5 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
-    total_kg = round((quantity_pallets or 0) * (rolls_per_pallet or 0) * roll_weight, 3)
+    total_kg = cost_engine.round_half_up((quantity_pallets or 0) * (rolls_per_pallet or 0) * roll_weight, 3)
     return unit_price, total_kg

@@ -16,6 +16,7 @@
       <span style="width:100px;">Region</span>
       <span style="width:90px;">Seller type</span>
       <span style="width:110px;">Price adj. $/KG</span>
+      <span style="width:110px;" title="Hidden markup added to this user's PET/PP Strap quotes only -- not shown to them anywhere">Strap markup %</span>
       <span style="width:60px;">Active</span>
     </div>
     {% for u in users %}
@@ -33,6 +34,7 @@
           <option value="foreign" {% if u.seller_type=='foreign' %}selected{% endif %}>Foreign</option>
         </select>
         <input type="number" step="any" name="price_adjustment_usd_kg" value="{{ u.price_adjustment_usd_kg or 0 }}" style="width:90px;">
+        <input type="number" step="any" name="strap_markup_pct" value="{{ u.strap_markup_pct or 0 }}" style="width:90px;" title="Hidden -- not shown to this user anywhere in the app">
         <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
           <input type="checkbox" name="active" {% if u.active %}checked{% endif %} style="width:auto;"> active
         </label>

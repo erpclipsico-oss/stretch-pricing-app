@@ -165,7 +165,11 @@ def create_app():
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
         colored = bool(data.get("colored"))
-        uv_type = data.get("uv_type") or None
+        # v39 -- UV is now a plain checkbox ("uv": true/false); which of the
+        # 7 UVI_TYPES variants applies is derived from this same product's
+        # own Stretch Ability (see cost_engine.uv_type_for_product()), not
+        # picked separately.
+        uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if data.get("uv") else None
         # v27: Discount % now comes off the margin factor (see pricing.py's
         # _discounted_factor()), not off the finished price -- so the
         # line's own Discount % and the quotation's Global Discount % are
@@ -190,8 +194,8 @@ def create_app():
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                 seller_type=seller_type, colored=colored, discount_pct=0,
             )
-            gross = round(unit_price * total_kg, 2)
-            gross_full = round(unit_price_full * total_kg, 2)
+            gross = cost_engine.round_half_up(unit_price * total_kg, 2)
+            gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
             return jsonify({
                 "unit_price_usd_kg": unit_price,
                 "unit_price_full_usd_kg": unit_price_full,
@@ -233,8 +237,8 @@ def create_app():
                                            seller_type=seller_type,
                                            auto_manual_override=auto_manual_override, colored=colored,
                                            discount_pct=0, uv_type=uv_type)
-        gross = round(unit_price * total_kg, 2)
-        gross_full = round(unit_price_full * total_kg, 2)
+        gross = cost_engine.round_half_up(unit_price * total_kg, 2)
+        gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
                                                          custom_width_mm, auto_manual=auto_manual_override)
         rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, effective_product, pallet_type,
@@ -320,16 +324,21 @@ def create_app():
         global_discount_pct = float(data.get("global_discount_pct") or 0)
         discount_pct = line_discount_pct + global_discount_pct
         credit_term = _strap_credit_term(data)
+        # Hidden per-user strap markup (e.g. Manuel/Pasquale) -- see
+        # user.strap_markup_pct and strap_pricing.compute_strap_line().
+        hidden_markup_pct = (g.user["strap_markup_pct"] if "strap_markup_pct" in g.user.keys() else 0) or 0
 
         calc = strap_pricing.compute_strap_line(g.db, product_line, product,
-                                                  discount_pct=discount_pct, credit_term=credit_term)
+                                                  discount_pct=discount_pct, credit_term=credit_term,
+                                                  hidden_markup_pct=hidden_markup_pct)
         calc_full = strap_pricing.compute_strap_line(g.db, product_line, product,
-                                                       discount_pct=0, credit_term=credit_term)
-        total_kg = round(calc["gross_weight_kg"] * qty_coils, 2)
+                                                       discount_pct=0, credit_term=credit_term,
+                                                       hidden_markup_pct=hidden_markup_pct)
+        total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
-        gross = round(unit_price * total_kg, 2)
-        gross_full = round(unit_price_full * total_kg, 2)
+        gross = cost_engine.round_half_up(unit_price * total_kg, 2)
+        gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         return jsonify({
             "unit_price_usd_kg": unit_price,
             "unit_price_full_usd_kg": unit_price_full,
@@ -402,6 +411,8 @@ def create_app():
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
         adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
         creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
+        creator_strap_markup_pct = (creator["strap_markup_pct"] if creator and "strap_markup_pct" in creator.keys()
+                                     else 0) or 0
 
         for l in data.get("lines", []):
             line_product_line = l.get("product_line") or "stretch_film"
@@ -434,10 +445,12 @@ def create_app():
                 discount_pct = line_discount_pct + global_discount_pct
                 credit_term = _strap_credit_term(data)
                 calc = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
-                                                          discount_pct=discount_pct, credit_term=credit_term)
+                                                          discount_pct=discount_pct, credit_term=credit_term,
+                                                          hidden_markup_pct=creator_strap_markup_pct)
                 calc_full = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
-                                                               discount_pct=0, credit_term=credit_term)
-                total_kg = round(calc["gross_weight_kg"] * qty_coils, 2)
+                                                               discount_pct=0, credit_term=credit_term,
+                                                               hidden_markup_pct=creator_strap_markup_pct)
+                total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
                 if is_custom:
@@ -524,7 +537,8 @@ def create_app():
             # just the product's own catalog Automatic/Manual value -- see
             # cost_engine.with_overrides()'s auto_manual param.
             auto_manual_override = l.get("packing_type") or None
-            uv_type = l.get("uv_type") or None
+            # v39 -- UV checkbox (see api_calculate_line's matching comment).
+            uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if l.get("uv") else None
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
@@ -655,10 +669,10 @@ def create_app():
             # reference price, used only to show the Discount $ figure in
             # compute_totals(); NULL on quotes saved before v27 falls back
             # to unit_price_usd_kg (i.e. shows as no discount).
-            line_total = round(l["unit_price_usd_kg"] * l["total_kg"], 2)
+            line_total = cost_engine.round_half_up(l["unit_price_usd_kg"] * l["total_kg"], 2)
             full_unit = l["unit_price_full_usd_kg"] if ("unit_price_full_usd_kg" in l.keys()
                                                           and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
-            line_total_full = round(full_unit * l["total_kg"], 2)
+            line_total_full = cost_engine.round_half_up(full_unit * l["total_kg"], 2)
             basis = l["pricing_basis"] if "pricing_basis" in l.keys() and l["pricing_basis"] else "per_kg"
             # v39 -- "stuffing" details (Rolls/Pallet, Pallets/Container --
             # how the rolls actually get loaded/stuffed into the chosen
@@ -717,11 +731,11 @@ def create_app():
                 full_unit = l["unit_price_full_usd_kg"] if ("unit_price_full_usd_kg" in l.keys()
                                                               and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
                 lines.append({
-                    "line_total": round(l["unit_price_usd_kg"] * l["total_kg"], 2),
-                    "line_total_full": round(full_unit * l["total_kg"], 2),
+                    "line_total": cost_engine.round_half_up(l["unit_price_usd_kg"] * l["total_kg"], 2),
+                    "line_total_full": cost_engine.round_half_up(full_unit * l["total_kg"], 2),
                 })
-        total = round(sum(l["line_total"] for l in lines), 2)
-        subtotal = round(sum(l.get("line_total_full", l["line_total"]) for l in lines), 2)
+        total = cost_engine.round_half_up(sum(l["line_total"] for l in lines), 2)
+        subtotal = cost_engine.round_half_up(sum(l.get("line_total_full", l["line_total"]) for l in lines), 2)
 
         # FOB Total = EX-Work total (after discount) + the selected loading
         # port's flat handling/customs/trucking add-on (Alexandria vs
@@ -732,9 +746,9 @@ def create_app():
         # freight $ figure itself is not broken out as its own line, same
         # treatment as the hidden foreign-seller markup.
         fob_addon = _fob_addon_for_port(db, q["loading_port"] if "loading_port" in q.keys() else None)
-        fob_total = round(total + fob_addon, 2)
+        fob_total = cost_engine.round_half_up(total + fob_addon, 2)
         freight_amt = _freight_for_destination(db, q["destination"] if "destination" in q.keys() else None)
-        cif_total = round(fob_total + freight_amt, 2)
+        cif_total = cost_engine.round_half_up(fob_total + freight_amt, 2)
 
         return {"subtotal": subtotal, "total": total, "fob_total": fob_total, "cif_total": cif_total}
 
@@ -771,7 +785,7 @@ def create_app():
         db = g.db
         db.execute(
             """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
-               seller_type=? WHERE id=?""",
+               seller_type=?, strap_markup_pct=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
@@ -779,6 +793,7 @@ def create_app():
                 1 if request.form.get("active") == "on" else 0,
                 float(request.form.get("price_adjustment_usd_kg") or 0),
                 request.form.get("seller_type", "local"),
+                float(request.form.get("strap_markup_pct") or 0),
                 uid,
             ),
         )
@@ -1675,7 +1690,7 @@ def build_pdf(q, lines, totals):
 
     totals_rows = [
         [f"Global Discount ({q['global_discount_pct'] or 0}%)",
-         f"-${round(totals['subtotal'] - totals['total'], 2):,.2f}"],
+         f"-${cost_engine.round_half_up(totals['subtotal'] - totals['total'], 2):,.2f}"],
         [f"FOB Total ({q['loading_port'] or '-'})", f"${totals['fob_total']:,.2f}"],
         [f"CIF Total ({q['destination'] or '-'})", f"${totals['cif_total']:,.2f}"],
     ]
@@ -1752,8 +1767,8 @@ def build_xlsx(q, lines, totals):
         values = [
             i, line["label"], line["pallet_type"], line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
-            line["quantity_pallets"], round(line["total_kg"], 1),
-            round(line["unit_price_usd_kg"], 2), round(line["line_total"], 2),
+            line["quantity_pallets"], cost_engine.round_half_up(line["total_kg"], 1),
+            cost_engine.round_half_up(line["unit_price_usd_kg"], 2), cost_engine.round_half_up(line["line_total"], 2),
         ]
         for col, v in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col, value=v)
@@ -1776,9 +1791,9 @@ def build_xlsx(q, lines, totals):
 
     row += 1
     totals_rows = [
-        (f"Global Discount ({q['global_discount_pct'] or 0}%)", -round(totals["subtotal"] - totals["total"], 2)),
-        (f"FOB Total ({q['loading_port'] or '-'})", round(totals["fob_total"], 2)),
-        (f"CIF Total ({q['destination'] or '-'})", round(totals["cif_total"], 2)),
+        (f"Global Discount ({q['global_discount_pct'] or 0}%)", -cost_engine.round_half_up(totals["subtotal"] - totals["total"], 2)),
+        (f"FOB Total ({q['loading_port'] or '-'})", cost_engine.round_half_up(totals["fob_total"], 2)),
+        (f"CIF Total ({q['destination'] or '-'})", cost_engine.round_half_up(totals["cif_total"], 2)),
     ]
     for label, val in totals_rows:
         ws.cell(row=row, column=1, value=label).font = bold

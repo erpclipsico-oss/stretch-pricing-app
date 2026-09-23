@@ -18,7 +18,13 @@ CREATE TABLE IF NOT EXISTS user (
     region TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     price_adjustment_usd_kg REAL NOT NULL DEFAULT 0,
-    seller_type TEXT NOT NULL DEFAULT 'local'
+    seller_type TEXT NOT NULL DEFAULT 'local',
+    -- v39 -- a hidden per-user markup (percentage points, e.g. 1.5 = 1.5%)
+    -- applied on top of PET/PP Strap pricing only, the same way
+    -- price_adjustment_usd_kg loads Stretch Film pricing for a given user.
+    -- Not shown anywhere in the UI/PDF/Excel breakdown for the sales rep it
+    -- applies to -- it just raises their strap quotes silently, admin-only.
+    strap_markup_pct REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS product (
@@ -375,6 +381,15 @@ def _migrate(conn):
         conn.execute(
             "UPDATE user SET seller_type='foreign' WHERE (price_adjustment_usd_kg IS NOT NULL AND price_adjustment_usd_kg != 0)"
         )
+        conn.commit()
+    if "strap_markup_pct" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN strap_markup_pct REAL NOT NULL DEFAULT 0")
+        conn.commit()
+        # Seed the two accounts this was requested for. Runs only once, the
+        # moment the column itself is first added -- an admin lowering/
+        # clearing it afterwards (e.g. via Admin > Users) is never overwritten
+        # on a later boot.
+        conn.execute("UPDATE user SET strap_markup_pct=1.5 WHERE username IN ('manuel', 'pasquale')")
         conn.commit()
 
     product_cols = {row["name"] for row in conn.execute("PRAGMA table_info(product)").fetchall()}
@@ -1548,16 +1563,19 @@ def _seed_default_users(conn):
     empty) so new default accounts (e.g. pasquale/manuel, added later) get
     created on an already-deployed, already-seeded live DB too, without
     touching or duplicating any existing account."""
+    # v39 -- hidden PET/PP Strap markup (percentage points), owner-requested
+    # for these two accounts specifically -- not shown anywhere in their UI.
+    strap_markup_by_username = {"manuel": 1.5, "pasquale": 1.5}
     for username, full_name, role, region, seller_type, adjustment in DEFAULT_USERS:
         exists = conn.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
         if exists:
             continue
         conn.execute(
             """INSERT INTO user (username, full_name, password_hash, role, region,
-                                  seller_type, price_adjustment_usd_kg)
-               VALUES (?,?,?,?,?,?,?)""",
+                                  seller_type, price_adjustment_usd_kg, strap_markup_pct)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (username, full_name, generate_password_hash("ChangeMe123!"), role, region,
-             seller_type, adjustment),
+             seller_type, adjustment, strap_markup_by_username.get(username, 0)),
         )
     conn.commit()
 

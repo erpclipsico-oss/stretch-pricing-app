@@ -79,7 +79,7 @@
         <th>Packing type</th>
         <th>Price basis</th>
         <th title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
-        <th title="Adds a flat 2% UVI resin fraction to the recipe and switches the margin lookup to the matching UVI/UV Rigid film type">UV Type</th>
+        <th title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
         <th>Qty (pallets)</th>
         <th>Width (mm)</th>
         <th>Roll kg</th>
@@ -129,12 +129,6 @@
     <tbody id="strapLinesBody"></tbody>
   </table>
   </div>
-  <p style="font-size:0.78rem; color:#666; margin-top:6px;">
-    Strap lines price by coil (Ex-Work → +profit/core → +packaging → +per-container FOB/shipping share),
-    using the quotation's own Payment Term above (Cash vs Credit surcharge). FOB/CFR are shown per roll
-    (not per kg) here; CFR already includes freight and is what feeds Total KG / Line total below.
-    Rolls/pallet pre-fills from the line's own core-size/box spec (editable).
-  </p>
 
   <div class="totals-box">
     <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
@@ -153,7 +147,6 @@ const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
 const PRESTRETCH_PACKAGING_TYPES = {{ prestretch_packaging_types|tojson }};
-const UV_TYPES = {{ uv_types|tojson }};
 const LOADING_PORTS = [
   {% for p in loading_ports %}
   {port: {{ p.port|tojson }}, fob_addon_usd: {{ p.fob_addon_usd or 0 }}},
@@ -193,6 +186,19 @@ function calcGmPerM(lineKey, bomKey, width, thick) {
 }
 const STRAP_CORE_SIZES = {{ strap_core_sizes|tojson }};
 const STRAP_TARGET_GROSS = {pet: [20.0, 20.2], pp: [12.0, 12.2]};
+
+// v39 -- standard "round half up" (a 5 or higher in the next digit always
+// rounds the digit before it up), NOT JavaScript's native .toFixed(), which
+// rounds off the number's raw binary floating-point representation and can
+// silently round a genuine .xx5 DOWN instead of up (e.g. (1.005).toFixed(2)
+// -> "1.00", not "1.01", because 1.005 is actually stored as
+// 1.00499999999999989...). Adding Number.EPSILON before scaling corrects
+// that representation error first, so the round that follows is a true
+// half-up round on the decimal value as written, not on its binary ghost.
+function roundHalfUp(num, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+}
 
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
@@ -236,12 +242,7 @@ function addLine(prefill) {
       </select>
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
-    <td>
-      <select class="f-uv" title="Adds a flat 2% UVI resin fraction and switches the margin lookup to the matching UVI/UV Rigid film type">
-        <option value="">None</option>
-        ${UV_TYPES.map(u => `<option value="${u[0]}">${u[1]}</option>`).join('')}
-      </select>
-    </td>
+    <td style="text-align:center;"><input type="checkbox" class="f-uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from this product's own Stretch Ability"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5"></td>
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
@@ -408,7 +409,7 @@ function addStrapLine() {
     const width = parseFloat(tr.querySelector('.f-strap-width').value || 0);
     const thick = parseFloat(tr.querySelector('.f-strap-thickness').value || 0);
     const gm = calcGmPerM(lineKey, bomKey, width, thick);
-    tr.querySelector('.f-strap-gm').value = gm.toFixed(2);
+    tr.querySelector('.f-strap-gm').value = roundHalfUp(gm, 2).toFixed(2);
   }
   tr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
   tr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
@@ -470,7 +471,7 @@ function readLines() {
       packing_type: tr.querySelector('.f-packing').value,
       pricing_basis: tr.querySelector('.f-basis').value,
       colored: tr.querySelector('.f-colored').checked,
-      uv_type: tr.querySelector('.f-uv').value || null,
+      uv: tr.querySelector('.f-uv').checked,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     };
@@ -518,11 +519,11 @@ async function calculateAll() {
     const packing_type = tr.querySelector('.f-packing').value;
     const pricing_basis = tr.querySelector('.f-basis').value;
     const colored = tr.querySelector('.f-colored').checked;
-    const uv_type = tr.querySelector('.f-uv').value || null;
+    const uv = tr.querySelector('.f-uv').checked;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
     const line_discount_pct = parseFloat(tr.querySelector('.f-discount').value || 0);
     const payload = {
-      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv_type,
+      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
       line_discount_pct, global_discount_pct: globalDiscountPct,
     };
     if (isPrestretch(product_id)) {
@@ -631,8 +632,8 @@ async function calculateAll() {
     const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
-    tr.querySelector('.f-strap-fob').textContent = data.fob_price_roll.toFixed(2);
-    tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_roll.toFixed(2);
+    tr.querySelector('.f-strap-fob').textContent = roundHalfUp(data.fob_price_roll, 2).toFixed(2);
+    tr.querySelector('.f-strap-cfr').textContent = roundHalfUp(data.cfr_price_roll, 2).toFixed(2);
     tr.querySelector('.f-strap-kg').textContent = effectiveTotalKg.toLocaleString();
     tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     if (custom) {
@@ -642,7 +643,7 @@ async function calculateAll() {
       // it actually used (auto-suggested when the field was left blank/0)
       // back into the row, without clobbering a value the rep is still typing.
       if (document.activeElement !== tr.querySelector('.f-strap-gm')) {
-        tr.querySelector('.f-strap-gm').value = data.meter_weight_g_per_m.toFixed(2);
+        tr.querySelector('.f-strap-gm').value = roundHalfUp(data.meter_weight_g_per_m, 2).toFixed(2);
       }
       if (document.activeElement !== tr.querySelector('.f-strap-meters')) {
         tr.querySelector('.f-strap-meters').value = data.meters_per_coil;
@@ -679,11 +680,11 @@ async function calculateAll() {
   for (const rc of rowCalc) {
     const fobUnit = rc.exwUnit + fobAddonPerKg;
     const cifUnit = fobUnit + freightPerKg;
-    rc.tr.querySelector('.f-fob').textContent = fobUnit.toFixed(2);
-    rc.tr.querySelector('.f-cif').textContent = cifUnit.toFixed(2);
+    rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2);
+    rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2);
   }
 
-  const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const money = (v) => '$' + roundHalfUp(v, 2).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   document.getElementById('discountCell').textContent = '-' + money(discount);
   document.getElementById('fobTotalCell').textContent = money(fobTotal);
   document.getElementById('cifTotalCell').textContent = money(cifTotal);

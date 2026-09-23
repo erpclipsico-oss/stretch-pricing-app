@@ -318,12 +318,18 @@ def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
     return 0.0
 
 
-def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False):
+def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False, hidden_markup_pct=0):
     """Full per-roll/per-kg breakdown for one strap_product row. Returns a
     dict with ex_work_price_roll, fob_price_roll/kg, cfr_price_roll/kg
     (Cash terms unless credit_term=True, in which case the flat $/kg
     surcharge is already included), plus gross_weight_kg (for converting
-    a quantity of coils into total_kg elsewhere)."""
+    a quantity of coils into total_kg elsewhere).
+
+    hidden_markup_pct: a per-user hidden markup (percentage points, e.g.
+    1.5 for 1.5%), from user.strap_markup_pct -- applied at the exact same
+    point discount_pct is (the inverse of a discount), so it flows through
+    into FOB/CFR/total the same consistent way. Not surfaced anywhere in
+    the price breakdown -- see app.py's _calculate_strap_line/api_save_quotation."""
     cfg = LINE_CONFIG[line_key]
     line_numbers = _get_line_config(conn, line_key)
     bom = _get_bom(conn, line_key, product["bom_key"])
@@ -359,7 +365,11 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     )
 
     if core_weight_kg > 0:
-        ex_work_price_roll = _roundup2((packaging_total + coil_price) * (1 - (discount_pct or 0) / 100.0))
+        ex_work_price_roll = _roundup2(
+            (packaging_total + coil_price)
+            * (1 - (discount_pct or 0) / 100.0)
+            * (1 + (hidden_markup_pct or 0) / 100.0)
+        )
     else:
         ex_work_price_roll = 0.0
 
