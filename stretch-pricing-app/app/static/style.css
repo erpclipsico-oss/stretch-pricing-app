@@ -160,5 +160,93 @@ body {
 .edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; }
 .edit-row form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
 .edit-row input[type=text], .edit-row input[type=number] { padding: 6px 8px; font-size: 0.85rem; }
+/* v54 -- header/data column misalignment root cause: flex items default to
+   min-width:auto, so a <select>/<input> whose OWN content (e.g. the "Sales
+   rep" option text, or a number input's spinner chrome) needs more room
+   than its declared style="width:Npx" will refuse to shrink below that
+   content width and silently render wider than the plain <span> above it
+   in the header row -- breaking the two rows' flex-wrap at different
+   points even though the declared widths matched (the v52 fix). This is
+   standard flexbox behavior (not Safari-only, though Safari's native
+   select/number-input chrome makes it show up worse there). Forcing
+   min-width:0 makes every field actually honor its declared width, and
+   appearance:none stops Safari/Chrome from padding a <select> out for its
+   native dropdown chrome beyond that width. */
+.edit-row span, .edit-row input, .edit-row select, .edit-row label {
+  min-width: 0;
+  box-sizing: border-box;
+}
+.edit-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 18px 6px 8px;
+  font-size: 0.85rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 9px 6px;
+}
 .col-label { font-size: 0.7rem; color: var(--muted); display: block; margin-bottom: 2px; }
 .edit-cell { display: flex; flex-direction: column; }
+
+/* v55 -- Users table rebuilt on CSS Grid instead of flex-wrap. The v54 fix
+   (min-width:0 / appearance:none) stopped individual fields from
+   overflowing their declared width, but the header row and each data
+   row were still two SEPARATE flex-wrap contexts (the header row's cells
+   flex directly under .edit-row; each data row's cells flex under its own
+   nested <form>) -- any tiny difference between them (a translated word
+   that's a few px longer, a browser's own number-input rendering, a
+   narrower window) could still make the two contexts wrap at a different
+   point and throw columns out of alignment again, invisibly, at any time.
+   Grid removes that whole failure class: header and every data row share
+   ONE grid-template-columns definition, so a column's on-screen position
+   is fixed by that definition, never by how much room its own content
+   wants. `.edit-row form { display:contents }` unwraps the <form> from
+   the layout tree entirely, so its fields become direct grid children of
+   the row -- exactly like the header's <span> cells -- instead of being
+   nested inside a second, independently-sized grid/flex context. No
+   wrapping: on a narrower window the table scrolls horizontally
+   (.users-scroll) rather than reflowing into a different, harder-to-read
+   shape. Scoped to .users-row specifically (not the shared .edit-row used
+   by every other Admin page) so this doesn't change any other page. */
+.users-scroll { overflow-x: auto; }
+.users-row {
+  display: grid;
+  grid-template-columns: 110px 130px 100px 100px 90px 110px 200px 200px 64px 76px;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  min-width: 1160px;
+}
+.users-row.header-row {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+}
+.users-row form { display: contents; }
+.users-row select, .users-row input, .users-row span, .users-row label {
+  min-width: 0;
+  box-sizing: border-box;
+  width: 100%;
+}
+.users-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 18px 6px 8px;
+  font-size: 0.85rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 9px 6px;
+}
+.users-row input[type=text], .users-row input[type=number] { padding: 6px 8px; font-size: 0.85rem; }
+.users-row .markup-pair { display: flex; gap: 4px; width: 100%; }
+.users-row .markup-pair select { flex: 1 1 55%; }
+.users-row .markup-pair input { flex: 1 1 45%; }
+.users-row .active-cell { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; }

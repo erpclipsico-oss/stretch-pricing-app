@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Users · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Users</h2></div>
@@ -12,54 +13,57 @@
     (a flat $/KG add-on) mode (e.g. +3&cent;/KG on Stretch but +5% on Strap for the same user, at the
     same time). Never shown to the user anywhere in the app (screen, PDF or Excel).
   </p>
+  <div class="users-scroll">
   <div class="edit-grid">
-    <div class="edit-row header-row">
-      <span style="width:110px;">Username</span>
-      <span style="width:120px;">Full name</span>
-      <span style="width:90px;">Role</span>
-      <span style="width:90px;">Region</span>
-      <span style="width:85px;">Seller type</span>
-      <span style="width:100px;">Price adj. $/KG</span>
-      <span style="width:190px; text-align:center;" title="Hidden markup on Stretch Film / Pre-Stretch quotes only -- not shown to this user anywhere">Stretch markup (hidden)</span>
-      <span style="width:190px; text-align:center;" title="Hidden markup on PET/PP Strap quotes only -- not shown to this user anywhere">Strap markup (hidden)</span>
-      <span style="width:60px;">Active</span>
+    <div class="users-row header-row">
+      <span>Username</span>
+      <span>Full name</span>
+      <span>Role</span>
+      <span>Region</span>
+      <span>Seller type</span>
+      <span>Price adj. $/KG</span>
+      <span title="Hidden markup on Stretch Film / Pre-Stretch quotes only -- not shown to this user anywhere">Stretch markup (hidden)</span>
+      <span title="Hidden markup on PET/PP Strap quotes only -- not shown to this user anywhere">Strap markup (hidden)</span>
+      <span>Active</span>
+      <span></span>
     </div>
     {% for u in users %}
-    <div class="edit-row">
+    <div class="users-row">
       <form method="post" action="{{ url_for('admin_user_update', uid=u.id) }}">
-        <span style="width:110px;">{{ u.username }}</span>
-        <input type="text" name="full_name" value="{{ u.full_name or '' }}" style="width:120px;">
-        <select name="role" style="width:90px;">
+        <span>{{ u.username }}</span>
+        <input type="text" name="full_name" value="{{ u.full_name or '' }}">
+        <select name="role">
           <option value="sales_rep" {% if u.role=='sales_rep' %}selected{% endif %}>Sales rep</option>
           <option value="admin" {% if u.role=='admin' %}selected{% endif %}>Admin</option>
         </select>
-        <input type="text" name="region" value="{{ u.region or '' }}" style="width:90px;" placeholder="Egypt / Foreign">
-        <select name="seller_type" style="width:85px;">
+        <input type="text" name="region" value="{{ u.region or '' }}" placeholder="Egypt / Foreign">
+        <select name="seller_type">
           <option value="local" {% if u.seller_type=='local' or not u.seller_type %}selected{% endif %}>Local</option>
           <option value="foreign" {% if u.seller_type=='foreign' %}selected{% endif %}>Foreign</option>
         </select>
-        <input type="number" step="any" name="price_adjustment_usd_kg" value="{{ u.price_adjustment_usd_kg or 0 }}" style="width:100px;">
-        <span style="width:190px; display:inline-flex; gap:4px;" title="Hidden -- not shown to this user anywhere in the app">
-          <select name="stretch_markup_mode" style="width:95px;">
+        <input type="number" step="any" name="price_adjustment_usd_kg" value="{{ u.price_adjustment_usd_kg or 0 }}">
+        <span class="markup-pair" title="Hidden -- not shown to this user anywhere in the app">
+          <select name="stretch_markup_mode">
             <option value="percent" {% if u.stretch_markup_mode=='percent' or not u.stretch_markup_mode %}selected{% endif %}>Percent</option>
             <option value="cents_per_kg" {% if u.stretch_markup_mode=='cents_per_kg' %}selected{% endif %}>Cents/KG</option>
           </select>
-          <input type="number" step="any" name="stretch_markup_value" value="{{ u.stretch_markup_value or 0 }}" style="width:85px;">
+          <input type="number" step="any" name="stretch_markup_value" value="{{ u.stretch_markup_value or 0 }}">
         </span>
-        <span style="width:190px; display:inline-flex; gap:4px;" title="Hidden -- not shown to this user anywhere in the app">
-          <select name="strap_markup_mode" style="width:95px;">
+        <span class="markup-pair" title="Hidden -- not shown to this user anywhere in the app">
+          <select name="strap_markup_mode">
             <option value="percent" {% if u.strap_markup_mode=='percent' or not u.strap_markup_mode %}selected{% endif %}>Percent</option>
             <option value="cents_per_kg" {% if u.strap_markup_mode=='cents_per_kg' %}selected{% endif %}>Cents/KG</option>
           </select>
-          <input type="number" step="any" name="strap_markup_value" value="{{ u.strap_markup_value or 0 }}" style="width:85px;">
+          <input type="number" step="any" name="strap_markup_value" value="{{ u.strap_markup_value or 0 }}">
         </span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;width:60px;">
+        <label class="active-cell">
           <input type="checkbox" name="active" {% if u.active %}checked{% endif %} style="width:auto;"> active
         </label>
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </form>
     </div>
     {% endfor %}
+  </div>
   </div>
 </div>
 
