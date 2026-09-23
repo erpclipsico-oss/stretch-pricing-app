@@ -4,7 +4,10 @@
 <div class="panel">
   <div class="panel-header">
     <h2>{{ q.quotation_no or ('Quotation #' ~ q.id) }}</h2>
-    <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-primary">⇧ Export PDF</a>
+    <div class="panel-actions">
+      <a href="{{ url_for('quotation_excel', qid=q.id) }}" class="btn btn-outline">⇧ Export Excel</a>
+      <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-primary">⇧ Export PDF</a>
+    </div>
   </div>
   <div class="grid grid-4">
     <div class="field"><label>Customer</label><div>{{ q.customer_name or '-' }}</div></div>

@@ -597,6 +597,17 @@ def create_app():
         filename = f"Quotation_{q['quotation_no'] or q['id']}.pdf"
         return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
+    @app.route("/quotations/<int:qid>/excel")
+    @login_required
+    def quotation_excel(qid):
+        q, lines, totals = load_quotation(g.db, qid)
+        buf = build_xlsx(q, lines, totals)
+        filename = f"Quotation_{q['quotation_no'] or q['id']}.xlsx"
+        return send_file(
+            buf, as_attachment=True, download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     def load_quotation(db, qid):
         q = db.execute("SELECT * FROM quotation WHERE id=?", (qid,)).fetchone()
         if not q:
@@ -649,8 +660,29 @@ def create_app():
                                                           and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
             line_total_full = round(full_unit * l["total_kg"], 2)
             basis = l["pricing_basis"] if "pricing_basis" in l.keys() and l["pricing_basis"] else "per_kg"
+            # v39 -- "stuffing" details (Rolls/Pallet, Pallets/Container --
+            # how the rolls actually get loaded/stuffed into the chosen
+            # container) are computed here from the line's own saved
+            # core-weight/box/container-type inputs and shown on the
+            # exported PDF/Excel, right under each strap line, rather than
+            # being a separate manual data-entry field anywhere.
+            stuffing = None
+            if line_pl in ("pet", "pp") and "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]:
+                core_weight_kg = l["strap_custom_core_weight_kg"]
+                has_box = bool(l["strap_custom_has_box"]) if "strap_custom_has_box" in l.keys() else False
+                ctr20 = bool(l["strap_custom_ctr20"]) if "strap_custom_ctr20" in l.keys() else False
+                ctr40 = bool(l["strap_custom_ctr40"]) if "strap_custom_ctr40" in l.keys() else False
+                if not (ctr20 or ctr40):
+                    ctr40 = True
+                stuffing = {
+                    "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(core_weight_kg, has_box),
+                    "pallets_per_container": strap_pricing.suggest_pallets_per_container(
+                        core_weight_kg, has_box, ctr20, ctr40),
+                    "box": "Yes" if has_box else "No",
+                    "container": "20ft" if ctr20 else "40ft",
+                }
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
-                               pricing_basis_label=basis_labels.get(basis, "$/KG")))
+                               pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
@@ -1601,8 +1633,13 @@ def build_pdf(q, lines, totals):
     elements.append(meta_table)
     elements.append(Spacer(1, 14))
 
+    stuffing_style = ParagraphStyle("Stuffing", parent=styles["Normal"], fontSize=7,
+                                     textColor=colors.HexColor("#666666"), leading=9, fontName="Helvetica-Oblique")
+
     header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
     rows = [header]
+    span_commands = []
+    stuffing_row_indexes = []
     for i, line in enumerate(lines, start=1):
         rows.append([
             str(i), line["label"], line["pallet_type"], line["packing_type"],
@@ -1610,6 +1647,19 @@ def build_pdf(q, lines, totals):
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
             f"{line['unit_price_usd_kg']:.2f}", f"{line['line_total']:,.2f}",
         ])
+        # v39 -- strap lines get a "stuffing" sub-row right under them:
+        # Rolls/Pallet and Pallets/Container, computed from the line's own
+        # core-weight/box/container inputs (see load_quotation), so the
+        # customer-facing export shows exactly how the order gets loaded.
+        stuffing = line.get("stuffing")
+        if stuffing:
+            note = (f"Stuffing — Rolls/Pallet: {stuffing['rolls_per_pallet']} · "
+                    f"Pallets/Container ({stuffing['container']}): {stuffing['pallets_per_container']} · "
+                    f"Box: {stuffing['box']}")
+            row_idx = len(rows)
+            rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", ""])
+            span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
+            stuffing_row_indexes.append(row_idx)
     table = Table(rows, colWidths=[16, 108, 58, 58, 62, 48, 48, 48, 60])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
@@ -1618,6 +1668,7 @@ def build_pdf(q, lines, totals):
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
         ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+        *span_commands,
     ]))
     elements.append(table)
     elements.append(Spacer(1, 14))
@@ -1638,5 +1689,109 @@ def build_pdf(q, lines, totals):
     elements.append(totals_table)
 
     doc.build(elements)
+    buf.seek(0)
+    return buf
+
+
+def build_xlsx(q, lines, totals):
+    """Excel version of the same quotation the PDF builds -- same header
+    meta, same line columns, same totals -- as an .xlsx download, requested
+    to sit right next to Export PDF."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Quotation"
+
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    right = Alignment(horizontal="right")
+
+    row = 1
+    ws.cell(row=row, column=1, value=COMPANY_NAME).font = Font(bold=True, size=13)
+    row += 1
+    ws.cell(row=row, column=1, value=COMPANY_ADDRESS).font = Font(size=8, color="444444")
+    row += 2
+
+    ws.cell(row=row, column=1, value="Quotation").font = Font(bold=True, size=15)
+    row += 2
+
+    created_at = q["created_at"] or ""
+    date_str = created_at[:10] if created_at else "-"
+    meta_rows = [
+        ("Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str),
+        ("Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"),
+        ("Loading Port", q["loading_port"] or "-", "Destination", q["destination"] or "-"),
+        ("Discount", f"{q['global_discount_pct'] or 0}%", "", ""),
+    ]
+    for label1, val1, label2, val2 in meta_rows:
+        ws.cell(row=row, column=1, value=label1).font = bold
+        ws.cell(row=row, column=2, value=val1)
+        if label2:
+            ws.cell(row=row, column=3, value=label2).font = bold
+            ws.cell(row=row, column=4, value=val2)
+        row += 1
+    row += 1
+
+    header_row = row
+    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+    row += 1
+
+    stuffing_font = Font(italic=True, size=8, color="666666")
+    for i, line in enumerate(lines, start=1):
+        values = [
+            i, line["label"], line["pallet_type"], line["packing_type"],
+            line.get("pricing_basis_label", "$/KG"),
+            line["quantity_pallets"], round(line["total_kg"], 1),
+            round(line["unit_price_usd_kg"], 2), round(line["line_total"], 2),
+        ]
+        for col, v in enumerate(values, start=1):
+            cell = ws.cell(row=row, column=col, value=v)
+            cell.border = border
+            if col >= 6:
+                cell.alignment = right
+        row += 1
+        # v39 -- strap lines get a "stuffing" note right under them:
+        # Rolls/Pallet and Pallets/Container, computed from the line's own
+        # core-weight/box/container inputs (see load_quotation).
+        stuffing = line.get("stuffing")
+        if stuffing:
+            note = (f"Stuffing — Rolls/Pallet: {stuffing['rolls_per_pallet']} · "
+                    f"Pallets/Container ({stuffing['container']}): {stuffing['pallets_per_container']} · "
+                    f"Box: {stuffing['box']}")
+            cell = ws.cell(row=row, column=2, value=note)
+            cell.font = stuffing_font
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=9)
+            row += 1
+
+    row += 1
+    totals_rows = [
+        (f"Global Discount ({q['global_discount_pct'] or 0}%)", -round(totals["subtotal"] - totals["total"], 2)),
+        (f"FOB Total ({q['loading_port'] or '-'})", round(totals["fob_total"], 2)),
+        (f"CIF Total ({q['destination'] or '-'})", round(totals["cif_total"], 2)),
+    ]
+    for label, val in totals_rows:
+        ws.cell(row=row, column=1, value=label).font = bold
+        cell = ws.cell(row=row, column=9, value=val)
+        cell.font = bold
+        cell.number_format = "$#,##0.00"
+        row += 1
+
+    widths = [4, 30, 12, 12, 12, 12, 10, 10, 12]
+    for col, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
     buf.seek(0)
     return buf

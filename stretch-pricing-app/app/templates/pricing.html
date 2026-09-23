@@ -8,6 +8,7 @@
     <h2>New quotation <button type="button" class="btn btn-danger-outline" id="resetBtn">🗑 New quotation</button></h2>
     <div class="panel-actions">
       <button type="button" class="btn btn-success" id="saveBtn">💾 Save</button>
+      <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ Export Excel</button>
       <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ Export PDF</button>
       <button type="button" class="btn btn-primary" id="calcBtn">⚡ Calculate</button>
     </div>
@@ -106,12 +107,20 @@
       <tr>
         <th>#</th>
         <th>Product</th>
+        <th>Material</th>
+        <th>Width (mm)</th>
+        <th>Thickness (mm)</th>
+        <th title="Updates instantly as Width/Thickness/Material change">g/m</th>
+        <th>Meters/coil</th>
+        <th>Core size</th>
+        <th>Box</th>
+        <th>Pallet</th>
+        <th>Container</th>
         <th>Rolls/pallet</th>
         <th>Qty (pallets)</th>
-        <th>Pallets/container</th>
         <th>Discount %</th>
-        <th>FOB $/kg</th>
-        <th>CFR $/kg</th>
+        <th title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
+        <th title="FOB + per-container shipping share, priced per roll (not per kg) -- this is what feeds the line total">CFR $/Roll</th>
         <th>Total KG</th>
         <th>Line total $</th>
         <th></th>
@@ -122,10 +131,9 @@
   </div>
   <p style="font-size:0.78rem; color:#666; margin-top:6px;">
     Strap lines price by coil (Ex-Work → +profit/core → +packaging → +per-container FOB/shipping share),
-    using the quotation's own Payment Term above (Cash vs Credit surcharge). CFR $/kg already includes
-    freight, so it feeds straight into the totals below the same way Stretch Film's CIF $/kg does.
-    Rolls/pallet pre-fills from the line's own core-size/box spec (editable); Pallets/container is
-    read-only, for reference.
+    using the quotation's own Payment Term above (Cash vs Credit surcharge). FOB/CFR are shown per roll
+    (not per kg) here; CFR already includes freight and is what feeds Total KG / Line total below.
+    Rolls/pallet pre-fills from the line's own core-size/box spec (editable).
   </p>
 
   <div class="totals-box">
@@ -340,6 +348,14 @@ function addStrapLine() {
   // (see CUSTOM_OPTIONS). The strap_product catalog/table itself is left
   // alone -- only the dropdown no longer lists it.
   const options = CUSTOM_OPTIONS;
+  // v38 -- single row per line now (no separate "Custom details" sub-row --
+  // every strap line has always been "Custom" since v33, so the split was
+  // pure overhead). Field order matches the source sheet's own column
+  // order, and the owner's own explicit order request: Product, Material,
+  // Width, Thickness, g/m, Meters/coil, Core size, Box, then the rest
+  // (Pallet, Container, Rolls/pallet, Qty, Discount, FOB, CFR, KG, Total).
+  // The old read-only "pallets per container" reference column has been
+  // dropped entirely per the owner -- it played no part in the price math.
   tr.innerHTML = `
     <td>${strapLineSeq}</td>
     <td>
@@ -347,10 +363,25 @@ function addStrapLine() {
         ${options.map(o => `<option value="${o.value}" data-line="${o.line_key}">${o.label}</option>`).join('')}
       </select>
     </td>
-    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable"></td>
-    <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5"></td>
-    <td class="f-strap-ppc num" title="Pallets per container -- read-only, for reference">-</td>
-    <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
+    <td><select class="f-strap-bom compact-input" style="width:150px;"></select></td>
+    <td><input type="number" class="f-strap-width compact-input" min="0" step="0.1" style="width:70px;"></td>
+    <td><input type="number" class="f-strap-thickness compact-input" min="0" step="0.001" style="width:80px;"></td>
+    <td><input type="text" class="f-strap-gm compact-input" readonly style="width:65px; background:#f3f3f3;" value="0.00"></td>
+    <td><input type="number" class="f-strap-meters compact-input" min="0" step="10" placeholder="auto" style="width:75px;" title="Leave blank/0 to auto-fit the target gross weight"></td>
+    <td>
+      <select class="f-strap-core compact-input" style="width:100px;">
+        ${STRAP_CORE_SIZES.map(c => `<option value="${c[0]}">${c[0]}mm (${(c[1]*1000).toFixed(0)}g)</option>`).join('')}
+      </select>
+    </td>
+    <td style="text-align:center;"><input type="checkbox" class="f-strap-box"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-strap-pallet" checked></td>
+    <td>
+      <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
+      <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
+    </td>
+    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable" style="width:70px;"></td>
+    <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5" style="width:60px;"></td>
+    <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
     <td class="f-strap-kg num">0</td>
@@ -359,57 +390,12 @@ function addStrapLine() {
   `;
   document.getElementById('strapLinesBody').appendChild(tr);
   tr.querySelector('.btn-remove').addEventListener('click', () => {
-    const next = tr.nextElementSibling;
     tr.remove();
-    if (next && next.classList.contains('strap-custom-row')) next.remove();
     renumberStrap();
   });
 
-  // "Custom" details sub-row -- material class, width/thickness (with a
-  // live g/m + suggested-meters preview computed the same way the server
-  // will price it), core size (-> core weight lookup), box, container
-  // type. Hidden unless a "Custom" option is selected.
-  const cr = document.createElement('tr');
-  cr.className = 'strap-custom-row';
-  cr.style.display = 'none';
-  // Field order below matches the source sheet's own column order (CODE,
-  // BOM, [resin % columns -- replaced here by the single Material dropdown,
-  // per the owner's own simplification], Width, Thickness, Meter Weight
-  // g/m, Milage/Meters Per Coil, Core Weight, then packaging/container) --
-  // g/m is its own visible, live-updating field (not a suffix note), same
-  // spot the sheet shows it, right after Thickness.
-  cr.innerHTML = `
-    <td></td>
-    <td colspan="9">
-      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <label style="font-size:0.78rem;">Material
-          <select class="f-strap-bom" style="width:170px;"></select>
-        </label>
-        <label style="font-size:0.78rem;">Width (mm)
-          <input type="number" class="f-strap-width" min="0" step="0.1" style="width:70px;"></label>
-        <label style="font-size:0.78rem;">Thickness (mm)
-          <input type="number" class="f-strap-thickness" min="0" step="0.001" style="width:80px;"></label>
-        <label style="font-size:0.78rem;" title="Updates instantly as Width/Thickness/Material change">g/m
-          <input type="text" class="f-strap-gm" readonly style="width:70px; background:#f3f3f3;" value="0.00"></label>
-        <label style="font-size:0.78rem;">Meters/coil
-          <input type="number" class="f-strap-meters" min="0" step="10" placeholder="auto" style="width:80px;" title="Leave blank/0 to auto-fit the target gross weight"></label>
-        <label style="font-size:0.78rem;">Core size
-          <select class="f-strap-core" style="width:110px;">
-            ${STRAP_CORE_SIZES.map(c => `<option value="${c[0]}">${c[0]}mm (${(c[1]*1000).toFixed(0)}g)</option>`).join('')}
-          </select>
-        </label>
-        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-box"> Box</label>
-        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-pallet" checked> Pallet</label>
-        <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
-        <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
-        <span class="f-strap-preview" style="font-size:0.78rem; color:#666;"></span>
-      </span>
-    </td>
-  `;
-  tr.after(cr);
-
   function populateBomOptions(lineKey) {
-    const bomSel = cr.querySelector('.f-strap-bom');
+    const bomSel = tr.querySelector('.f-strap-bom');
     const opts = STRAP_BOM_LABELS[lineKey] || [];
     bomSel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
   }
@@ -418,27 +404,23 @@ function addStrapLine() {
     const sel = tr.querySelector('.f-strap-product');
     const lineKey = sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.line : null;
     if (!lineKey) return;
-    const bomKey = cr.querySelector('.f-strap-bom').value;
-    const width = parseFloat(cr.querySelector('.f-strap-width').value || 0);
-    const thick = parseFloat(cr.querySelector('.f-strap-thickness').value || 0);
+    const bomKey = tr.querySelector('.f-strap-bom').value;
+    const width = parseFloat(tr.querySelector('.f-strap-width').value || 0);
+    const thick = parseFloat(tr.querySelector('.f-strap-thickness').value || 0);
     const gm = calcGmPerM(lineKey, bomKey, width, thick);
-    cr.querySelector('.f-strap-gm').value = gm.toFixed(2);
+    tr.querySelector('.f-strap-gm').value = gm.toFixed(2);
   }
-  cr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
-  cr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
-  cr.querySelector('.f-strap-bom').addEventListener('change', updateGmLive);
+  tr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
+  tr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
+  tr.querySelector('.f-strap-bom').addEventListener('change', updateGmLive);
 
-  function syncCustomVisibility() {
+  function syncMaterialOptions() {
     const sel = tr.querySelector('.f-strap-product');
-    const isCustom = sel.value.startsWith('custom_');
-    cr.style.display = isCustom ? '' : 'none';
-    if (isCustom) {
-      populateBomOptions(sel.selectedOptions[0].dataset.line);
-      updateGmLive();
-    }
+    populateBomOptions(sel.selectedOptions[0].dataset.line);
+    updateGmLive();
   }
-  tr.querySelector('.f-strap-product').addEventListener('change', syncCustomVisibility);
-  syncCustomVisibility();
+  tr.querySelector('.f-strap-product').addEventListener('change', syncMaterialOptions);
+  syncMaterialOptions();
 }
 
 function renumberStrap() {
@@ -463,18 +445,17 @@ function readStrapLines() {
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
     };
     if (isStrapCustom(sel)) {
-      const cr = tr.nextElementSibling;
       return Object.assign(base, {
         strap_custom: true,
-        strap_bom_key: cr.querySelector('.f-strap-bom').value,
-        strap_width_mm: parseFloat(cr.querySelector('.f-strap-width').value || 0),
-        strap_thickness_mm: parseFloat(cr.querySelector('.f-strap-thickness').value || 0),
-        strap_core_size: cr.querySelector('.f-strap-core').value,
-        strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
-        strap_has_box: cr.querySelector('.f-strap-box').checked,
-        strap_has_pallet: cr.querySelector('.f-strap-pallet').checked,
-        strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
-        strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
+        strap_bom_key: tr.querySelector('.f-strap-bom').value,
+        strap_width_mm: parseFloat(tr.querySelector('.f-strap-width').value || 0),
+        strap_thickness_mm: parseFloat(tr.querySelector('.f-strap-thickness').value || 0),
+        strap_core_size: tr.querySelector('.f-strap-core').value,
+        strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
+        strap_has_box: tr.querySelector('.f-strap-box').checked,
+        strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
+        strap_ctr40: tr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: tr.querySelector('.f-strap-ctr20').checked,
       });
     }
     return Object.assign(base, {strap_product_id: sel.value});
@@ -614,20 +595,18 @@ async function calculateAll() {
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
     };
-    let cr = null;
     if (custom) {
-      cr = tr.nextElementSibling;
       Object.assign(payload, {
         strap_custom: true,
-        strap_bom_key: cr.querySelector('.f-strap-bom').value,
-        strap_width_mm: parseFloat(cr.querySelector('.f-strap-width').value || 0),
-        strap_thickness_mm: parseFloat(cr.querySelector('.f-strap-thickness').value || 0),
-        strap_core_size: cr.querySelector('.f-strap-core').value,
-        strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
-        strap_has_box: cr.querySelector('.f-strap-box').checked,
-        strap_has_pallet: cr.querySelector('.f-strap-pallet').checked,
-        strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
-        strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
+        strap_bom_key: tr.querySelector('.f-strap-bom').value,
+        strap_width_mm: parseFloat(tr.querySelector('.f-strap-width').value || 0),
+        strap_thickness_mm: parseFloat(tr.querySelector('.f-strap-thickness').value || 0),
+        strap_core_size: tr.querySelector('.f-strap-core').value,
+        strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
+        strap_has_box: tr.querySelector('.f-strap-box').checked,
+        strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
+        strap_ctr40: tr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: tr.querySelector('.f-strap-ctr20').checked,
       });
     } else {
       payload.strap_product_id = sel.value;
@@ -652,25 +631,22 @@ async function calculateAll() {
     const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
-    tr.querySelector('.f-strap-fob').textContent = data.fob_price_kg.toFixed(2);
-    tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_kg.toFixed(2);
+    tr.querySelector('.f-strap-fob').textContent = data.fob_price_roll.toFixed(2);
+    tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_roll.toFixed(2);
     tr.querySelector('.f-strap-kg').textContent = effectiveTotalKg.toLocaleString();
     tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    tr.querySelector('.f-strap-ppc').textContent = data.suggested_pallets_per_container;
-    if (custom && cr) {
+    if (custom) {
       // Reflect the server-computed g/m (the authoritative value actually
       // priced with -- the live preview in updateGmLive() is a same-formula
       // estimate, this is what Calculate actually used) and the meters/coil
       // it actually used (auto-suggested when the field was left blank/0)
       // back into the row, without clobbering a value the rep is still typing.
-      if (document.activeElement !== cr.querySelector('.f-strap-gm')) {
-        cr.querySelector('.f-strap-gm').value = data.meter_weight_g_per_m.toFixed(2);
+      if (document.activeElement !== tr.querySelector('.f-strap-gm')) {
+        tr.querySelector('.f-strap-gm').value = data.meter_weight_g_per_m.toFixed(2);
       }
-      if (document.activeElement !== cr.querySelector('.f-strap-meters')) {
-        cr.querySelector('.f-strap-meters').value = data.meters_per_coil;
+      if (document.activeElement !== tr.querySelector('.f-strap-meters')) {
+        tr.querySelector('.f-strap-meters').value = data.meters_per_coil;
       }
-      cr.querySelector('.f-strap-preview').textContent =
-        `Gross/roll: ${data.gross_weight_kg.toFixed(2)}kg`;
     }
     subtotal += effectiveGross;
     subtotalFull += effectiveGrossFull;
@@ -734,6 +710,8 @@ async function saveQuotation() {
     currentQuotationId = data.id;
     document.getElementById('exportBtn').disabled = false;
     document.getElementById('exportBtn').onclick = () => window.open(`/quotations/${data.id}/pdf`, '_blank');
+    document.getElementById('exportExcelBtn').disabled = false;
+    document.getElementById('exportExcelBtn').onclick = () => window.open(`/quotations/${data.id}/excel`, '_blank');
     alert('Quotation saved as ' + (data.quotation_no || ('#' + data.id)));
   }
 }
