@@ -104,6 +104,26 @@ body {
   background: white;
 }
 
+/* v60 -- owner-reported: on a number field with the native up/down spinner
+   (Safari especially), a click that lands on the narrow spinner-arrow
+   strip steps the value or does nothing, instead of placing a text
+   cursor -- so typing a number directly felt unreliable across the
+   quotation builder's Width/Roll kg/Core kg/Rolls per pallet/Pallets per
+   container/Discount % fields (Core kg happened to feel fine only
+   because it's typically a short click target). Removing the native
+   spinner UI everywhere makes every number field a plain click-and-type
+   box, with no arrow strip to miss. Nothing about typing, validation, or
+   the step/min attributes changes -- only the spinner control disappears. */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .lines-header { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 10px; }
 .lines-header h3 { margin: 0; font-size: 1rem; }
 
