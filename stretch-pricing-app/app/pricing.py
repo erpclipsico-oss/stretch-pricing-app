@@ -86,7 +86,7 @@ def _discounted_factor(factor, discount_pct):
 
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
-                    colored=False, discount_pct=0):
+                    colored=False, discount_pct=0, uv_type=None):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -108,12 +108,18 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     apply_extras: set False for an internal lookup of another product's own
     price (e.g. Pre-Stretch borrowing its source SKU's sales price) so the
     Extras surcharges aren't silently double-applied; every top-level quote
-    line leaves this at the default True."""
+    line leaves this at the default True.
+    uv_type (v36): this quotation LINE's own UV variant selection (a key
+    from cost_engine.UV_TYPES, or None) -- overrides the margin film_type
+    lookup and adds the flat UVI_FRACTION material cost; see
+    cost_engine.margin_pct_for()/compute_ex_work_usd_kg()."""
     factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
-                                         rolls_per_pallet_override=rolls_per_pallet_override)
+                                         rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
     factor = _discounted_factor(factor, discount_pct)
+    uv_fraction = cost_engine.UVI_FRACTION if uv_type else 0.0
     ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
-                                                  rolls_per_pallet_override=rolls_per_pallet_override)
+                                                  rolls_per_pallet_override=rolls_per_pallet_override,
+                                                  uv_fraction=uv_fraction)
     base = ex_work * (1 + factor)
     if apply_extras:
         base += cost_engine.color_extra_usd_kg(db, colored)
@@ -126,7 +132,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
-                  seller_type=None, auto_manual_override=None, colored=False, discount_pct=0):
+                  seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis controls which roll weight the line's total KG (and
@@ -154,7 +160,8 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective, pallet_type, rolls_per_pallet_override)
     unit_price = unit_price_for(db, effective, country_class, customer_class, roll_size, price_adjustment_usd_kg,
                                  pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override,
-                                 seller_type=seller_type, colored=colored, discount_pct=discount_pct)
+                                 seller_type=seller_type, colored=colored, discount_pct=discount_pct,
+                                 uv_type=uv_type)
     gross_roll_weight = effective["roll_weight_kg"] or 0
     net_roll_weight = max(gross_roll_weight - (effective["core_weight_kg"] or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight

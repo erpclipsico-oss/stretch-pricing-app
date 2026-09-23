@@ -115,11 +115,25 @@ def create_app():
         payment_terms = ["Cash (0 days)", "30 days", "60 days", "90 days"]
         pricing_bases = [("gross", "$/Roll (Gross)"), ("net", "$/Roll (Net)"), ("per_kg", "$/KG")]
         prestretch_packaging_types = [("no_boxes", "No Boxes"), ("boxes", "With Boxes")]
+        # v37 -- live client-side g/m preview (width x thickness -> g/m,
+        # instantly, no round-trip) needs each BOM recipe's own component
+        # fractions (PP's density formula depends on them; PET's doesn't but
+        # gets the same treatment for consistency). Read live from the DB so
+        # it always reflects whatever's currently on the Strap Costing admin
+        # page, not a frozen snapshot.
+        strap_bom_components = {}
+        for line_key in ("pet", "pp"):
+            strap_bom_components[line_key] = {
+                row["bom_key"]: json.loads(row["components_json"])
+                for row in g.db.execute("SELECT bom_key, components_json FROM strap_bom WHERE line_key=?",
+                                         (line_key,)).fetchall()
+            }
         return render_template(
             "pricing.html",
             products=products,
             strap_products=strap_products,
             strap_bom_labels=strap_pricing.BOM_LABELS,
+            strap_bom_components=strap_bom_components,
             strap_core_sizes=list(strap_pricing.CORE_SIZES_MM.items()),
             freight=freight,
             loading_ports=loading_ports,
@@ -128,6 +142,7 @@ def create_app():
             payment_terms=payment_terms,
             pricing_bases=pricing_bases,
             prestretch_packaging_types=prestretch_packaging_types,
+            uv_types=cost_engine.UV_TYPES,
         )
 
     @app.route("/api/calculate-line", methods=["POST"])
@@ -150,6 +165,7 @@ def create_app():
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
         colored = bool(data.get("colored"))
+        uv_type = data.get("uv_type") or None
         # v27: Discount % now comes off the margin factor (see pricing.py's
         # _discounted_factor()), not off the finished price -- so the
         # line's own Discount % and the quotation's Global Discount % are
@@ -206,7 +222,7 @@ def create_app():
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
                                              seller_type=seller_type,
                                              auto_manual_override=auto_manual_override, colored=colored,
-                                             discount_pct=discount_pct)
+                                             discount_pct=discount_pct, uv_type=uv_type)
         unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                            price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                            pricing_basis=pricing_basis,
@@ -216,7 +232,7 @@ def create_app():
                                            rolls_per_pallet_override=custom_rolls_per_pallet,
                                            seller_type=seller_type,
                                            auto_manual_override=auto_manual_override, colored=colored,
-                                           discount_pct=0)
+                                           discount_pct=0, uv_type=uv_type)
         gross = round(unit_price * total_kg, 2)
         gross_full = round(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -266,6 +282,7 @@ def create_app():
         if core_weight_kg is None:
             return None, jsonify({"error": "Unknown core size"}), 400
         has_box = bool(data.get("strap_has_box"))
+        has_pallet = bool(data.get("strap_has_pallet", True))
         ctr20 = bool(data.get("strap_ctr20"))
         ctr40 = bool(data.get("strap_ctr40"))
         if not (ctr20 or ctr40):
@@ -282,7 +299,7 @@ def create_app():
         product = {
             "bom_key": bom_key, "width_mm": width_mm, "thickness_mm": thickness_mm,
             "meters_per_coil": meters_per_coil, "core_weight_kg": core_weight_kg,
-            "has_box": has_box, "has_pallet": True, "ctr20": ctr20, "ctr40": ctr40,
+            "has_box": has_box, "has_pallet": has_pallet, "ctr20": ctr20, "ctr40": ctr40,
         }
         return product, None, None
 
@@ -507,13 +524,14 @@ def create_app():
             # just the product's own catalog Automatic/Manual value -- see
             # cost_engine.with_overrides()'s auto_manual param.
             auto_manual_override = l.get("packing_type") or None
+            uv_type = l.get("uv_type") or None
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=discount_pct,
+                discount_pct=discount_pct, uv_type=uv_type,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -521,21 +539,22 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=0,
+                discount_pct=0, uv_type=uv_type,
             )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
                     unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
-                    custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
                  unit_price, unit_price_full, total_kg, line_discount_pct, pricing_basis, int(colored),
                  (float(custom_roll_weight_kg) if custom_roll_weight_kg not in (None, "") else None),
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
-                 (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None)),
+                 (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None),
+                 uv_type),
             )
 
         db.commit()
@@ -611,6 +630,13 @@ def create_app():
                     label = "-"
             else:
                 label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+                # v36 -- UV additive: shown on the label so the saved
+                # quotation/PDF makes clear this line carries the UV %,
+                # even though it's still priced off the same base product.
+                uv_type_val = l["uv_type"] if "uv_type" in l.keys() else None
+                if uv_type_val:
+                    uv_labels = dict(cost_engine.UV_TYPES)
+                    label += f" + UV ({uv_labels.get(uv_type_val, uv_type_val)})"
             # v27: unit_price_usd_kg already has the discount baked in (it
             # comes off the margin factor at save time, not applied again
             # here) -- so the line total is a plain multiply, no further

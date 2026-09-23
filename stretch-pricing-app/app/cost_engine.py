@@ -134,27 +134,60 @@ def get_bom_row(conn, stretch_multiplier, micron, roll_tier):
     return min(candidates, key=lambda r: abs((r["micron"] or 0) - (micron or 0)))
 
 
-def material_composition(conn, product):
+def material_composition(conn, product, uv_fraction=0.0):
     """Returns dict of material_key -> weight fraction (0..1) for this
     product, pulled from the BOM table using roll-weight threshold (25kg)
-    exactly like Stretch!L3:S3 (`IF(H3>25, jumbo column, standard column)`)."""
+    exactly like Stretch!L3:S3 (`IF(H3>25, jumbo column, standard column)`).
+
+    uv_fraction (v36): the quotation LINE's own UV additive %, owner-
+    confirmed as a flat 2% for every UV variant (UVI_12m_Power/Power_Plus/
+    Standard, UVI_6m_Power/Power_Plus/Standard, UV_Rigid) -- see
+    UVI_FRACTION below. Not a property of the product/catalog (matches how
+    "Colored" is a per-line flag, not a catalog attribute) -- included here
+    as its own "uvi" component so it eats into the C4 leftover fraction the
+    same way every other resin component already does
+    (c4_fraction = 1 - sum(comp.values()) in compute_ex_work_usd_kg/
+    breakdown), rather than being priced on top of a still-100%-full recipe."""
     roll_weight = product["roll_weight_kg"] or 0
     roll_tier = "jumbo" if roll_weight > 25 else "standard"
     mult = bom_stretch_multiplier(product["stretch_ability"])
     micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
     bom = get_bom_row(conn, mult, micron, roll_tier)
     if bom is None:
-        return {k: 0.0 for k in ["exceed3518", "exceed3812", "exceedxp", "vista6000", "enable", "ld", "vista"]}
-    comp = {
-        "exceed3518": bom["exceed3518"] or 0,
-        "exceed3812": bom["exceed3812"] or 0,
-        "exceedxp": bom["exceedxp"] or 0,
-        "vista6000": bom["vista6000"] or 0,
-        "enable": bom["enable"] or 0,
-        "ld": bom["ld258"] or 0,
-        "vista": bom["vista6202"] or 0,
-    }
+        comp = {k: 0.0 for k in ["exceed3518", "exceed3812", "exceedxp", "vista6000", "enable", "ld", "vista"]}
+    else:
+        comp = {
+            "exceed3518": bom["exceed3518"] or 0,
+            "exceed3812": bom["exceed3812"] or 0,
+            "exceedxp": bom["exceedxp"] or 0,
+            "vista6000": bom["vista6000"] or 0,
+            "enable": bom["enable"] or 0,
+            "ld": bom["ld258"] or 0,
+            "vista": bom["vista6202"] or 0,
+        }
+    comp["uvi"] = uv_fraction or 0.0
     return comp
+
+
+# v36 -- UV additive: owner-confirmed flat 2% weight fraction added to the
+# recipe for every UV variant, no matter the duration (6m/12m) or tier
+# (Power/Power_Plus/Standard) or UV_Rigid. Its own $/ton rate is the
+# existing "uvi" material_rate (already correct at $5500/ton, matching the
+# reference app -- was seeded but unused until now). UV_TYPES is the list
+# of selectable UV variants, in display order -- each key is also the exact
+# margin_factor.film_type string those rows are already seeded under (see
+# db.MARGIN_FACTOR_ROWS), so selecting one directly overrides the normal
+# roll_type_bucket-based film_type lookup in margin_pct_for() below.
+UVI_FRACTION = 0.02
+UV_TYPES = [
+    ("UVI_12m_Power", "UVI 12m Power"),
+    ("UVI_12m_Power_Plus", "UVI 12m Power Plus"),
+    ("UVI_12m_Standard", "UVI 12m Standard"),
+    ("UVI_6m_Power", "UVI 6m Power"),
+    ("UVI_6m_Power_Plus", "UVI 6m Power Plus"),
+    ("UVI_6m_Standard", "UVI 6m Standard"),
+    ("UV_Rigid", "UV Rigid"),
+]
 
 
 # ---------------------------------------------------------------- Electricity / Conversion cost
@@ -376,7 +409,7 @@ FILM_TYPE_FOR_ROLL_TYPE = {
 }
 
 
-def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=None,
+def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_type=None,
                     prestretch_packaging_type=None):
     """Replaces the old country_class x customer_class x roll_size `factor`
     lookup with the reference app's micron x film_type x packing_type x
@@ -393,10 +426,14 @@ def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=No
     'Prestretch', with packing_type 'Pre-stretch (Box)' when
     prestretch_packaging_type == 'boxes', else 'Pre-stretch (No Box)'.
 
-    No current catalog product needs a UVI_* or UV_Rigid film_type (no
-    UV-protected product exists in the catalog today) -- that data is
-    seeded for completeness/future use only; this lookup never derives
-    those film_types for a real product, so they simply never match.
+    uv_type (v36): the quotation LINE's own UV variant selection (one of
+    cost_engine.UV_TYPES's keys, e.g. "UVI_12m_Power", or None for a normal
+    line). When set, it overrides the normal roll_type_bucket-based
+    film_type lookup below with the UV film_type directly -- packing_type/
+    roll_size are still derived the usual way (Automatic/Manual x Standard/
+    Jumbo/Manual), matching every UVI_*/UV_Rigid row already seeded in
+    margin_factor (previously unreachable -- see the old note this replaces:
+    "No current catalog product needs a UVI_* or UV_Rigid film_type").
 
     If no row matches (should not happen for any current catalog product
     given the seeded ranges), falls back to 0% margin rather than raising --
@@ -411,8 +448,11 @@ def margin_pct_for(conn, product, pallet_type=None, rolls_per_pallet_override=No
         packing_type = "Pre-stretch (Box)" if prestretch_packaging_type == "boxes" else "Pre-stretch (No Box)"
         roll_size = "Prestretch Roll size"
     else:
-        roll_type = roll_type_bucket(product["stretch_ability"])
-        film_type = FILM_TYPE_FOR_ROLL_TYPE.get(roll_type, "Standard")
+        if uv_type:
+            film_type = uv_type
+        else:
+            roll_type = roll_type_bucket(product["stretch_ability"])
+            film_type = FILM_TYPE_FOR_ROLL_TYPE.get(roll_type, "Standard")
         auto_manual = (product["auto_manual"] or "").lower()
         if "manual" in auto_manual:
             packing_type = "Manual"
@@ -480,7 +520,7 @@ def foreign_seller_extra_multiplier(conn, seller_type):
 
 # ---------------------------------------------------------------- Main EX-Work computation
 
-def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0):
     """Full replication of Stretch!AG (EX-Work Cost (KG) - gross weight)
     for the standard product-row case (covers the great majority of SKUs:
     any roll with a Stretch Ability % and a Micron, Automatic or Manual
@@ -497,7 +537,7 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     waste = _get_setting(conn, "waste_factor", 1.01)
     scrap = _get_setting(conn, "scrap_interest_factor", 1.031)
 
-    comp = material_composition(conn, product)
+    comp = material_composition(conn, product, uv_fraction=uv_fraction)
     c4_fraction = max(1 - sum(comp.values()), 0)
 
     def mat_cost(key, fraction):
@@ -512,9 +552,11 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     material_cost += mat_cost("enable", comp["enable"])
     material_cost += mat_cost("ld", comp["ld"])
     material_cost += mat_cost("vista", comp["vista"])
-    # UVI weight fraction is a manual input in the workbook (not BOM-driven);
-    # this app does not yet expose a per-product UVI % field, so UVI resin
-    # cost is 0 unless/until that's added. See COST_ENGINE.md.
+    # v36 -- UV additive: owner-confirmed flat 2% weight fraction (see
+    # UVI_FRACTION), added into material_composition()'s "uvi" component so
+    # it eats into the C4 leftover the same way every other resin does, at
+    # the existing "uvi" material_rate ($5500/ton, already seeded/correct).
+    material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
 
     core_cost = core_cost_usd(conn, product)
     packaging_cost = packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override)

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Pricing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 
 <div class="panel">
@@ -77,6 +78,7 @@
         <th>Packing type</th>
         <th>Price basis</th>
         <th title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
+        <th title="Adds a flat 2% UVI resin fraction to the recipe and switches the margin lookup to the matching UVI/UV Rigid film type">UV Type</th>
         <th>Qty (pallets)</th>
         <th>Width (mm)</th>
         <th>Roll kg</th>
@@ -143,6 +145,7 @@ const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
 const PRESTRETCH_PACKAGING_TYPES = {{ prestretch_packaging_types|tojson }};
+const UV_TYPES = {{ uv_types|tojson }};
 const LOADING_PORTS = [
   {% for p in loading_ports %}
   {port: {{ p.port|tojson }}, fob_addon_usd: {{ p.fob_addon_usd or 0 }}},
@@ -159,6 +162,27 @@ const STRAP_PRODUCTS = [
   {% endfor %}
 ];
 const STRAP_BOM_LABELS = {{ strap_bom_labels|tojson }};
+const STRAP_BOM_COMPONENTS = {{ strap_bom_components|tojson }};
+
+// v37 -- client-side mirror of strap_pricing.meter_weight_g_per_m(), so the
+// g/m preview updates instantly as width/thickness/material change, with no
+// round trip to /api/calculate-line. The server recomputes this exactly the
+// same way at Calculate/Save time and is always the value actually priced
+// with -- this is purely a live preview.
+function calcGmPerM(lineKey, bomKey, width, thick) {
+  if (!width || !thick) return 0;
+  if (lineKey === 'pet') {
+    if (width <= 12) return width * (thick - 0.1) * 1.385;
+    return (width - 0.5) * (thick - 0.12) * 1.385;
+  }
+  const comp = (STRAP_BOM_COMPONENTS.pp && STRAP_BOM_COMPONENTS.pp[bomKey]) || {};
+  const coco3Frac = comp.coco3 || 0;
+  const otherFrac = (comp['5032'] || 0) + (comp.recycled_colored || 0) + (comp.recycled_pure || 0);
+  const density = coco3Frac * 1.5 + otherFrac * 0.9;
+  const netWidth = width - 0.2;
+  const netThickness = thick * 0.7;
+  return netWidth * netThickness * density;
+}
 const STRAP_CORE_SIZES = {{ strap_core_sizes|tojson }};
 const STRAP_TARGET_GROSS = {pet: [20.0, 20.2], pp: [12.0, 12.2]};
 
@@ -204,6 +228,12 @@ function addLine(prefill) {
       </select>
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
+    <td>
+      <select class="f-uv" title="Adds a flat 2% UVI resin fraction and switches the margin lookup to the matching UVI/UV Rigid film type">
+        <option value="">None</option>
+        ${UV_TYPES.map(u => `<option value="${u[0]}">${u[1]}</option>`).join('')}
+      </select>
+    </td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5"></td>
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
@@ -342,6 +372,12 @@ function addStrapLine() {
   const cr = document.createElement('tr');
   cr.className = 'strap-custom-row';
   cr.style.display = 'none';
+  // Field order below matches the source sheet's own column order (CODE,
+  // BOM, [resin % columns -- replaced here by the single Material dropdown,
+  // per the owner's own simplification], Width, Thickness, Meter Weight
+  // g/m, Milage/Meters Per Coil, Core Weight, then packaging/container) --
+  // g/m is its own visible, live-updating field (not a suffix note), same
+  // spot the sheet shows it, right after Thickness.
   cr.innerHTML = `
     <td></td>
     <td colspan="9">
@@ -353,14 +389,17 @@ function addStrapLine() {
           <input type="number" class="f-strap-width" min="0" step="0.1" style="width:70px;"></label>
         <label style="font-size:0.78rem;">Thickness (mm)
           <input type="number" class="f-strap-thickness" min="0" step="0.001" style="width:80px;"></label>
+        <label style="font-size:0.78rem;" title="Updates instantly as Width/Thickness/Material change">g/m
+          <input type="text" class="f-strap-gm" readonly style="width:70px; background:#f3f3f3;" value="0.00"></label>
+        <label style="font-size:0.78rem;">Meters/coil
+          <input type="number" class="f-strap-meters" min="0" step="10" placeholder="auto" style="width:80px;" title="Leave blank/0 to auto-fit the target gross weight"></label>
         <label style="font-size:0.78rem;">Core size
           <select class="f-strap-core" style="width:110px;">
             ${STRAP_CORE_SIZES.map(c => `<option value="${c[0]}">${c[0]}mm (${(c[1]*1000).toFixed(0)}g)</option>`).join('')}
           </select>
         </label>
-        <label style="font-size:0.78rem;">Meters/coil <span class="f-strap-suggest" style="color:#888;"></span>
-          <input type="number" class="f-strap-meters" min="0" step="10" placeholder="auto" style="width:80px;" title="Leave blank/0 to auto-fit the target gross weight"></label>
-        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-box"> Boxed</label>
+        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-box"> Box</label>
+        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-pallet" checked> Pallet</label>
         <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
         <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
         <span class="f-strap-preview" style="font-size:0.78rem; color:#666;"></span>
@@ -375,11 +414,28 @@ function addStrapLine() {
     bomSel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
   }
 
+  function updateGmLive() {
+    const sel = tr.querySelector('.f-strap-product');
+    const lineKey = sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.line : null;
+    if (!lineKey) return;
+    const bomKey = cr.querySelector('.f-strap-bom').value;
+    const width = parseFloat(cr.querySelector('.f-strap-width').value || 0);
+    const thick = parseFloat(cr.querySelector('.f-strap-thickness').value || 0);
+    const gm = calcGmPerM(lineKey, bomKey, width, thick);
+    cr.querySelector('.f-strap-gm').value = gm.toFixed(2);
+  }
+  cr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
+  cr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
+  cr.querySelector('.f-strap-bom').addEventListener('change', updateGmLive);
+
   function syncCustomVisibility() {
     const sel = tr.querySelector('.f-strap-product');
     const isCustom = sel.value.startsWith('custom_');
     cr.style.display = isCustom ? '' : 'none';
-    if (isCustom) populateBomOptions(sel.selectedOptions[0].dataset.line);
+    if (isCustom) {
+      populateBomOptions(sel.selectedOptions[0].dataset.line);
+      updateGmLive();
+    }
   }
   tr.querySelector('.f-strap-product').addEventListener('change', syncCustomVisibility);
   syncCustomVisibility();
@@ -416,6 +472,7 @@ function readStrapLines() {
         strap_core_size: cr.querySelector('.f-strap-core').value,
         strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: cr.querySelector('.f-strap-box').checked,
+        strap_has_pallet: cr.querySelector('.f-strap-pallet').checked,
         strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
         strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
       });
@@ -432,6 +489,7 @@ function readLines() {
       packing_type: tr.querySelector('.f-packing').value,
       pricing_basis: tr.querySelector('.f-basis').value,
       colored: tr.querySelector('.f-colored').checked,
+      uv_type: tr.querySelector('.f-uv').value || null,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     };
@@ -479,10 +537,11 @@ async function calculateAll() {
     const packing_type = tr.querySelector('.f-packing').value;
     const pricing_basis = tr.querySelector('.f-basis').value;
     const colored = tr.querySelector('.f-colored').checked;
+    const uv_type = tr.querySelector('.f-uv').value || null;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
     const line_discount_pct = parseFloat(tr.querySelector('.f-discount').value || 0);
     const payload = {
-      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored,
+      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv_type,
       line_discount_pct, global_discount_pct: globalDiscountPct,
     };
     if (isPrestretch(product_id)) {
@@ -566,6 +625,7 @@ async function calculateAll() {
         strap_core_size: cr.querySelector('.f-strap-core').value,
         strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: cr.querySelector('.f-strap-box').checked,
+        strap_has_pallet: cr.querySelector('.f-strap-pallet').checked,
         strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
         strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
       });
@@ -598,11 +658,14 @@ async function calculateAll() {
     tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     tr.querySelector('.f-strap-ppc').textContent = data.suggested_pallets_per_container;
     if (custom && cr) {
-      // Reflect the server-computed g/m and the meters/coil it actually
-      // used (auto-suggested when the field was left blank/0) back into
-      // the row, so the rep sees exactly what's being priced without
-      // clobbering a value they're still typing.
-      cr.querySelector('.f-strap-suggest').textContent = `(g/m: ${data.meter_weight_g_per_m.toFixed(2)})`;
+      // Reflect the server-computed g/m (the authoritative value actually
+      // priced with -- the live preview in updateGmLive() is a same-formula
+      // estimate, this is what Calculate actually used) and the meters/coil
+      // it actually used (auto-suggested when the field was left blank/0)
+      // back into the row, without clobbering a value the rep is still typing.
+      if (document.activeElement !== cr.querySelector('.f-strap-gm')) {
+        cr.querySelector('.f-strap-gm').value = data.meter_weight_g_per_m.toFixed(2);
+      }
       if (document.activeElement !== cr.querySelector('.f-strap-meters')) {
         cr.querySelector('.f-strap-meters').value = data.meters_per_coil;
       }

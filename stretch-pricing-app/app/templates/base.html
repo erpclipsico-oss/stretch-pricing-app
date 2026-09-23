@@ -63,7 +63,7 @@
   </header>
   {% endif %}
 
-  <main class="container">
+  <main class="container{% block container_extra_class %}{% endblock %}">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}

@@ -120,6 +120,12 @@ CREATE TABLE IF NOT EXISTS quotation_line (
     strap_custom_has_box INTEGER,
     strap_custom_ctr20 INTEGER,
     strap_custom_ctr40 INTEGER,
+    -- v36 -- UV additive (Stretch Film lines only): the selected UV variant
+    -- key from cost_engine.UV_TYPES (e.g. 'UVI_12m_Power'), or NULL for a
+    -- normal line. Not a property of the product/catalog -- a per-line
+    -- flag, like "Colored" -- see cost_engine.margin_pct_for()/
+    -- compute_ex_work_usd_kg().
+    uv_type TEXT,
     FOREIGN KEY (quotation_id) REFERENCES quotation(id)
 );
 
@@ -483,6 +489,11 @@ def _migrate(conn):
         if col not in line_cols:
             conn.execute(f"ALTER TABLE quotation_line ADD COLUMN {col} {coltype}")
             conn.commit()
+
+    # v36 -- UV additive dropdown (Stretch Film lines only).
+    if "uv_type" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN uv_type TEXT")
+        conn.commit()
 
     # ---- Product-specific packaging override (v15): a handful of products
     # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
