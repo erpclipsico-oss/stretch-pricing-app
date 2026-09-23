@@ -1231,8 +1231,10 @@ def create_app():
         """v34 -- single consolidated page for everything that prices the
         PET Strap / PP Strap lines: dollar rate (shared with Stretch Film),
         their own material prices, BOM recipes (composition/profit/waste),
-        per-line fixed cost/electricity/direct labor, and the freight (FOB/
-        shipping per container) + credit-term surcharge settings."""
+        per-line fixed cost/electricity/direct labor, and the credit-term
+        surcharge setting. v61 -- FOB/shipping-per-container settings moved
+        out of here: Strap now uses the shared Loading Ports / Freight
+        tables (Admin > Catalog & Rates > Rates) that Stretch Film uses."""
         db = g.db
         if request.method == "POST":
             # Dollar rate (shared global_setting -- also editable from
@@ -1338,8 +1340,17 @@ def create_app():
             r["line_key"]: r
             for r in db.execute("SELECT * FROM strap_line_config").fetchall()
         }
+        # v61 -- strap_fob_cost_per_container_usd / strap_shipping_rate_per_
+        # container_usd are retired from this page: Strap now looks up its
+        # FOB/shipping numbers from the shared Loading Ports / Freight
+        # tables (Admin > Catalog & Rates > Rates), same as Stretch Film --
+        # see _fob_addon_for_port()/_freight_for_destination() and every
+        # strap_pricing.compute_strap_line() call site. Only the
+        # credit-term surcharge (unrelated to freight) still lives here.
         freight = db.execute(
-            "SELECT * FROM global_setting WHERE key LIKE 'strap_%' ORDER BY label"
+            "SELECT * FROM global_setting WHERE key LIKE 'strap_%' "
+            "AND key NOT IN ('strap_fob_cost_per_container_usd', 'strap_shipping_rate_per_container_usd') "
+            "ORDER BY label"
         ).fetchall()
         return render_template(
             "admin_strap_costing.html",
