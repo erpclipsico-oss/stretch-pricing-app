@@ -648,7 +648,15 @@ async function calculateAll() {
     subtotal += data.line_gross;
     subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
     totalKgAll += data.total_kg;
-    rowCalc.push({tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg});
+    // v49: also carry this row's own Price basis + the roll/core weight the
+    // server actually costed with, so the FOB/CIF cells below can show a
+    // $/Roll figure when "$/Roll (Gross)"/"$/Roll (Net)" is selected --
+    // see the rowCalc loop below and PRICING_BASES' labels.
+    rowCalc.push({
+      tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg,
+      pricingBasis: pricing_basis, rollWeightKg: data.roll_weight_kg || 0,
+      coreWeightKg: data.core_weight_kg || 0,
+    });
   }
 
   // Strap lines (PET/PP): each line already returns its own final CFR
@@ -779,8 +787,25 @@ async function calculateAll() {
     const lineFreightPerKg = rc.totalKg > 0 ? freightAmt / rc.totalKg : 0;
     const fobUnit = rc.exwUnit + lineFobAddonPerKg;
     const cifUnit = fobUnit + lineFreightPerKg;
-    rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2);
-    rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2);
+    // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown was
+    // only ever changing a label -- the FOB/CIF cells always showed the
+    // plain $/KG number no matter which basis this row had selected. Now
+    // when the row's own Price basis is a Roll basis, show the $ amount
+    // for ONE WHOLE ROLL instead (unit $/KG x that roll's gross or net
+    // weight, matching which basis is picked), with a "/roll" suffix so
+    // it reads unambiguously -- "$/KG" stays a plain per-kg number.
+    if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
+      const rollWeight = rc.pricingBasis === 'net'
+        ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
+        : rc.rollWeightKg;
+      const fobRoll = fobUnit * rollWeight;
+      const cifRoll = cifUnit * rollWeight;
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll';
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll';
+    } else {
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2);
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2);
+    }
   }
 
   const money = (v) => '$' + roundHalfUp(v, 2).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
