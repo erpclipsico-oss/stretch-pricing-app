@@ -655,7 +655,7 @@ async function calculateAll() {
     rowCalc.push({
       tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg,
       pricingBasis: pricing_basis, rollWeightKg: data.roll_weight_kg || 0,
-      coreWeightKg: data.core_weight_kg || 0,
+      coreWeightKg: data.core_weight_kg || 0, isPrestretchLine: isPrestretch(product_id),
     });
   }
 
@@ -791,11 +791,25 @@ async function calculateAll() {
     // only ever changing a label -- the FOB/CIF cells always showed the
     // plain $/KG number no matter which basis this row had selected. Now
     // when the row's own Price basis is a Roll basis, show the $ amount
-    // for ONE WHOLE ROLL instead (unit $/KG x that roll's gross or net
-    // weight, matching which basis is picked), with a "/roll" suffix so
-    // it reads unambiguously -- "$/KG" stays a plain per-kg number.
+    // for ONE WHOLE ROLL instead (unit $/KG x that roll's weight), with a
+    // "/roll" suffix so it reads unambiguously -- "$/KG" stays a plain
+    // per-kg number.
+    // v50 fix: a REGULAR (non-Pre-Stretch) line's own $/KG (rc.exwUnit) is
+    // the SAME number no matter which basis is picked -- pricing.py's
+    // compute_line() docstring: "every regular product ... the full (gross)
+    // roll weight, core included ... every roll always ships with its
+    // core". So multiplying that SAME $/KG by a smaller Net (core-excluded)
+    // weight, like v49 did for every product, manufactured a lower "Net"
+    // price out of thin air even though the roll (core and all) costs the
+    // same to make -- exactly the "kda kda lazem a7ot se3r el core" bug
+    // reported. Only Pre-Stretch (compute_prestretch_line(), v47) actually
+    // returns a genuinely different, HIGHER $/KG for the Net basis (the
+    // owner-confirmed one place Net differs), so ONLY there does using the
+    // net weight for this display make sense. Every other product always
+    // uses its full gross roll weight here, matching what it's actually
+    // billed and priced on, regardless of which basis is selected.
     if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
-      const rollWeight = rc.pricingBasis === 'net'
+      const rollWeight = (rc.pricingBasis === 'net' && rc.isPrestretchLine)
         ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
         : rc.rollWeightKg;
       const fobRoll = fobUnit * rollWeight;

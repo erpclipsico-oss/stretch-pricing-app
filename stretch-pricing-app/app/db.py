@@ -392,6 +392,7 @@ def init_db():
     _fix_stale_material_rates_v8(conn)
     _seed_strap_data(conn)
     _seed_max_discount_setting(conn)
+    _fix_uvi_margin_v53(conn)
     conn.close()
 
 
@@ -1498,40 +1499,81 @@ MARGIN_FACTOR_ROWS = [
     ("Super_Rigid", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
     ("Super_Rigid", 8, 12, "Manual", "Manual Roll size", 21.00),
     ("Super_Rigid", 15, 40, "Manual", "Manual Roll size", 15.00),
-    # UVI_12m_Power
-    ("UVI_12m_Power", 10, 40, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_12m_Power", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_12m_Power", 10, 40, "Manual", "Manual Roll size", 16.00),
-    # UVI_12m_Power_Plus (identical shape to UVI_12m_Power)
-    ("UVI_12m_Power_Plus", 10, 40, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_12m_Power_Plus", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_12m_Power_Plus", 10, 40, "Manual", "Manual Roll size", 16.00),
-    # UVI_12m_Standard (the 12-40/Automatic/Jumbo row is the one inferred row -- see module comment above)
-    ("UVI_12m_Standard", 10, 10, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_12m_Standard", 10, 10, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_12m_Standard", 12, 40, "Automatic", "Standard Roll size", 8.00),
-    ("UVI_12m_Standard", 12, 40, "Automatic", "Jumbo Roll size", 8.00),
-    ("UVI_12m_Standard", 10, 10, "Manual", "Manual Roll size", 16.00),
-    ("UVI_12m_Standard", 12, 40, "Manual", "Manual Roll size", 10.00),
-    # UVI_6m_Power (identical shape to UVI_12m_Power)
-    ("UVI_6m_Power", 10, 40, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_6m_Power", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_6m_Power", 10, 40, "Manual", "Manual Roll size", 16.00),
-    # UVI_6m_Power_Plus (identical shape to UVI_12m_Power)
-    ("UVI_6m_Power_Plus", 10, 40, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_6m_Power_Plus", 10, 40, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_6m_Power_Plus", 10, 40, "Manual", "Manual Roll size", 16.00),
-    # UVI_6m_Standard (fully, directly visible -- used to infer the UVI_12m_Standard gap above)
-    ("UVI_6m_Standard", 10, 10, "Automatic", "Standard Roll size", 15.00),
-    ("UVI_6m_Standard", 10, 10, "Automatic", "Jumbo Roll size", 15.00),
-    ("UVI_6m_Standard", 12, 40, "Automatic", "Standard Roll size", 8.00),
-    ("UVI_6m_Standard", 12, 40, "Automatic", "Jumbo Roll size", 8.00),
-    ("UVI_6m_Standard", 10, 10, "Manual", "Manual Roll size", 16.00),
-    ("UVI_6m_Standard", 12, 40, "Manual", "Manual Roll size", 10.00),
-    # UV_Rigid
-    ("UV_Rigid", 10, 40, "Automatic", "Standard Roll size", 13.00),
-    ("UV_Rigid", 10, 40, "Automatic", "Jumbo Roll size", 13.00),
-    ("UV_Rigid", 10, 40, "Manual", "Manual Roll size", 15.00),
+    # v53 -- UVI_12m_Power/Power_Plus/Standard and UV_Rigid margins, below,
+    # were originally transcribed (v5, see module comment above) from 5
+    # screenshots of a REFERENCE app's Margin Factors table -- not from the
+    # owner's own source sheets -- and used a different, narrower set of
+    # micron cutoffs than their own non-UV counterpart (Power/Power_Plus/
+    # Standard/Regular_Rigid/Super_Rigid above). That mismatch meant turning
+    # the UV checkbox on could silently DROP the margin (e.g. Standard at 12
+    # micron: 15% -> 8%) and even fall through to 0% margin entirely for
+    # micron 8/9/11 (no matching row at all) -- so UV could make a quote
+    # CHEAPER than the same line without UV, the opposite of what UV is
+    # supposed to do. The owner confirmed explicitly: UV must always be
+    # ADDITIVE (only ever raise the price), for every product, at every
+    # micron. Fixed by making every UVI_*/UV_Rigid film_type mirror its own
+    # non-UV counterpart's micron buckets AND percentages exactly, so the
+    # margin itself never drops when UV is picked -- combined with the
+    # UVI_FRACTION material-cost addition (cost_engine.UVI_FRACTION, applied
+    # regardless of margin), the price is then always strictly higher with
+    # UV than without it. See db._fix_uvi_margin_v53() for the one-time
+    # migration that applies this same fix to an already-seeded live DB.
+    # UVI_12m_Power (mirrors Power exactly)
+    ("UVI_12m_Power", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_12m_Power", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_12m_Power", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UVI_12m_Power", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UVI_12m_Power", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("UVI_12m_Power", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # UVI_12m_Power_Plus (mirrors Power_Plus exactly)
+    ("UVI_12m_Power_Plus", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_12m_Power_Plus", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_12m_Power_Plus", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UVI_12m_Power_Plus", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UVI_12m_Power_Plus", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("UVI_12m_Power_Plus", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # UVI_12m_Standard (mirrors Standard exactly)
+    ("UVI_12m_Standard", 8, 9, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_12m_Standard", 8, 9, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_12m_Standard", 10, 12, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_12m_Standard", 10, 12, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_12m_Standard", 15, 40, "Automatic", "Standard Roll size", 8.00),
+    ("UVI_12m_Standard", 15, 40, "Automatic", "Jumbo Roll size", 8.00),
+    ("UVI_12m_Standard", 8, 9, "Manual", "Manual Roll size", 18.00),
+    ("UVI_12m_Standard", 10, 12, "Manual", "Manual Roll size", 16.00),
+    ("UVI_12m_Standard", 15, 40, "Manual", "Manual Roll size", 10.00),
+    # UVI_6m_Power (mirrors Power exactly)
+    ("UVI_6m_Power", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_6m_Power", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_6m_Power", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UVI_6m_Power", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UVI_6m_Power", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("UVI_6m_Power", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # UVI_6m_Power_Plus (mirrors Power_Plus exactly)
+    ("UVI_6m_Power_Plus", 10, 12, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_6m_Power_Plus", 10, 12, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_6m_Power_Plus", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UVI_6m_Power_Plus", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UVI_6m_Power_Plus", 10, 12, "Manual", "Manual Roll size", 18.00),
+    ("UVI_6m_Power_Plus", 15, 40, "Manual", "Manual Roll size", 14.00),
+    # UVI_6m_Standard (mirrors Standard exactly)
+    ("UVI_6m_Standard", 8, 9, "Automatic", "Standard Roll size", 17.00),
+    ("UVI_6m_Standard", 8, 9, "Automatic", "Jumbo Roll size", 17.00),
+    ("UVI_6m_Standard", 10, 12, "Automatic", "Standard Roll size", 15.00),
+    ("UVI_6m_Standard", 10, 12, "Automatic", "Jumbo Roll size", 15.00),
+    ("UVI_6m_Standard", 15, 40, "Automatic", "Standard Roll size", 8.00),
+    ("UVI_6m_Standard", 15, 40, "Automatic", "Jumbo Roll size", 8.00),
+    ("UVI_6m_Standard", 8, 9, "Manual", "Manual Roll size", 18.00),
+    ("UVI_6m_Standard", 10, 12, "Manual", "Manual Roll size", 16.00),
+    ("UVI_6m_Standard", 15, 40, "Manual", "Manual Roll size", 10.00),
+    # UV_Rigid (mirrors Regular_Rigid/Super_Rigid exactly -- both already
+    # numerically identical to each other, see cost_engine.roll_type_bucket())
+    ("UV_Rigid", 8, 12, "Automatic", "Standard Roll size", 20.00),
+    ("UV_Rigid", 8, 12, "Automatic", "Jumbo Roll size", 20.00),
+    ("UV_Rigid", 15, 40, "Automatic", "Standard Roll size", 13.00),
+    ("UV_Rigid", 15, 40, "Automatic", "Jumbo Roll size", 13.00),
+    ("UV_Rigid", 8, 12, "Manual", "Manual Roll size", 21.00),
+    ("UV_Rigid", 15, 40, "Manual", "Manual Roll size", 15.00),
 ]
 
 
@@ -1728,6 +1770,69 @@ def _seed_margin_factor_v5(conn):
          "country_class x customer_class x roll_size factor table for all pricing. Do not delete "
          "this row -- it stops the one-time seed from running again and duplicating rows or "
          "overwriting manual admin edits made after this boot."),
+    )
+    conn.commit()
+
+
+# v53 -- the 7 UVI_*/UV_Rigid film_types whose margin rows this replaces,
+# so an already-seeded live DB can be patched without touching anything else
+# an admin may have since edited in the margin_factor table.
+UVI_MARGIN_FIX_V53_FILM_TYPES = [
+    "UVI_12m_Power", "UVI_12m_Power_Plus", "UVI_12m_Standard",
+    "UVI_6m_Power", "UVI_6m_Power_Plus", "UVI_6m_Standard", "UV_Rigid",
+]
+
+
+def _fix_uvi_margin_v53(conn):
+    """One-time fix for a real pricing bug the owner reported and confirmed:
+    turning the UV checkbox on could make a quote CHEAPER, not more
+    expensive, at several microns (e.g. Standard at 12 micron: margin
+    dropped from 15% to 8% the moment UV was picked; 8/9/11 micron fell
+    through to 0% margin entirely -- no margin_factor row matched at all).
+    Root cause: MARGIN_FACTOR_ROWS' UVI_*/UV_Rigid rows (see that list's own
+    comment) were transcribed from a REFERENCE app's screenshots, not the
+    owner's own sheets, and used different/narrower micron cutoffs than
+    their own non-UV counterpart film_type. Confirmed with the owner: UV
+    must always be ADDITIVE -- only ever raise the price, for every
+    product, at every micron. Fixed by replacing just these 7 film_types'
+    rows with ones that mirror their own non-UV counterpart's micron
+    buckets and percentages exactly (see MARGIN_FACTOR_ROWS), so the margin
+    itself never drops when UV is on; combined with the UVI_FRACTION
+    material-cost addition already applied regardless, the price is then
+    always strictly higher with UV than without. One-time, gated behind a
+    global_setting marker like every other fix in this file, so it patches
+    an already-seeded live DB exactly once without touching any OTHER
+    film_type's margin row an admin may have since edited by hand."""
+    already_fixed = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='uvi_margin_fix_v53_applied'"
+    ).fetchone()
+    if already_fixed:
+        return
+
+    placeholders = ",".join("?" for _ in UVI_MARGIN_FIX_V53_FILM_TYPES)
+    conn.execute(
+        f"DELETE FROM margin_factor WHERE film_type IN ({placeholders})",
+        UVI_MARGIN_FIX_V53_FILM_TYPES,
+    )
+    for film_type, micron_min, micron_max, packing_type, roll_size, margin_pct in MARGIN_FACTOR_ROWS:
+        if film_type not in UVI_MARGIN_FIX_V53_FILM_TYPES:
+            continue
+        conn.execute(
+            """INSERT INTO margin_factor
+               (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (film_type, micron_min, micron_max, packing_type, roll_size, margin_pct),
+        )
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("uvi_margin_fix_v53_applied", "UVI margin fix v53 applied (internal marker)", 1,
+         "Internal marker: the UVI_12m_Power/Power_Plus/Standard, UVI_6m_Power/Power_Plus/Standard "
+         "and UV_Rigid margin_factor rows were replaced so UV is always additive (never lowers the "
+         "margin vs. the same product without UV) -- see db._fix_uvi_margin_v53()'s docstring. Do not "
+         "delete this row -- it stops the one-time fix from running again and overwriting a manual "
+         "admin edit made after this boot."),
     )
     conn.commit()
 
