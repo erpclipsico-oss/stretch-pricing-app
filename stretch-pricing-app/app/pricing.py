@@ -27,7 +27,14 @@ from . import cost_engine
 
 
 def product_label(product):
-    return f"{product['micron']}μm – {product['stretch_ability']}"
+    # v41 -- uses the MICRO SIGN (U+00B5, "µ") rather than the Greek small
+    # letter mu (U+03BC, "μ") that used to be here: they look identical in
+    # a browser, but reportlab's PDF export uses the built-in Helvetica
+    # font (WinAnsi encoding), which has no glyph for U+03BC -- it silently
+    # fell back to a bare "m", corrupting every micron label in the PDF
+    # (e.g. "17μm" -> "17mm"). U+00B5 IS in WinAnsi and renders correctly
+    # in both the web UI and the PDF/Excel exports.
+    return f"{product['micron']}µm – {product['stretch_ability']}"
 
 
 def disambiguate_labels(products):

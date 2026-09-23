@@ -660,7 +660,11 @@ def create_app():
                 else:
                     label = "-"
             else:
-                label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+                # v41 -- µ (U+00B5 MICRO SIGN), not μ (U+03BC Greek mu) --
+                # see pricing.product_label()'s comment: the Greek letter
+                # has no glyph in reportlab's PDF font and was rendering as
+                # a bare "m" in every exported quotation ("17μm" -> "17mm").
+                label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
                 # v36 -- UV additive: shown on the label so the saved
                 # quotation/PDF makes clear this line carries the UV %,
                 # even though it's still priced off the same base product.
@@ -1656,15 +1660,42 @@ def build_pdf(q, lines, totals):
 
     stuffing_style = ParagraphStyle("Stuffing", parent=styles["Normal"], fontSize=7,
                                      textColor=colors.HexColor("#666666"), leading=9, fontName="Helvetica-Oblique")
+    # v41 -- the Product label (especially a strap line's verbose "Custom
+    # WxT (BOM label)" text) is long enough to overflow its column width.
+    # reportlab does NOT wrap a plain string in a Table cell -- it just
+    # draws it past the column edge, visually overlapping whatever text
+    # sits in the next column(s) over on the same row (this is what made
+    # strap rows unreadable: the product label was drawing on top of the
+    # Pallet/Packing columns' own text). Wrapping it in a Paragraph makes
+    # reportlab wrap it onto multiple lines within its own column instead.
+    label_style = ParagraphStyle("LineLabel", parent=styles["Normal"], fontSize=8, leading=10)
+    basis_style = ParagraphStyle("LineBasis", parent=label_style, alignment=2)  # 2 = TA_RIGHT
 
     header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
     rows = [header]
     span_commands = []
     stuffing_row_indexes = []
     for i, line in enumerate(lines, start=1):
+        # v41 -- pallet_type/packing_type on a PET/PP Strap line don't hold
+        # a real pallet/packing choice: those two columns are reused
+        # internally to carry the line's payment-term surcharge state
+        # ("Cash"/"Credit" and a fixed "Per Coil" marker -- see
+        # api_save_quotation()'s strap branch). Showing that raw internal
+        # value in the "Pallet"/"Packing" columns was confusing on its own
+        # even before it started visually colliding with the Product
+        # column -- a strap line has no Pallet/Packing concept here, so it
+        # shows a dash instead.
+        is_strap_line = line.get("product_line") in ("pet", "pp")
+        # v41 -- Pallet/Packing/Basis are also wrapped in a Paragraph, not
+        # just Product: "Standard Pallet"/"Automatic" are plain strings
+        # too wide for their column at this font size, and a plain string
+        # overflows into the next column instead of wrapping, the same
+        # collision bug the Product column had.
         rows.append([
-            str(i), line["label"], line["pallet_type"], line["packing_type"],
-            line.get("pricing_basis_label", "$/KG"),
+            str(i), Paragraph(line["label"], label_style),
+            Paragraph("-" if is_strap_line else line["pallet_type"], label_style),
+            Paragraph("-" if is_strap_line else line["packing_type"], label_style),
+            Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
             f"{line['unit_price_usd_kg']:.2f}", f"{line['line_total']:,.2f}",
         ])
@@ -1681,7 +1712,7 @@ def build_pdf(q, lines, totals):
             rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", ""])
             span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
             stuffing_row_indexes.append(row_idx)
-    table = Table(rows, colWidths=[16, 108, 58, 58, 62, 48, 48, 48, 60])
+    table = Table(rows, colWidths=[16, 122, 54, 54, 58, 44, 44, 44, 56])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -1770,8 +1801,14 @@ def build_xlsx(q, lines, totals):
 
     stuffing_font = Font(italic=True, size=8, color="666666")
     for i, line in enumerate(lines, start=1):
+        # v41 -- see the matching comment in build_pdf(): a PET/PP Strap
+        # line's pallet_type/packing_type columns hold an internal
+        # payment-term marker ("Cash"/"Credit", "Per Coil"), not a real
+        # Pallet/Packing choice, so they show as a dash here too.
+        is_strap_line = line.get("product_line") in ("pet", "pp")
         values = [
-            i, line["label"], line["pallet_type"], line["packing_type"],
+            i, line["label"], "-" if is_strap_line else line["pallet_type"],
+            "-" if is_strap_line else line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
             line["quantity_pallets"], cost_engine.round_half_up(line["total_kg"], 1),
             cost_engine.round_half_up(line["unit_price_usd_kg"], 2), cost_engine.round_half_up(line["line_total"], 2),
