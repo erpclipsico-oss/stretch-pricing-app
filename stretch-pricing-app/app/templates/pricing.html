@@ -157,6 +157,9 @@ const STRAP_PRODUCTS = [
   {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }}},
   {% endfor %}
 ];
+const STRAP_BOM_LABELS = {{ strap_bom_labels|tojson }};
+const STRAP_CORE_SIZES = {{ strap_core_sizes|tojson }};
+const STRAP_TARGET_GROSS = {pet: [20.0, 20.2], pp: [12.0, 12.2]};
 
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
@@ -291,17 +294,23 @@ function renumber() {
 }
 
 let strapLineSeq = 0;
+const CUSTOM_OPTIONS = [
+  {value: 'custom_pet', line_key: 'pet', label: 'PET Strap – Custom (width × thickness)'},
+  {value: 'custom_pp', line_key: 'pp', label: 'PP Strap – Custom (width × thickness)'},
+];
 
 function addStrapLine() {
   strapLineSeq += 1;
   const id = 'strapline_' + strapLineSeq;
   const tr = document.createElement('tr');
+  tr.className = 'strap-line-row';
   tr.id = id;
+  const options = CUSTOM_OPTIONS.concat(STRAP_PRODUCTS.map(p => ({value: String(p.id), line_key: p.line_key, label: p.label})));
   tr.innerHTML = `
     <td>${strapLineSeq}</td>
     <td>
       <select class="f-strap-product">
-        ${STRAP_PRODUCTS.map(p => `<option value="${p.id}" data-line="${p.line_key}">${p.label}</option>`).join('')}
+        ${options.map(o => `<option value="${o.value}" data-line="${o.line_key}">${o.label}</option>`).join('')}
       </select>
     </td>
     <td><input type="number" class="f-strap-qty compact-input" value="1" min="0" step="1"></td>
@@ -315,26 +324,95 @@ function addStrapLine() {
   `;
   document.getElementById('strapLinesBody').appendChild(tr);
   tr.querySelector('.btn-remove').addEventListener('click', () => {
+    const next = tr.nextElementSibling;
     tr.remove();
+    if (next && next.classList.contains('strap-custom-row')) next.remove();
     renumberStrap();
   });
+
+  // "Custom" details sub-row -- material class, width/thickness (with a
+  // live g/m + suggested-meters preview computed the same way the server
+  // will price it), core size (-> core weight lookup), box, container
+  // type. Hidden unless a "Custom" option is selected.
+  const cr = document.createElement('tr');
+  cr.className = 'strap-custom-row';
+  cr.style.display = 'none';
+  cr.innerHTML = `
+    <td></td>
+    <td colspan="9">
+      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:0.78rem;">Material
+          <select class="f-strap-bom" style="width:170px;"></select>
+        </label>
+        <label style="font-size:0.78rem;">Width (mm)
+          <input type="number" class="f-strap-width" min="0" step="0.1" style="width:70px;"></label>
+        <label style="font-size:0.78rem;">Thickness (mm)
+          <input type="number" class="f-strap-thickness" min="0" step="0.001" style="width:80px;"></label>
+        <label style="font-size:0.78rem;">Core size
+          <select class="f-strap-core" style="width:110px;">
+            ${STRAP_CORE_SIZES.map(c => `<option value="${c[0]}">${c[0]}mm (${(c[1]*1000).toFixed(0)}g)</option>`).join('')}
+          </select>
+        </label>
+        <label style="font-size:0.78rem;">Meters/coil <span class="f-strap-suggest" style="color:#888;"></span>
+          <input type="number" class="f-strap-meters" min="0" step="10" placeholder="auto" style="width:80px;" title="Leave blank/0 to auto-fit the target gross weight"></label>
+        <label style="font-size:0.78rem;"><input type="checkbox" class="f-strap-box"> Boxed</label>
+        <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
+        <label style="font-size:0.78rem;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
+        <span class="f-strap-preview" style="font-size:0.78rem; color:#666;"></span>
+      </span>
+    </td>
+  `;
+  tr.after(cr);
+
+  function populateBomOptions(lineKey) {
+    const bomSel = cr.querySelector('.f-strap-bom');
+    const opts = STRAP_BOM_LABELS[lineKey] || [];
+    bomSel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
+  }
+
+  function syncCustomVisibility() {
+    const sel = tr.querySelector('.f-strap-product');
+    const isCustom = sel.value.startsWith('custom_');
+    cr.style.display = isCustom ? '' : 'none';
+    if (isCustom) populateBomOptions(sel.selectedOptions[0].dataset.line);
+  }
+  tr.querySelector('.f-strap-product').addEventListener('change', syncCustomVisibility);
+  syncCustomVisibility();
 }
 
 function renumberStrap() {
-  [...document.querySelectorAll('#strapLinesBody tr')].forEach((tr, i) => {
+  [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')].forEach((tr, i) => {
     tr.children[0].textContent = i + 1;
   });
 }
 
+function isStrapCustom(sel) {
+  return sel.value.startsWith('custom_');
+}
+
 function readStrapLines() {
-  return [...document.querySelectorAll('#strapLinesBody tr')].map(tr => {
+  return [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')].map(tr => {
     const sel = tr.querySelector('.f-strap-product');
-    return {
+    const base = {
       product_line: sel.selectedOptions[0].dataset.line,
-      strap_product_id: sel.value,
       quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
     };
+    if (isStrapCustom(sel)) {
+      const cr = tr.nextElementSibling;
+      return Object.assign(base, {
+        strap_custom: true,
+        strap_bom_key: cr.querySelector('.f-strap-bom').value,
+        strap_width_mm: parseFloat(cr.querySelector('.f-strap-width').value || 0),
+        strap_thickness_mm: parseFloat(cr.querySelector('.f-strap-thickness').value || 0),
+        strap_core_size: cr.querySelector('.f-strap-core').value,
+        strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
+        strap_has_box: cr.querySelector('.f-strap-box').checked,
+        strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
+      });
+    }
+    return Object.assign(base, {strap_product_id: sel.value});
   });
 }
 
@@ -451,17 +529,34 @@ async function calculateAll() {
   // unlike the rowCalc loop above, since a strap line's own FOB/CFR $/kg
   // is shown directly from what the API already computed.
   const paymentTerm = document.getElementById('payment_term').value;
-  const strapRows = [...document.querySelectorAll('#strapLinesBody tr')];
+  const strapRows = [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')];
   for (const tr of strapRows) {
     const sel = tr.querySelector('.f-strap-product');
+    const custom = isStrapCustom(sel);
     const payload = {
       product_line: sel.selectedOptions[0].dataset.line,
-      strap_product_id: sel.value,
       quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
     };
+    let cr = null;
+    if (custom) {
+      cr = tr.nextElementSibling;
+      Object.assign(payload, {
+        strap_custom: true,
+        strap_bom_key: cr.querySelector('.f-strap-bom').value,
+        strap_width_mm: parseFloat(cr.querySelector('.f-strap-width').value || 0),
+        strap_thickness_mm: parseFloat(cr.querySelector('.f-strap-thickness').value || 0),
+        strap_core_size: cr.querySelector('.f-strap-core').value,
+        strap_meters_per_coil: parseFloat(cr.querySelector('.f-strap-meters').value || 0),
+        strap_has_box: cr.querySelector('.f-strap-box').checked,
+        strap_ctr40: cr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: cr.querySelector('.f-strap-ctr20').checked,
+      });
+    } else {
+      payload.strap_product_id = sel.value;
+    }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -474,6 +569,18 @@ async function calculateAll() {
     tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_kg.toFixed(2);
     tr.querySelector('.f-strap-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-strap-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    if (custom && cr) {
+      // Reflect the server-computed g/m and the meters/coil it actually
+      // used (auto-suggested when the field was left blank/0) back into
+      // the row, so the rep sees exactly what's being priced without
+      // clobbering a value they're still typing.
+      cr.querySelector('.f-strap-suggest').textContent = `(g/m: ${data.meter_weight_g_per_m.toFixed(2)})`;
+      if (document.activeElement !== cr.querySelector('.f-strap-meters')) {
+        cr.querySelector('.f-strap-meters').value = data.meters_per_coil;
+      }
+      cr.querySelector('.f-strap-preview').textContent =
+        `Gross/roll: ${data.gross_weight_kg.toFixed(2)}kg`;
+    }
     subtotal += data.line_gross;
     subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
     totalKgAll += data.total_kg;

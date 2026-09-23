@@ -32,6 +32,41 @@ import math
 
 CORE_WEIGHT_THRESHOLD_KG = 0.7
 
+# v32 -- core outer-diameter -> core weight, owner-confirmed. Shared across
+# both lines (a physical/geometric fact about the core tube itself, not a
+# per-line cost input -- material_rate's "core" key is its $/kg price,
+# this is its weight).
+CORE_SIZES_MM = {
+    "150": 0.25,
+    "200": 0.5,
+    "400-405": 1.0,
+}
+
+# v32 -- target gross-roll-weight window (net + core), owner-confirmed:
+# "shouldn't exceed" this range. suggest_meters_per_coil() below solves for
+# the meters/coil that lands right at the top of the window (maximises
+# meters per coil without going over) given a computed g/m and core weight.
+TARGET_GROSS_WEIGHT_KG = {
+    "pet": (20.0, 20.2),
+    "pp": (12.0, 12.2),
+}
+
+
+def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
+    """Owner-confirmed rule: pick meters/coil so the gross roll weight
+    (net + core) lands as close as possible to the top of the target
+    window without exceeding it. Rounded down to the nearest 10m (coils
+    are wound in practical round numbers, and rounding down -- never up --
+    guarantees the max is never exceeded)."""
+    if not gm_per_m or gm_per_m <= 0:
+        return 0
+    _, target_max = TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))
+    net_target_max_kg = target_max - (core_weight_kg or 0)
+    if net_target_max_kg <= 0:
+        return 0
+    meters = net_target_max_kg * 1000.0 / gm_per_m
+    return int(meters // 10) * 10
+
 # Composition fractions of each raw-material *rate key* (matched against
 # material_rate.material_key with the line's own "pet_"/"pp_" prefix),
 # the profit margin applied to Ex-Work before container freight, and the
@@ -56,6 +91,23 @@ BOM_DEFS = {
         "recycled_pure_colors": {"components": {"5032": 0.5, "recycled_pure": 0.45, "color": 0.05},
                                   "profit": 0.16, "waste": 0.08},
     },
+}
+
+# Human labels for each BOM key, in display order -- used by the "Custom
+# (width x thickness)" strap-line builder so the rep picks Pure/Recycled x
+# Colored/Not, rather than typing a bom_key.
+BOM_LABELS = {
+    "pet": [
+        ("pet_green", "Pure (Green/Natural)"),
+        ("pet_colors", "Colored"),
+    ],
+    "pp": [
+        ("pure_white", "Pure - White"),
+        ("pure_color", "Pure - Colored"),
+        ("recycled_pure_white", "Recycled Pure - White"),
+        ("recycled_color", "Recycled - Colored"),
+        ("recycled_pure_colors", "Recycled Pure - Colored"),
+    ],
 }
 
 # component key -> (material_rate key suffix, unit -- 'ton'|'kilo'|'piece',
@@ -294,6 +346,7 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     return {
         "gross_weight_kg": gross_weight_kg,
         "net_weight_kg": roll_net_kg,
+        "meter_weight_g_per_m": net_weight_g_per_m,
         "material_cost": material_cost,
         "electricity_cost": electricity_cost,
         "direct_labor_cost": direct_labor_cost,

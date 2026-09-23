@@ -119,6 +119,8 @@ def create_app():
             "pricing.html",
             products=products,
             strap_products=strap_products,
+            strap_bom_labels=strap_pricing.BOM_LABELS,
+            strap_core_sizes=list(strap_pricing.CORE_SIZES_MM.items()),
             freight=freight,
             loading_ports=loading_ports,
             pallet_types=pallet_types,
@@ -245,13 +247,57 @@ def create_app():
         payment_term = (data.get("payment_term") or "").strip().lower()
         return bool(payment_term) and not payment_term.startswith("cash")
 
+    def _build_custom_strap_product(data, product_line):
+        """v32 -- "Custom (width x thickness)" strap line: the rep picks a
+        material class (pure/recycled x colored/not) and types width +
+        thickness instead of a catalog code; core weight comes from the
+        core-diameter lookup (owner-confirmed: 150mm=0.25kg, 200mm=0.5kg,
+        400-405mm=1kg -- see strap_pricing.CORE_SIZES_MM). If meters/coil
+        isn't given (or is 0), it's auto-suggested to land the gross roll
+        weight at the top of the line's target window without exceeding
+        it (strap_pricing.suggest_meters_per_coil)."""
+        bom_key = data.get("strap_bom_key")
+        if bom_key not in strap_pricing.BOM_DEFS.get(product_line, {}):
+            return None, jsonify({"error": "Unknown material class"}), 400
+        width_mm = float(data.get("strap_width_mm") or 0)
+        thickness_mm = float(data.get("strap_thickness_mm") or 0)
+        core_size = str(data.get("strap_core_size") or "")
+        core_weight_kg = strap_pricing.CORE_SIZES_MM.get(core_size)
+        if core_weight_kg is None:
+            return None, jsonify({"error": "Unknown core size"}), 400
+        has_box = bool(data.get("strap_has_box"))
+        ctr20 = bool(data.get("strap_ctr20"))
+        ctr40 = bool(data.get("strap_ctr40"))
+        if not (ctr20 or ctr40):
+            ctr40 = True  # a container type is required for FOB/CFR; default 40ft
+
+        gm_per_m = strap_pricing.meter_weight_g_per_m(
+            product_line, {"width_mm": width_mm, "thickness_mm": thickness_mm},
+            strap_pricing.BOM_DEFS[product_line][bom_key]["components"],
+        )
+        meters_per_coil = float(data.get("strap_meters_per_coil") or 0)
+        if meters_per_coil <= 0:
+            meters_per_coil = strap_pricing.suggest_meters_per_coil(product_line, gm_per_m, core_weight_kg)
+
+        product = {
+            "bom_key": bom_key, "width_mm": width_mm, "thickness_mm": thickness_mm,
+            "meters_per_coil": meters_per_coil, "core_weight_kg": core_weight_kg,
+            "has_box": has_box, "has_pallet": True, "ctr20": ctr20, "ctr40": ctr40,
+        }
+        return product, None, None
+
     def _calculate_strap_line(data, product_line):
-        product = g.db.execute(
-            "SELECT * FROM strap_product WHERE id=? AND line_key=?",
-            (data.get("strap_product_id"), product_line),
-        ).fetchone()
-        if not product:
-            return jsonify({"error": "Unknown strap product"}), 400
+        if data.get("strap_custom"):
+            product, err_resp, err_code = _build_custom_strap_product(data, product_line)
+            if product is None:
+                return err_resp, err_code
+        else:
+            product = g.db.execute(
+                "SELECT * FROM strap_product WHERE id=? AND line_key=?",
+                (data.get("strap_product_id"), product_line),
+            ).fetchone()
+            if not product:
+                return jsonify({"error": "Unknown strap product"}), 400
         qty_coils = float(data.get("quantity_coils") or 0)
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
@@ -281,6 +327,9 @@ def create_app():
             "ex_work_price_kg": calc["ex_work_price_kg"],
             "fob_price_kg": calc["fob_price_kg"],
             "cfr_price_kg": calc["cfr_price_kg"],
+            "meter_weight_g_per_m": calc["meter_weight_g_per_m"],
+            "meters_per_coil": product["meters_per_coil"],
+            "core_weight_kg": product["core_weight_kg"],
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
@@ -336,12 +385,20 @@ def create_app():
             line_product_line = l.get("product_line") or "stretch_film"
 
             if line_product_line in ("pet", "pp"):
-                strap_product = db.execute(
-                    "SELECT * FROM strap_product WHERE id=? AND line_key=?",
-                    (l.get("strap_product_id"), line_product_line),
-                ).fetchone()
-                if not strap_product:
-                    continue
+                is_custom = bool(l.get("strap_custom"))
+                if is_custom:
+                    strap_product, err_resp, err_code = _build_custom_strap_product(l, line_product_line)
+                    if strap_product is None:
+                        continue
+                    strap_product_id = None
+                else:
+                    strap_product = db.execute(
+                        "SELECT * FROM strap_product WHERE id=? AND line_key=?",
+                        (l.get("strap_product_id"), line_product_line),
+                    ).fetchone()
+                    if not strap_product:
+                        continue
+                    strap_product_id = strap_product["id"]
                 qty_coils = float(l.get("quantity_coils") or 0)
                 line_discount_pct = float(l.get("line_discount_pct") or 0)
                 discount_pct = line_discount_pct + global_discount_pct
@@ -353,16 +410,34 @@ def create_app():
                 total_kg = round(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
-                db.execute(
-                    """INSERT INTO quotation_line
-                       (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                        unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
-                        pricing_basis, product_line)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                    (quotation_id, strap_product["id"], "Credit" if credit_term else "Cash", "Per Coil",
-                     qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
-                     "per_coil", line_product_line),
-                )
+                if is_custom:
+                    db.execute(
+                        """INSERT INTO quotation_line
+                           (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
+                            unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
+                            pricing_basis, product_line, strap_custom_bom_key, strap_custom_width_mm,
+                            strap_custom_thickness_mm, strap_custom_meters_per_coil,
+                            strap_custom_core_weight_kg, strap_custom_has_box, strap_custom_ctr20,
+                            strap_custom_ctr40)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (quotation_id, None, "Credit" if credit_term else "Cash", "Per Coil",
+                         qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
+                         "per_coil", line_product_line, strap_product["bom_key"], strap_product["width_mm"],
+                         strap_product["thickness_mm"], strap_product["meters_per_coil"],
+                         strap_product["core_weight_kg"], int(strap_product["has_box"]),
+                         int(strap_product["ctr20"]), int(strap_product["ctr40"])),
+                    )
+                else:
+                    db.execute(
+                        """INSERT INTO quotation_line
+                           (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
+                            unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
+                            pricing_basis, product_line)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
+                         qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
+                         "per_coil", line_product_line),
+                    )
                 continue
 
             product = db.execute("SELECT * FROM product WHERE id=?", (l.get("product_id"),)).fetchone()
@@ -512,7 +587,15 @@ def create_app():
         for l in line_rows:
             line_pl = l["product_line"] if "product_line" in l.keys() and l["product_line"] else "stretch_film"
             if line_pl in ("pet", "pp"):
-                label = f"{strap_pricing.LINE_CONFIG[line_pl]['label']} – {l['strap_code']}" if l["strap_code"] else "-"
+                if l["strap_code"]:
+                    label = f"{strap_pricing.LINE_CONFIG[line_pl]['label']} – {l['strap_code']}"
+                elif "strap_custom_width_mm" in l.keys() and l["strap_custom_width_mm"]:
+                    bom_labels = dict(strap_pricing.BOM_LABELS.get(line_pl, []))
+                    bom_label = bom_labels.get(l["strap_custom_bom_key"], l["strap_custom_bom_key"])
+                    label = (f"{strap_pricing.LINE_CONFIG[line_pl]['label']} – Custom "
+                             f"{l['strap_custom_width_mm']:g}x{l['strap_custom_thickness_mm']:g}mm ({bom_label})")
+                else:
+                    label = "-"
             else:
                 label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
             # v27: unit_price_usd_kg already has the discount baked in (it

@@ -106,6 +106,20 @@ CREATE TABLE IF NOT EXISTS quotation_line (
     -- is simply "this line's contribution to the bottom line", however
     -- that line's own product family prices itself.
     product_line TEXT NOT NULL DEFAULT 'stretch_film',
+    -- v32 -- a strap line built with "Custom (width x thickness)" instead
+    -- of picking a strap_product catalog row: these carry the full
+    -- one-off spec (product_id / strap_product_id is NULL in this case).
+    -- Kept on the line itself, the same way Stretch Film's own
+    -- custom_roll_weight_kg/custom_core_weight_kg/custom_width_mm already
+    -- override a catalog product per quotation.
+    strap_custom_bom_key TEXT,
+    strap_custom_width_mm REAL,
+    strap_custom_thickness_mm REAL,
+    strap_custom_meters_per_coil REAL,
+    strap_custom_core_weight_kg REAL,
+    strap_custom_has_box INTEGER,
+    strap_custom_ctr20 INTEGER,
+    strap_custom_ctr40 INTEGER,
     FOREIGN KEY (quotation_id) REFERENCES quotation(id)
 );
 
@@ -429,6 +443,21 @@ def _migrate(conn):
     # strap_product itself is created by SCHEMA's CREATE TABLE IF NOT EXISTS
     # above -- that runs on every boot (conn.executescript(SCHEMA)), fresh or
     # existing DB alike, so no manual ALTER/CREATE is needed for it here.
+
+    # v32 -- "Custom (width x thickness)" strap lines.
+    for col, coltype in (
+        ("strap_custom_bom_key", "TEXT"),
+        ("strap_custom_width_mm", "REAL"),
+        ("strap_custom_thickness_mm", "REAL"),
+        ("strap_custom_meters_per_coil", "REAL"),
+        ("strap_custom_core_weight_kg", "REAL"),
+        ("strap_custom_has_box", "INTEGER"),
+        ("strap_custom_ctr20", "INTEGER"),
+        ("strap_custom_ctr40", "INTEGER"),
+    ):
+        if col not in line_cols:
+            conn.execute(f"ALTER TABLE quotation_line ADD COLUMN {col} {coltype}")
+            conn.commit()
 
     # ---- Product-specific packaging override (v15): a handful of products
     # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
