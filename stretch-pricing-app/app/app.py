@@ -68,6 +68,18 @@ def create_app():
             return view(*args, **kwargs)
         return wrapped
 
+    # v59 -- browsers (Safari especially) request GET /favicon.ico directly
+    # on some navigations/reloads regardless of the <link rel="icon"> tag
+    # in base.html's <head>, and cache whatever that returns (a 404 -> the
+    # browser's own default icon) per-path rather than always trusting the
+    # page's own <link> tag -- this is why the tab icon showed on the page
+    # first loaded after the v58 deploy but "disappeared" (fell back to
+    # default) on others. Serving the logo at the conventional root path
+    # too makes every page/reload resolve to the same icon.
+    @app.route("/favicon.ico")
+    def favicon():
+        return redirect(url_for("static", filename="logo.png"))
+
     # ---------- Auth ----------
     @app.route("/login", methods=["GET", "POST"])
     def login():
