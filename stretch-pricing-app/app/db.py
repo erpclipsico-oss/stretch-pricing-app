@@ -30,13 +30,24 @@ CREATE TABLE IF NOT EXISTS user (
     -- so existing DB rows/migrations aren't disturbed.
     strap_markup_pct REAL NOT NULL DEFAULT 0,
     -- v44 -- generalized hidden per-user markup, applied to the FINAL
-    -- quoted $/KG price for BOTH Stretch Film/Pre-Stretch and PET/PP
-    -- Strap lines alike. 'percent' (percentage points, multiplicative) or
-    -- 'cents_per_kg' (flat USD/KG, additive) -- exactly one mode active
-    -- per user. Never shown anywhere in the UI/PDF/Excel. See
-    -- cost_engine.apply_hidden_markup().
+    -- quoted $/KG price. Superseded by the two independent pairs below
+    -- (v46 -- the owner wants Stretch Film and Strap to have their OWN
+    -- separate hidden markup, e.g. one user could be +3 cents/KG on
+    -- Stretch but +5% on Strap at the same time). Column kept (unused by
+    -- app code going forward) so existing DB rows/migrations aren't
+    -- disturbed.
     markup_mode TEXT NOT NULL DEFAULT 'percent',
-    markup_value REAL NOT NULL DEFAULT 0
+    markup_value REAL NOT NULL DEFAULT 0,
+    -- v46 -- independent hidden markup per product family. 'percent'
+    -- (percentage points, multiplicative) or 'cents_per_kg' (flat USD/KG,
+    -- additive) -- exactly one mode active per user PER FAMILY (a user can
+    -- be Percent on Stretch and Cents/KG on Strap at once, or vice versa).
+    -- Never shown anywhere in the UI/PDF/Excel. See
+    -- cost_engine.apply_hidden_markup().
+    stretch_markup_mode TEXT NOT NULL DEFAULT 'percent',
+    stretch_markup_value REAL NOT NULL DEFAULT 0,
+    strap_markup_mode TEXT NOT NULL DEFAULT 'percent',
+    strap_markup_value REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS product (
@@ -369,6 +380,7 @@ def init_db():
     _seed_packing_tiers(conn)
     _seed_prestretch_settings(conn)
     _seed_missing_products(conn)
+    _seed_super_rigid_products_v46(conn)
     _seed_freight_v2(conn)
     _seed_packaging_v2(conn)
     _seed_box_packaging_v3(conn)
@@ -379,6 +391,7 @@ def init_db():
     _seed_extras_settings(conn)
     _fix_stale_material_rates_v8(conn)
     _seed_strap_data(conn)
+    _seed_max_discount_setting(conn)
     conn.close()
 
 
@@ -424,6 +437,32 @@ def _migrate(conn):
         conn.execute(
             "UPDATE user SET markup_mode='percent', markup_value=strap_markup_pct "
             "WHERE strap_markup_pct IS NOT NULL AND strap_markup_pct != 0"
+        )
+        conn.commit()
+
+    if "stretch_markup_mode" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN stretch_markup_mode TEXT NOT NULL DEFAULT 'percent'")
+        conn.commit()
+    if "stretch_markup_value" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN stretch_markup_value REAL NOT NULL DEFAULT 0")
+        conn.commit()
+    if "strap_markup_mode" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN strap_markup_mode TEXT NOT NULL DEFAULT 'percent'")
+        conn.commit()
+    if "strap_markup_value" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN strap_markup_value REAL NOT NULL DEFAULT 0")
+        conn.commit()
+        # v46 -- backfill from the old shared markup_mode/markup_value (v44)
+        # so anyone already set up (e.g. manuel/pasquale's 1.5%) keeps the
+        # exact same markup on BOTH Stretch and Strap at first, which an
+        # admin can then split apart independently on the Users screen.
+        # Runs only once, the moment strap_markup_value itself is first
+        # added -- an admin changing either value afterwards is never
+        # overwritten on a later boot.
+        conn.execute(
+            "UPDATE user SET stretch_markup_mode=markup_mode, stretch_markup_value=markup_value, "
+            "strap_markup_mode=markup_mode, strap_markup_value=markup_value "
+            "WHERE markup_value IS NOT NULL AND markup_value != 0"
         )
         conn.commit()
 
@@ -847,6 +886,40 @@ def _seed_extras_settings(conn):
     conn.commit()
 
 
+# v47 -- owner-requested guardrail: a sales rep's Discount % (this line's
+# own + the quotation's Global Discount %, combined) must never be allowed
+# to eat more of the profit margin than the owner has approved -- e.g. a
+# Standard Film line with an 8% margin should never drop below 6% margin
+# just because a rep mistyped the discount. One single value, applied the
+# SAME way to every product family (Stretch Film, Pre-Stretch and Strap
+# alike) -- see cost_engine.capped_discount_pct(), the one place this
+# setting is read and enforced (server-side, so it's never possible to
+# compute a line "wrong" no matter what a rep types in the UI).
+MAX_DISCOUNT_SETTING_KEY = "max_discount_pct"
+
+
+def _seed_max_discount_setting(conn):
+    """Per-key idempotent, same pattern as _seed_extras_settings -- adds
+    this to an already-deployed live DB too, without ever overwriting a
+    value the owner has since edited in Admin > Global Cost Settings."""
+    exists = conn.execute(
+        "SELECT key FROM global_setting WHERE key=?", (MAX_DISCOUNT_SETTING_KEY,)
+    ).fetchone()
+    if exists:
+        return
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (MAX_DISCOUNT_SETTING_KEY, "Max Discount allowed (% points off margin)", 2.0,
+         "The highest combined Discount % (this quotation line's own Discount % plus "
+         "the quotation's Global Discount %, added together) allowed on ANY line -- "
+         "Stretch Film, Pre-Stretch or Strap alike. If a sales rep enters more than "
+         "this, the system silently caps it at this value so the quoted price is "
+         "never computed with more discount than the owner approved. Set higher to "
+         "allow bigger discounts (e.g. 100 effectively removes the cap)."),
+    )
+    conn.commit()
+
+
 def _seed_missing_products(conn):
     """Idempotent, per-row seeding (not gated on the product table being
     empty) so these SKUs get added to an already-deployed, already-seeded
@@ -908,6 +981,69 @@ def _seed_missing_products(conn):
         row = conn.execute(
             "SELECT * FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=?",
             (stretch_ability, micron, roll_weight_kg),
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+
+
+# v46 -- "Super" grade Rigid film. The owner reported the Rigid catalog only
+# had 2 microns (10/12) -- those 2 are the "Regular" grade (stretch_ability
+# 'REGID Film'), reverse-engineered from the H1.24 sheet's own Stretch!63-69
+# rows (width 500mm, 46 rolls/pallet, 16kg roll, 1.8kg core -- exactly what's
+# already seeded). Re-checking every reference workbook against the actual
+# request found a SEPARATE, entirely un-seeded "Super" grade in the newer
+# H1.36 sheet's Stretch!63-76 block (distinct stretch_ability text, "Super
+# REGID Film"): only 3 of its rows have real roll-spec numbers filled in
+# (10/12/15 micron -- every other micron in that block, and the "Regular"
+# sub-rows alongside them, are blank template rows with no width/rolls/
+# weight/core at all, so they're deliberately NOT added here, same
+# judgement call as the original H1.36 import skipped them for).
+#
+# That sheet's own "Auto /Manual" column uses non-boolean codes (3, 4) with
+# no legend in the workbook -- but each row's own Rolls/Pallet figure
+# (360 / 480 / 480) is an EXACT match to this app's own Manual packing_tier
+# table (Manual(2.3~3.5kg)=360, Manual(2.2kg)=480), and the roll weights
+# (2.8/1.8/2.17kg) sit squarely in the Manual weight range, nowhere near the
+# Automatic tiers (16/50/55kg) -- so these are seeded as Manual, resolved
+# from the tier match rather than guessed from the ambiguous numeric code.
+# Regular_Rigid/Super_Rigid margin_factor rows are numerically identical
+# (see cost_engine.FILM_TYPE_FOR_ROLL_TYPE's comment), so no new margin data
+# is needed -- roll_type_bucket() already buckets any '...regid...' text
+# onto the same Rigid margin lookup regardless of Super vs Regular.
+SUPER_RIGID_PRODUCTS = [
+    # micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm
+    ("10", 360, 2.8, 0.3, 450),
+    ("12", 480, 1.8, 0.3, 450),
+    ("15", 480, 2.17, 0.3, 450),
+]
+
+
+def _seed_super_rigid_products_v46(conn):
+    """Idempotent per-row (like _seed_missing_products) so this adds cleanly
+    to an already-deployed, already-seeded live DB too."""
+    from . import cost_engine
+
+    for micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm in SUPER_RIGID_PRODUCTS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('Super REGID Film', ?, 'Standard', 'Manual', 'Transparent', ?, ?, ?, ?, 0)""",
+            (micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm),
+        )
+    conn.commit()
+
+    for micron, *_ in SUPER_RIGID_PRODUCTS:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
         ).fetchone()
         if row:
             new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
@@ -1604,8 +1740,9 @@ def _seed_default_users(conn):
     # v39 -- hidden markup (percentage points), owner-requested for these
     # two accounts specifically -- not shown anywhere in their UI. v44:
     # generalized from Strap-only (strap_markup_pct) to also cover Stretch
-    # Film (markup_mode/markup_value); both columns are kept in sync here
-    # for a brand-new DB so either code path (old or new) sees the value.
+    # Film (markup_mode/markup_value). v46: split into independent
+    # Stretch/Strap pairs -- all four legacy/current columns are kept in
+    # sync here for a brand-new DB so any code path sees the same value.
     strap_markup_by_username = {"manuel": 1.5, "pasquale": 1.5}
     for username, full_name, role, region, seller_type, adjustment in DEFAULT_USERS:
         exists = conn.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
@@ -1615,10 +1752,13 @@ def _seed_default_users(conn):
         conn.execute(
             """INSERT INTO user (username, full_name, password_hash, role, region,
                                   seller_type, price_adjustment_usd_kg, strap_markup_pct,
-                                  markup_mode, markup_value)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                  markup_mode, markup_value,
+                                  stretch_markup_mode, stretch_markup_value,
+                                  strap_markup_mode, strap_markup_value)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (username, full_name, generate_password_hash("ChangeMe123!"), role, region,
-             seller_type, adjustment, markup_value, "percent", markup_value),
+             seller_type, adjustment, markup_value, "percent", markup_value,
+             "percent", markup_value, "percent", markup_value),
         )
     conn.commit()
 

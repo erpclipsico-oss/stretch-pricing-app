@@ -53,6 +53,12 @@
     </div>
   </div>
 
+  <!-- v47: shown whenever a line's (Line Discount % + Global Discount %) exceeded
+       the admin's configured max and the server silently capped it -- see
+       cost_engine.capped_discount_pct(). The row(s) it happened on are also
+       outlined below (.f-discount / .f-strap-discount). -->
+  <div id="discountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-bottom:10px;"></div>
+
   <div class="grid grid-4">
     <div class="field">
       <label>Customer Name</label>
@@ -211,6 +217,22 @@ function isPrestretch(productId) {
   return !!(p && p.is_prestretch);
 }
 
+// v44 -- auto-recalculate. Previously every price-affecting field (Pallet
+// type, Packing type, Pricing basis, Colored, UV, Qty, Discount, custom
+// roll/core/width/rolls-per-pallet, plus the strap fields and Payment
+// Term / Global Discount) only ever fed into a price update when the
+// "Calculate" button was clicked -- changing e.g. Packing type on its own
+// left the on-screen Unit/Total/FOB/CIF figures exactly as they were,
+// which looked exactly like "changing Packing type does nothing" even
+// though the underlying price math was already correct (confirmed via
+// direct backend tests). Debounced so rapid changes (typing a number,
+// flipping a radio) don't fire a calculate call per keystroke.
+let _recalcTimer = null;
+function scheduleRecalc() {
+  clearTimeout(_recalcTimer);
+  _recalcTimer = setTimeout(() => { calculateAll(); }, 300);
+}
+
 let lineSeq = 0;
 let currentQuotationId = null;
 
@@ -324,7 +346,24 @@ function addLine(prefill) {
     }
   }
   tr.querySelector('.f-product').addEventListener('change', syncPrestretchVisibility);
+  tr.querySelector('.f-product').addEventListener('change', scheduleRecalc);
   syncPrestretchVisibility();
+
+  // v44 -- see scheduleRecalc()'s comment: every field that feeds the
+  // price now auto-recalculates instead of requiring a manual Calculate
+  // click, most importantly Packing type and Pricing basis.
+  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv'].forEach(sel => {
+    tr.querySelector(sel).addEventListener('change', scheduleRecalc);
+  });
+  ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
+    tr.querySelector(sel).addEventListener('input', scheduleRecalc);
+  });
+  ['.f-ps-packaging'].forEach(sel => {
+    pr.querySelector(sel).addEventListener('change', scheduleRecalc);
+  });
+  ['.f-ps-rollwt', '.f-ps-corewt', '.f-ps-rpp'].forEach(sel => {
+    pr.querySelector(sel).addEventListener('input', scheduleRecalc);
+  });
 }
 
 function renumber() {
@@ -436,6 +475,18 @@ function addStrapLine() {
   }
   tr.querySelector('.f-strap-product').addEventListener('change', syncMaterialOptions);
   syncMaterialOptions();
+
+  // v44 -- see scheduleRecalc()'s comment: auto-recalculate on every
+  // price-affecting strap field too (not just the live g/m preview).
+  tr.querySelector('.f-strap-product').addEventListener('change', scheduleRecalc);
+  ['.f-strap-bom', '.f-strap-core', '.f-strap-box', '.f-strap-pallet',
+   '.f-strap-ctr40', '.f-strap-ctr20'].forEach(sel => {
+    tr.querySelector(sel).addEventListener('change', scheduleRecalc);
+  });
+  ['.f-strap-width', '.f-strap-thickness', '.f-strap-meters',
+   '.f-strap-rpp', '.f-strap-qty-pallets', '.f-strap-discount'].forEach(sel => {
+    tr.querySelector(sel).addEventListener('input', scheduleRecalc);
+  });
 }
 
 function renumberStrap() {
@@ -527,6 +578,11 @@ async function calculateAll() {
   let subtotalFull = 0;  // reference total with no discount, for the Discount $ row
   let totalKgAll = 0;
   const rowCalc = []; // {tr, exwUnit, totalKg} for the FOB/CIF-per-kg second pass
+  // v47: whether ANY line's Discount % got silently capped by the server
+  // (cost_engine.capped_discount_pct()) -- surfaced as a page-level notice
+  // plus an outline on the affected row(s)' discount field.
+  let anyDiscountCapped = false;
+  let cappedMaxPct = null;
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
     const pallet_type = tr.querySelector('.f-pallet').value;
@@ -563,6 +619,16 @@ async function calculateAll() {
     });
     const data = await resp.json();
     if (data.error) continue;
+    const discInput = tr.querySelector('.f-discount');
+    if (data.discount_capped) {
+      anyDiscountCapped = true;
+      cappedMaxPct = data.discount_pct_applied;
+      discInput.style.outline = '2px solid #d97706';
+      discInput.title = `تم تقييد الخصم عند ${data.discount_pct_applied}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح`;
+    } else {
+      discInput.style.outline = '';
+      discInput.title = '';
+    }
     if (!isPrestretch(product_id)) {
       // Reflect back the roll wt / core wt the server actually costed with
       // (in case a blank/invalid entry fell back to the catalog default),
@@ -633,6 +699,16 @@ async function calculateAll() {
     });
     const data = await resp.json();
     if (data.error) continue;
+    const strapDiscInput = tr.querySelector('.f-strap-discount');
+    if (data.discount_capped) {
+      anyDiscountCapped = true;
+      cappedMaxPct = data.discount_pct_applied;
+      strapDiscInput.style.outline = '2px solid #d97706';
+      strapDiscInput.title = `تم تقييد الخصم عند ${data.discount_pct_applied}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح`;
+    } else {
+      strapDiscInput.style.outline = '';
+      strapDiscInput.title = '';
+    }
     // Rolls/pallet is pre-filled from the server's suggestion on the row's
     // very first calculate -- when that happens, quantity_coils above was
     // sent as 0 (the field was still empty), so total_kg/line_gross in
@@ -711,6 +787,16 @@ async function calculateAll() {
   document.getElementById('discountCell').textContent = '-' + money(discount);
   document.getElementById('fobTotalCell').textContent = money(fobTotal);
   document.getElementById('cifTotalCell').textContent = money(cifTotal);
+
+  // v47: page-level notice when any line's discount got auto-capped --
+  // see the .f-discount/.f-strap-discount outlines set above.
+  const capNotice = document.getElementById('discountCapNotice');
+  if (anyDiscountCapped) {
+    capNotice.style.display = '';
+    capNotice.textContent = `⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند ${cappedMaxPct}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.`;
+  } else {
+    capNotice.style.display = 'none';
+  }
 }
 
 async function saveQuotation() {
@@ -736,7 +822,15 @@ async function saveQuotation() {
     document.getElementById('exportBtn').onclick = () => window.open(`/quotations/${data.id}/pdf`, '_blank');
     document.getElementById('exportExcelBtn').disabled = false;
     document.getElementById('exportExcelBtn').onclick = () => window.open(`/quotations/${data.id}/excel`, '_blank');
-    alert('Quotation saved as ' + (data.quotation_no || ('#' + data.id)));
+    // v47: the save endpoint independently re-caps every line's discount
+    // (cost_engine.capped_discount_pct()) -- if calculateAll() was somehow
+    // skipped/stale, this still catches it so the saved price is never
+    // wrong even if the on-screen warning wasn't seen.
+    let msg = 'Quotation saved as ' + (data.quotation_no || ('#' + data.id));
+    if (data.discount_capped) {
+      msg += '\n\n⚠️ تنبيه: خصم سطر أو أكتر كان أعلى من الحد الأقصى المسموح، فاتقفل تلقائيًا قبل الحفظ.';
+    }
+    alert(msg);
   }
 }
 
@@ -745,6 +839,10 @@ document.getElementById('addStrapLineBtn').addEventListener('click', () => addSt
 document.getElementById('calcBtn').addEventListener('click', calculateAll);
 document.getElementById('saveBtn').addEventListener('click', saveQuotation);
 document.getElementById('resetBtn').addEventListener('click', () => location.reload());
+// v44 -- Payment Term (drives the strap credit-term surcharge) and Global
+// Discount % also auto-recalculate now -- see scheduleRecalc()'s comment.
+document.getElementById('payment_term').addEventListener('change', scheduleRecalc);
+document.getElementById('global_discount_pct').addEventListener('input', scheduleRecalc);
 
 // start with one line
 addLine();

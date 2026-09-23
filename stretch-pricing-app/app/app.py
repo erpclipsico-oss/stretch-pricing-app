@@ -170,10 +170,12 @@ def create_app():
         pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
-        # v44 -- hidden per-user markup, shared with Strap -- see
-        # user.markup_mode/markup_value and cost_engine.apply_hidden_markup().
-        hidden_markup_mode = g.user["markup_mode"] if "markup_mode" in g.user.keys() else None
-        hidden_markup_value = (g.user["markup_value"] if "markup_value" in g.user.keys() else 0) or 0
+        # v46 -- hidden per-user markup, independent from Strap's own --
+        # see user.stretch_markup_mode/stretch_markup_value and
+        # cost_engine.apply_hidden_markup().
+        hidden_markup_mode = g.user["stretch_markup_mode"] if "stretch_markup_mode" in g.user.keys() else None
+        hidden_markup_value = (g.user["stretch_markup_value"] if "stretch_markup_value" in g.user.keys()
+                                else 0) or 0
         colored = bool(data.get("colored"))
         # v39 -- UV is now a plain checkbox ("uv": true/false); which of the
         # 7 UVI_TYPES variants applies is derived from this same product's
@@ -187,7 +189,13 @@ def create_app():
         # into the price computation, rather than applied afterwards.
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
-        discount_pct = line_discount_pct + global_discount_pct
+        # v47: combined discount is silently capped at the admin-configured
+        # max (Admin > Global Cost Settings > "Max Discount allowed") so the
+        # margin can never be eroded past what the owner approved -- same
+        # rule for every product family, see cost_engine.capped_discount_pct().
+        discount_pct, discount_capped = cost_engine.capped_discount_pct(
+            g.db, line_discount_pct, global_discount_pct
+        )
 
         if is_prestretch(product):
             roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
@@ -219,6 +227,8 @@ def create_app():
                 "rolls_per_pallet": rolls_per_pallet,
                 "pallets_per_container40": None,
                 "pallets_per_container20": None,
+                "discount_pct_applied": discount_pct,
+                "discount_capped": discount_capped,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -273,6 +283,8 @@ def create_app():
             "rolls_per_pallet": rolls_per_pallet,
             "pallets_per_container40": (tier["pallets_per_container40"] if tier else None),
             "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
+            "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
         })
 
     def _strap_credit_term(data):
@@ -338,13 +350,17 @@ def create_app():
         qty_coils = float(data.get("quantity_coils") or 0)
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
-        discount_pct = line_discount_pct + global_discount_pct
+        # v47: same combined + capped discount rule as Stretch Film -- see
+        # cost_engine.capped_discount_pct().
+        discount_pct, discount_capped = cost_engine.capped_discount_pct(
+            g.db, line_discount_pct, global_discount_pct
+        )
         credit_term = _strap_credit_term(data)
-        # v44 -- hidden per-user markup (e.g. Manuel/Pasquale), now shared
-        # with Stretch Film -- see user.markup_mode/markup_value and
-        # strap_pricing.compute_strap_line().
-        hidden_markup_mode = g.user["markup_mode"] if "markup_mode" in g.user.keys() else None
-        hidden_markup_value = (g.user["markup_value"] if "markup_value" in g.user.keys() else 0) or 0
+        # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
+        # from Stretch Film's own -- see user.strap_markup_mode/
+        # strap_markup_value and strap_pricing.compute_strap_line().
+        hidden_markup_mode = g.user["strap_markup_mode"] if "strap_markup_mode" in g.user.keys() else None
+        hidden_markup_value = (g.user["strap_markup_value"] if "strap_markup_value" in g.user.keys() else 0) or 0
 
         calc = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                   discount_pct=discount_pct, credit_term=credit_term,
@@ -381,6 +397,8 @@ def create_app():
             "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
                 product["core_weight_kg"], bool(product["has_box"]),
                 bool(product["ctr20"]), bool(product["ctr40"])),
+            "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
@@ -431,11 +449,22 @@ def create_app():
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
         adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
         creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
-        # v44 -- hidden per-user markup, shared by Stretch Film and Strap --
-        # see user.markup_mode/markup_value and cost_engine.apply_hidden_markup().
-        creator_markup_mode = (creator["markup_mode"] if creator and "markup_mode" in creator.keys() else None)
-        creator_markup_value = (creator["markup_value"] if creator and "markup_value" in creator.keys()
-                                 else 0) or 0
+        # v46 -- hidden per-user markup, independent per product family --
+        # see user.stretch_markup_mode/value + strap_markup_mode/value and
+        # cost_engine.apply_hidden_markup().
+        creator_stretch_markup_mode = (creator["stretch_markup_mode"]
+                                        if creator and "stretch_markup_mode" in creator.keys() else None)
+        creator_stretch_markup_value = (creator["stretch_markup_value"]
+                                         if creator and "stretch_markup_value" in creator.keys() else 0) or 0
+        creator_strap_markup_mode = (creator["strap_markup_mode"]
+                                      if creator and "strap_markup_mode" in creator.keys() else None)
+        creator_strap_markup_value = (creator["strap_markup_value"]
+                                       if creator and "strap_markup_value" in creator.keys() else 0) or 0
+
+        # v47: tracks whether any saved line's Discount % got silently
+        # capped by cost_engine.capped_discount_pct(), so the save response
+        # can tell the rep -- see the two "if line_capped:" spots below.
+        any_discount_capped = False
 
         for l in data.get("lines", []):
             line_product_line = l.get("product_line") or "stretch_film"
@@ -465,16 +494,25 @@ def create_app():
                 qty_coils = float(l.get("quantity_coils") or 0)
                 qty_pallets_display = float(l.get("quantity_pallets") or 0)
                 line_discount_pct = float(l.get("line_discount_pct") or 0)
-                discount_pct = line_discount_pct + global_discount_pct
+                # v47: same combined + capped discount rule as the live
+                # calculator -- see cost_engine.capped_discount_pct(). Saving
+                # re-caps independently of whatever the UI already showed,
+                # so the stored price can never reflect more discount than
+                # the owner allows.
+                discount_pct, line_capped = cost_engine.capped_discount_pct(
+                    db, line_discount_pct, global_discount_pct
+                )
+                if line_capped:
+                    any_discount_capped = True
                 credit_term = _strap_credit_term(data)
                 calc = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                           discount_pct=discount_pct, credit_term=credit_term,
-                                                          hidden_markup_mode=creator_markup_mode,
-                                                          hidden_markup_value=creator_markup_value)
+                                                          hidden_markup_mode=creator_strap_markup_mode,
+                                                          hidden_markup_value=creator_strap_markup_value)
                 calc_full = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                                discount_pct=0, credit_term=credit_term,
-                                                               hidden_markup_mode=creator_markup_mode,
-                                                               hidden_markup_value=creator_markup_value)
+                                                               hidden_markup_mode=creator_strap_markup_mode,
+                                                               hidden_markup_value=creator_strap_markup_value)
                 total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
@@ -519,8 +557,14 @@ def create_app():
             # v27: combine this line's own Discount % with the quotation's
             # Global Discount % (percentage points) -- both come off the
             # margin factor the same way, see pricing._discounted_factor().
+            # v47: then capped at the admin-configured max -- see
+            # cost_engine.capped_discount_pct().
             line_discount_pct = float(l.get("line_discount_pct") or 0)
-            discount_pct = line_discount_pct + global_discount_pct
+            discount_pct, line_capped = cost_engine.capped_discount_pct(
+                db, line_discount_pct, global_discount_pct
+            )
+            if line_capped:
+                any_discount_capped = True
 
             if is_prestretch(product):
                 roll_weight_kg = float(l.get("prestretch_roll_weight_kg") or 0)
@@ -532,14 +576,14 @@ def create_app():
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
-                    hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                    hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                 )
                 unit_price_full, _ = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=0,
-                    hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                    hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
@@ -574,7 +618,7 @@ def create_app():
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
-                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -583,7 +627,7 @@ def create_app():
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=0, uv_type=uv_type,
-                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
             )
             db.execute(
                 """INSERT INTO quotation_line
@@ -604,7 +648,10 @@ def create_app():
         db.commit()
         q = db.execute("SELECT * FROM quotation WHERE id=?", (quotation_id,)).fetchone()
         total = compute_totals(db, q)["total"]
-        return jsonify({"id": quotation_id, "quotation_no": q["quotation_no"], "total": total})
+        return jsonify({
+            "id": quotation_id, "quotation_no": q["quotation_no"], "total": total,
+            "discount_capped": any_discount_capped,
+        })
 
     # ---------- History ----------
     @app.route("/quotations")
@@ -833,12 +880,19 @@ def create_app():
     @admin_required
     def admin_user_update(uid):
         db = g.db
-        markup_mode = request.form.get("markup_mode", "percent")
-        if markup_mode not in ("percent", "cents_per_kg"):
-            markup_mode = "percent"
+
+        def clean_mode(field):
+            m = request.form.get(field, "percent")
+            return m if m in ("percent", "cents_per_kg") else "percent"
+
+        # v46 -- independent hidden markup per product family -- see
+        # user.stretch_markup_mode/value + strap_markup_mode/value.
+        stretch_markup_mode = clean_mode("stretch_markup_mode")
+        strap_markup_mode = clean_mode("strap_markup_mode")
         db.execute(
             """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
-               seller_type=?, markup_mode=?, markup_value=? WHERE id=?""",
+               seller_type=?, stretch_markup_mode=?, stretch_markup_value=?,
+               strap_markup_mode=?, strap_markup_value=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
@@ -846,8 +900,10 @@ def create_app():
                 1 if request.form.get("active") == "on" else 0,
                 float(request.form.get("price_adjustment_usd_kg") or 0),
                 request.form.get("seller_type", "local"),
-                markup_mode,
-                float(request.form.get("markup_value") or 0),
+                stretch_markup_mode,
+                float(request.form.get("stretch_markup_value") or 0),
+                strap_markup_mode,
+                float(request.form.get("strap_markup_value") or 0),
                 uid,
             ),
         )

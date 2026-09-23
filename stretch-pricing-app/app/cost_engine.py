@@ -568,6 +568,34 @@ def apply_hidden_markup(price, markup_mode, markup_value):
     return price + value
 
 
+def capped_discount_pct(conn, line_discount_pct, global_discount_pct):
+    """v47 -- owner-requested guardrail: combines a quotation line's own
+    Discount % with the quotation's Global Discount % (percentage points,
+    added together, same as every call site already did), then silently
+    caps the total at the admin-configured 'Max Discount allowed' setting
+    (global_setting key db.MAX_DISCOUNT_SETTING_KEY, editable in Admin >
+    Global Cost Settings, seeded at 2.0). Applied identically for every
+    product family: Stretch Film / Pre-Stretch (where discount_pct comes
+    straight off the margin factor -- pricing._discounted_factor()) and
+    Strap (where it's a multiplicative discount on the final price --
+    strap_pricing.compute_strap_line()) alike, per the owner's explicit
+    instruction that this is ONE rule, the same everywhere, not a separate
+    cap per product category.
+
+    This is the single place the cap is enforced, and it runs server-side
+    on every price calculation AND on save -- so a sales rep typing more
+    discount than allowed can never actually make it into a computed or
+    saved price, regardless of what the UI does or doesn't catch first.
+
+    Returns (effective_discount_pct, was_capped) -- `was_capped` lets the
+    caller warn the rep in the UI that what they typed got reduced."""
+    requested = (line_discount_pct or 0) + (global_discount_pct or 0)
+    max_allowed = _get_setting(conn, "max_discount_pct", 2.0)
+    if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
+        return max_allowed, True
+    return requested, False
+
+
 def foreign_seller_extra_multiplier(conn, seller_type):
     """'Foreign sellers extra': an extra PERCENTAGE markup (not $/KG) on
     top of the final unit price, for any rep whose account is marked
