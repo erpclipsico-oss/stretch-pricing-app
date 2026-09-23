@@ -319,12 +319,27 @@ def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
 
 
 def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False,
-                        hidden_markup_mode=None, hidden_markup_value=0):
+                        hidden_markup_mode=None, hidden_markup_value=0,
+                        fob_container_usd=None, shipping_container_usd=None):
     """Full per-roll/per-kg breakdown for one strap_product row. Returns a
     dict with ex_work_price_roll, fob_price_roll/kg, cfr_price_roll/kg
     (Cash terms unless credit_term=True, in which case the flat $/kg
     surcharge is already included), plus gross_weight_kg (for converting
     a quantity of coils into total_kg elsewhere).
+
+    fob_container_usd/shipping_container_usd (v61): the per-container FOB
+    handling / international-freight $ amount to spread across this line
+    (via _container_share() below), same as ever -- but now the CALLER is
+    expected to supply the actual numbers looked up from the SAME
+    admin-editable Loading Ports / Freight tables Stretch Film uses (see
+    app.py's _fob_addon_for_port()/_freight_for_destination()), keyed by
+    the quotation's own Loading Port + Destination selection, instead of
+    each strap line silently pricing every shipment through one hardcoded
+    port/destination. Passing None for either falls back to the old flat
+    admin settings (strap_fob_cost_per_container_usd /
+    strap_shipping_rate_per_container_usd) purely so any caller that
+    hasn't been updated yet still gets a number rather than 0 -- every
+    in-app call site now always supplies both explicitly.
 
     hidden_markup_mode/hidden_markup_value (v44): a per-user hidden markup,
     from user.markup_mode/markup_value (generalizes the old Strap-only
@@ -381,8 +396,10 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     else:
         ex_work_price_roll = 0.0
 
-    fob_container_usd = _get_setting(conn, "strap_fob_cost_per_container_usd", 1100)
-    shipping_container_usd = _get_setting(conn, "strap_shipping_rate_per_container_usd", 1200)
+    if fob_container_usd is None:
+        fob_container_usd = _get_setting(conn, "strap_fob_cost_per_container_usd", 1100)
+    if shipping_container_usd is None:
+        shipping_container_usd = _get_setting(conn, "strap_shipping_rate_per_container_usd", 1200)
     ctr20, ctr40 = bool(product["ctr20"]), bool(product["ctr40"])
     has_box = bool(product["has_box"])
 

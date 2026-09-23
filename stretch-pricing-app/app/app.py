@@ -380,15 +380,26 @@ def create_app():
         # strap_markup_value and strap_pricing.compute_strap_line().
         hidden_markup_mode = g.user["strap_markup_mode"] if "strap_markup_mode" in g.user.keys() else None
         hidden_markup_value = (g.user["strap_markup_value"] if "strap_markup_value" in g.user.keys() else 0) or 0
+        # v61 -- Strap now prices FOB/CFR off the SAME Loading Ports /
+        # Freight tables Stretch Film uses (Catalog & Rates > Rates),
+        # keyed by the quotation's own Loading Port + Destination pick,
+        # instead of the old flat strap-only settings -- see
+        # strap_pricing.compute_strap_line()'s docstring.
+        fob_container_usd = _fob_addon_for_port(g.db, data.get("loading_port"))
+        shipping_container_usd = _freight_for_destination(g.db, data.get("destination"))
 
         calc = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                   discount_pct=discount_pct, credit_term=credit_term,
                                                   hidden_markup_mode=hidden_markup_mode,
-                                                  hidden_markup_value=hidden_markup_value)
+                                                  hidden_markup_value=hidden_markup_value,
+                                                  fob_container_usd=fob_container_usd,
+                                                  shipping_container_usd=shipping_container_usd)
         calc_full = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                        discount_pct=0, credit_term=credit_term,
                                                        hidden_markup_mode=hidden_markup_mode,
-                                                       hidden_markup_value=hidden_markup_value)
+                                                       hidden_markup_value=hidden_markup_value,
+                                                       fob_container_usd=fob_container_usd,
+                                                       shipping_container_usd=shipping_container_usd)
         total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
@@ -526,14 +537,24 @@ def create_app():
                 if line_capped:
                     any_discount_capped = True
                 credit_term = _strap_credit_term(data)
+                # v61 -- Strap now prices FOB/CFR off the SAME Loading Ports /
+                # Freight tables Stretch Film uses (Catalog & Rates > Rates),
+                # keyed by this quotation's own Loading Port + Destination,
+                # instead of the old flat strap-only settings.
+                strap_fob_container_usd = _fob_addon_for_port(db, loading_port)
+                strap_shipping_container_usd = _freight_for_destination(db, destination)
                 calc = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                           discount_pct=discount_pct, credit_term=credit_term,
                                                           hidden_markup_mode=creator_strap_markup_mode,
-                                                          hidden_markup_value=creator_strap_markup_value)
+                                                          hidden_markup_value=creator_strap_markup_value,
+                                                          fob_container_usd=strap_fob_container_usd,
+                                                          shipping_container_usd=strap_shipping_container_usd)
                 calc_full = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                                discount_pct=0, credit_term=credit_term,
                                                                hidden_markup_mode=creator_strap_markup_mode,
-                                                               hidden_markup_value=creator_strap_markup_value)
+                                                               hidden_markup_value=creator_strap_markup_value,
+                                                               fob_container_usd=strap_fob_container_usd,
+                                                               shipping_container_usd=strap_shipping_container_usd)
                 total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
@@ -848,24 +869,48 @@ def create_app():
             for l in line_rows:
                 full_unit = l["unit_price_full_usd_kg"] if ("unit_price_full_usd_kg" in l.keys()
                                                               and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
+                line_pl = (l["product_line"] if "product_line" in l.keys() and l["product_line"]
+                           else "stretch_film")
                 lines.append({
+                    "product_line": line_pl,
                     "line_total": cost_engine.round_half_up(l["unit_price_usd_kg"] * l["total_kg"], 2),
                     "line_total_full": cost_engine.round_half_up(full_unit * l["total_kg"], 2),
                 })
         total = cost_engine.round_half_up(sum(l["line_total"] for l in lines), 2)
         subtotal = cost_engine.round_half_up(sum(l.get("line_total_full", l["line_total"]) for l in lines), 2)
 
+        # v61 -- Strap (PET/PP) line totals are already fully freight- and
+        # port-inclusive (each strap line spreads its own container's FOB
+        # handling + international freight into its stored CFR $/kg via
+        # strap_pricing.compute_strap_line()'s _container_share()). Only
+        # Stretch Film lines are stored EX-Work, so the quotation-level FOB/
+        # CIF add-on below must apply ONLY to the Stretch Film portion of
+        # `total` -- adding it on top of the (already freight-inclusive)
+        # strap total would double-count one port-handling fee and one
+        # freight amount for any quotation containing strap lines.
+        has_stretch_line = any((l.get("product_line") or "stretch_film") == "stretch_film" for l in lines)
+        stretch_total = cost_engine.round_half_up(
+            sum(l["line_total"] for l in lines
+                if (l.get("product_line") or "stretch_film") == "stretch_film"), 2)
+        non_stretch_total = cost_engine.round_half_up(total - stretch_total, 2)
+
         # FOB Total = EX-Work total (after discount) + the selected loading
         # port's flat handling/customs/trucking add-on (Alexandria vs
         # Damietta -- editable in Admin > Loading Ports, since these rates
-        # move). CIF Total = FOB Total + freight to the selected
-        # destination (from the existing Freight table). Both are shown to
-        # the client as the FOB and CIF offers side by side; the raw
-        # freight $ figure itself is not broken out as its own line, same
-        # treatment as the hidden foreign-seller markup.
-        fob_addon = _fob_addon_for_port(db, q["loading_port"] if "loading_port" in q.keys() else None)
-        fob_total = cost_engine.round_half_up(total + fob_addon, 2)
-        freight_amt = _freight_for_destination(db, q["destination"] if "destination" in q.keys() else None)
+        # move), applied to the Stretch Film portion only (see note above);
+        # any strap lines are added back in as-is, already CFR-priced. If
+        # the quotation has NO Stretch Film lines at all (strap-only), the
+        # add-on isn't applied a second time on top of strap's own
+        # already-inclusive pricing -- fob_total/cif_total just equal the
+        # (already CFR) strap total. CIF Total = FOB Total + freight to the
+        # selected destination (from the existing Freight table), same
+        # Stretch-only rule. Both are shown to the client as the FOB and
+        # CIF offers side by side; the raw freight $ figure itself is not
+        # broken out as its own line, same treatment as the hidden
+        # foreign-seller markup.
+        fob_addon = _fob_addon_for_port(db, q["loading_port"] if "loading_port" in q.keys() else None) if has_stretch_line else 0
+        fob_total = cost_engine.round_half_up(stretch_total + fob_addon + non_stretch_total, 2)
+        freight_amt = _freight_for_destination(db, q["destination"] if "destination" in q.keys() else None) if has_stretch_line else 0
         cif_total = cost_engine.round_half_up(fob_total + freight_amt, 2)
 
         return {"subtotal": subtotal, "total": total, "fob_total": fob_total, "cif_total": cif_total}

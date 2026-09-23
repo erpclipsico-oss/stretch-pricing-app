@@ -577,6 +577,12 @@ async function calculateAll() {
   let subtotal = 0;      // net of discount (what's actually charged)
   let subtotalFull = 0;  // reference total with no discount, for the Discount $ row
   let totalKgAll = 0;
+  // v61 -- Stretch Film lines are EX-Work; Strap (PET/PP) lines are already
+  // fully freight/port-inclusive (their own CFR $/kg). Tracked separately so
+  // the FOB/CIF Total math below (mirrors compute_totals() in app.py) adds
+  // the port/freight add-on to the Stretch Film portion only -- see the note
+  // there for why adding it to the strap portion too would double-count it.
+  let stretchSubtotal = 0;
   const rowCalc = []; // {tr, exwUnit, totalKg} for the FOB/CIF-per-kg second pass
   // v47: whether ANY line's Discount % got silently capped by the server
   // (cost_engine.capped_discount_pct()) -- surfaced as a page-level notice
@@ -646,6 +652,7 @@ async function calculateAll() {
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     subtotal += data.line_gross;
+    stretchSubtotal += data.line_gross;
     subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
     totalKgAll += data.total_kg;
     // v49: also carry this row's own Price basis + the roll/core weight the
@@ -683,6 +690,13 @@ async function calculateAll() {
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
+      // v61 -- Strap FOB/CFR now looks up the SAME Loading Ports / Freight
+      // tables Stretch Film uses (see _fob_addon_for_port()/
+      // _freight_for_destination() in app.py), keyed by this quotation's
+      // own Loading Port + Destination pick, so the live preview needs
+      // to send them same as the top-level Stretch FOB/CIF math already does.
+      loading_port: document.getElementById('loading_port').value,
+      destination: document.getElementById('destination').value,
     };
     if (custom) {
       Object.assign(payload, {
@@ -760,17 +774,25 @@ async function calculateAll() {
   const total = subtotal;
 
   // FOB Total = EX-Work total (after discount) + the selected loading
-  // port's FOB add-on. CIF Total = FOB Total + freight to the selected
-  // destination. Mirrors compute_totals() in app.py exactly, so the number
-  // shown here while building the quote matches what gets saved/printed.
+  // port's FOB add-on, applied to the Stretch Film portion of the total
+  // only -- Strap lines are already CFR-priced (freight/port-inclusive)
+  // and are added back in as-is (see stretchSubtotal above). If there are
+  // NO Stretch Film lines at all (strap-only quote), the add-on isn't
+  // applied a second time on top of strap's own already-inclusive
+  // pricing. CIF Total = FOB Total + freight to the selected destination,
+  // same Stretch-only rule. Mirrors compute_totals() in app.py exactly,
+  // so the number shown here while building the quote matches what gets
+  // saved/printed.
+  const hasStretchLine = rows.length > 0;
+  const nonStretchSubtotal = total - stretchSubtotal;
   const portName = document.getElementById('loading_port').value;
   const port = LOADING_PORTS.find(p => p.port === portName);
-  const fobAddon = port ? (port.fob_addon_usd || 0) : 0;
-  const fobTotal = total + fobAddon;
+  const fobAddon = (hasStretchLine && port) ? (port.fob_addon_usd || 0) : 0;
+  const fobTotal = stretchSubtotal + fobAddon + nonStretchSubtotal;
 
   const destName = document.getElementById('destination').value;
   const freightRow = FREIGHT.find(f => f.country === destName);
-  const freightAmt = freightRow ? firstNumber(freightRow.shipping_rate_usd) : 0;
+  const freightAmt = (hasStretchLine && freightRow) ? firstNumber(freightRow.shipping_rate_usd) : 0;
   const cifTotal = fobTotal + freightAmt;
 
   // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
@@ -882,6 +904,13 @@ document.getElementById('resetBtn').addEventListener('click', () => location.rel
 // Discount % also auto-recalculate now -- see scheduleRecalc()'s comment.
 document.getElementById('payment_term').addEventListener('change', scheduleRecalc);
 document.getElementById('global_discount_pct').addEventListener('input', scheduleRecalc);
+// v61 -- Loading Port / Destination now also drive each Strap line's own
+// FOB/CFR $ (looked up server-side from the same Rates tables Stretch
+// Film uses), not just the quote-level FOB/CIF Total math above, so
+// changing either has to re-run the strap lines' own /api/calculate-line
+// call too.
+document.getElementById('loading_port').addEventListener('change', scheduleRecalc);
+document.getElementById('destination').addEventListener('change', scheduleRecalc);
 
 // start with one line
 addLine();
