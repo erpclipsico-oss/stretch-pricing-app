@@ -213,13 +213,13 @@ body {
 .users-scroll { overflow-x: auto; }
 .users-row {
   display: grid;
-  grid-template-columns: 110px 130px 100px 100px 90px 110px 200px 200px 64px 76px;
+  grid-template-columns: 110px 130px 100px 100px 90px 200px 200px 64px 76px;
   column-gap: 10px;
   row-gap: 4px;
   align-items: center;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border);
-  min-width: 1160px;
+  min-width: 1050px;
 }
 .users-row.header-row {
   font-size: 0.7rem;

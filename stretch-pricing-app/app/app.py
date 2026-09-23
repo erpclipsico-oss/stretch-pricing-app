@@ -168,7 +168,14 @@ def create_app():
         qty = float(data.get("quantity_pallets") or 0)
         pallet_type = data.get("pallet_type")
         pricing_basis = data.get("pricing_basis", "per_kg")
-        adjustment = g.user["price_adjustment_usd_kg"] or 0
+        # v56 -- "Price adjustment $/KG" is retired per the owner: rep
+        # commission now lives ONLY in the hidden Stretch/Strap markup
+        # fields below (percent or cents/KG, baked into the price, never
+        # shown to the customer or the rep) -- this used to add a SEPARATE,
+        # visible-basis adjustment on top for Stretch/Pre-Stretch only.
+        # Always 0 now so it's a no-op; the user.price_adjustment_usd_kg
+        # column and DB value are left alone (unused) rather than migrated.
+        adjustment = 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
         # v46 -- hidden per-user markup, independent from Strap's own --
         # see user.stretch_markup_mode/stretch_markup_value and
@@ -447,7 +454,9 @@ def create_app():
 
         creator_id = existing["created_by_id"] if q_id else g.user["id"]
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
-        adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
+        # v56 -- "Price adjustment $/KG" retired, see the matching note in
+        # api_calculate_line() above.
+        adjustment = 0
         creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
         # v46 -- hidden per-user markup, independent per product family --
         # see user.stretch_markup_mode/value + strap_markup_mode/value and

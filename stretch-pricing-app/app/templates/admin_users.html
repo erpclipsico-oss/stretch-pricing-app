@@ -5,13 +5,12 @@
 <div class="panel">
   <div class="panel-header"><h2>Users</h2></div>
   <p class="hint" style="margin-bottom:14px;">
-    "Price adjustment" is added straight onto the quoted $/KG unit price for every quote that user
-    builds &mdash; e.g. set 0.03 for a foreign-seller account that should quote 3&cent;/KG above the
-    normal costing/factors. Leave at 0 for local sellers using standard pricing.
-    "Hidden markup" is a SEPARATE, silent markup on top of that &mdash; <strong>Stretch Film and Strap
-    each have their OWN markup</strong>, independently in either Percent (multiplicative) or Cents/KG
-    (a flat $/KG add-on) mode (e.g. +3&cent;/KG on Stretch but +5% on Strap for the same user, at the
-    same time). Never shown to the user anywhere in the app (screen, PDF or Excel).
+    <strong>Commission</strong> is a per-rep amount baked silently into the quoted $/KG price &mdash;
+    <strong>Stretch Film and Strap each have their own commission</strong>, independently in either
+    Percent (multiplicative on the price) or Cents/KG (a flat $/KG add-on) mode (e.g. +3&cent;/KG on
+    Stretch but +5% on Strap for the same rep, at the same time). Works the same for local or foreign
+    reps. Never shown anywhere the customer or the rep can see it (screen, PDF or Excel) &mdash; it's
+    for your own reference only, to work out what's owed.
   </p>
   <div class="users-scroll">
   <div class="edit-grid">
@@ -21,9 +20,8 @@
       <span>Role</span>
       <span>Region</span>
       <span>Seller type</span>
-      <span>Price adj. $/KG</span>
-      <span title="Hidden markup on Stretch Film / Pre-Stretch quotes only -- not shown to this user anywhere">Stretch markup (hidden)</span>
-      <span title="Hidden markup on PET/PP Strap quotes only -- not shown to this user anywhere">Strap markup (hidden)</span>
+      <span title="Commission on Stretch Film / Pre-Stretch quotes only -- never shown to the customer or the rep">Stretch commission</span>
+      <span title="Commission on PET/PP Strap quotes only -- never shown to the customer or the rep">Strap commission</span>
       <span>Active</span>
       <span></span>
     </div>
@@ -41,15 +39,14 @@
           <option value="local" {% if u.seller_type=='local' or not u.seller_type %}selected{% endif %}>Local</option>
           <option value="foreign" {% if u.seller_type=='foreign' %}selected{% endif %}>Foreign</option>
         </select>
-        <input type="number" step="any" name="price_adjustment_usd_kg" value="{{ u.price_adjustment_usd_kg or 0 }}">
-        <span class="markup-pair" title="Hidden -- not shown to this user anywhere in the app">
+        <span class="markup-pair" title="Never shown to the customer or the rep">
           <select name="stretch_markup_mode">
             <option value="percent" {% if u.stretch_markup_mode=='percent' or not u.stretch_markup_mode %}selected{% endif %}>Percent</option>
             <option value="cents_per_kg" {% if u.stretch_markup_mode=='cents_per_kg' %}selected{% endif %}>Cents/KG</option>
           </select>
           <input type="number" step="any" name="stretch_markup_value" value="{{ u.stretch_markup_value or 0 }}">
         </span>
-        <span class="markup-pair" title="Hidden -- not shown to this user anywhere in the app">
+        <span class="markup-pair" title="Never shown to the customer or the rep">
           <select name="strap_markup_mode">
             <option value="percent" {% if u.strap_markup_mode=='percent' or not u.strap_markup_mode %}selected{% endif %}>Percent</option>
             <option value="cents_per_kg" {% if u.strap_markup_mode=='cents_per_kg' %}selected{% endif %}>Cents/KG</option>
@@ -88,6 +85,6 @@
     <div class="field"><label>Password</label><input type="text" name="password" placeholder="ChangeMe123!"></div>
     <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Create user</button></div>
   </form>
-  <p class="hint" style="margin-top:10px;">New users start with price adjustment $0.00 &mdash; set it after creating, in the table above.</p>
+  <p class="hint" style="margin-top:10px;">New users start with $0 commission &mdash; set it after creating, in the table above.</p>
 </div>
 {% endblock %}
