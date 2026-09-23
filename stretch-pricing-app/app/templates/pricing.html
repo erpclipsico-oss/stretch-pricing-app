@@ -113,6 +113,7 @@
         <th title="Updates instantly as Width/Thickness/Material change">g/m</th>
         <th>Meters/coil</th>
         <th>Core size</th>
+        <th title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
         <th>Box</th>
         <th>Pallet</th>
         <th>Container</th>
@@ -374,6 +375,7 @@ function addStrapLine() {
         ${STRAP_CORE_SIZES.map(c => `<option value="${c[0]}">${c[0]}mm (${(c[1]*1000).toFixed(0)}g)</option>`).join('')}
       </select>
     </td>
+    <td><input type="text" class="f-strap-rollwt compact-input" readonly style="width:70px; background:#f3f3f3;" value="0.00" title="Computed gross weight per roll = (meters/coil × g/m ÷ 1000) + core weight"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-strap-box"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-strap-pallet" checked></td>
     <td>
@@ -401,6 +403,15 @@ function addStrapLine() {
     bomSel.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
   }
 
+  function updateRollWeightLive() {
+    const gm = parseFloat(tr.querySelector('.f-strap-gm').value || 0);
+    const meters = parseFloat(tr.querySelector('.f-strap-meters').value || 0);
+    const coreOpt = STRAP_CORE_SIZES.find(c => String(c[0]) === tr.querySelector('.f-strap-core').value);
+    const coreKg = coreOpt ? coreOpt[1] : 0;
+    const rollWt = (meters * gm / 1000) + coreKg;
+    tr.querySelector('.f-strap-rollwt').value = roundHalfUp(rollWt, 2).toFixed(2);
+  }
+
   function updateGmLive() {
     const sel = tr.querySelector('.f-strap-product');
     const lineKey = sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.line : null;
@@ -410,10 +421,13 @@ function addStrapLine() {
     const thick = parseFloat(tr.querySelector('.f-strap-thickness').value || 0);
     const gm = calcGmPerM(lineKey, bomKey, width, thick);
     tr.querySelector('.f-strap-gm').value = roundHalfUp(gm, 2).toFixed(2);
+    updateRollWeightLive();
   }
   tr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
   tr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
   tr.querySelector('.f-strap-bom').addEventListener('change', updateGmLive);
+  tr.querySelector('.f-strap-meters').addEventListener('input', updateRollWeightLive);
+  tr.querySelector('.f-strap-core').addEventListener('change', updateRollWeightLive);
 
   function syncMaterialOptions() {
     const sel = tr.querySelector('.f-strap-product');
@@ -636,6 +650,10 @@ async function calculateAll() {
     tr.querySelector('.f-strap-cfr').textContent = roundHalfUp(data.cfr_price_roll, 2).toFixed(2);
     tr.querySelector('.f-strap-kg').textContent = effectiveTotalKg.toLocaleString();
     tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    // Roll Weight (kg) -- server's own gross_weight_kg (net strap weight +
+    // core weight) is authoritative; the live client-side estimate in
+    // updateRollWeightLive() is just a same-formula preview before Calculate.
+    tr.querySelector('.f-strap-rollwt').value = roundHalfUp(data.gross_weight_kg, 2).toFixed(2);
     if (custom) {
       // Reflect the server-computed g/m (the authoritative value actually
       // priced with -- the live preview in updateGmLive() is a same-formula
@@ -672,14 +690,19 @@ async function calculateAll() {
   const cifTotal = fobTotal + freightAmt;
 
   // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
-  // the quote's total KG (proportionally to how much of the shipment each
-  // line is), so a rep/client can see an all-in per-kg rate next to the
-  // EX-Work rate on every line, not just the quote's lump-sum totals.
-  const fobAddonPerKg = totalKgAll > 0 ? fobAddon / totalKgAll : 0;
-  const freightPerKg = totalKgAll > 0 ? freightAmt / totalKgAll : 0;
+  // EACH LINE'S OWN total KG (not the quote's combined total KG across
+  // every line) -- matches the reference app (Hesham Natora's) exactly,
+  // confirmed against it directly: a multi-line quote's per-line FOB/CIF
+  // $/kg is what that line alone would cost per kg carrying the flat
+  // port/freight add-on, not its proportional share of a shared quote
+  // total. The lump-sum FOB Total / CIF Total below are unaffected by
+  // this -- they still add each add-on exactly once, matching a real
+  // invoice, not once per line.
   for (const rc of rowCalc) {
-    const fobUnit = rc.exwUnit + fobAddonPerKg;
-    const cifUnit = fobUnit + freightPerKg;
+    const lineFobAddonPerKg = rc.totalKg > 0 ? fobAddon / rc.totalKg : 0;
+    const lineFreightPerKg = rc.totalKg > 0 ? freightAmt / rc.totalKg : 0;
+    const fobUnit = rc.exwUnit + lineFobAddonPerKg;
+    const cifUnit = fobUnit + lineFreightPerKg;
     rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2);
     rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2);
   }
