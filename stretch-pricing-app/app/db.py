@@ -24,7 +24,19 @@ CREATE TABLE IF NOT EXISTS user (
     -- price_adjustment_usd_kg loads Stretch Film pricing for a given user.
     -- Not shown anywhere in the UI/PDF/Excel breakdown for the sales rep it
     -- applies to -- it just raises their strap quotes silently, admin-only.
-    strap_markup_pct REAL NOT NULL DEFAULT 0
+    -- Superseded by markup_mode/markup_value below (v44), which does the
+    -- same thing but for BOTH Stretch Film and Strap, and supports a flat
+    -- cents/KG mode too. Column kept (unused by app code going forward)
+    -- so existing DB rows/migrations aren't disturbed.
+    strap_markup_pct REAL NOT NULL DEFAULT 0,
+    -- v44 -- generalized hidden per-user markup, applied to the FINAL
+    -- quoted $/KG price for BOTH Stretch Film/Pre-Stretch and PET/PP
+    -- Strap lines alike. 'percent' (percentage points, multiplicative) or
+    -- 'cents_per_kg' (flat USD/KG, additive) -- exactly one mode active
+    -- per user. Never shown anywhere in the UI/PDF/Excel. See
+    -- cost_engine.apply_hidden_markup().
+    markup_mode TEXT NOT NULL DEFAULT 'percent',
+    markup_value REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS product (
@@ -126,6 +138,11 @@ CREATE TABLE IF NOT EXISTS quotation_line (
     strap_custom_has_box INTEGER,
     strap_custom_ctr20 INTEGER,
     strap_custom_ctr40 INTEGER,
+    -- v42 -- the line's own Pallet checkbox (was only used transiently to
+    -- price the line, never saved), so the exported PDF/Excel can show a
+    -- real Pallet/Box value for a strap line instead of leaving those
+    -- columns blank.
+    strap_custom_has_pallet INTEGER,
     -- v36 -- UV additive (Stretch Film lines only): the selected UV variant
     -- key from cost_engine.UV_TYPES (e.g. 'UVI_12m_Power'), or NULL for a
     -- normal line. Not a property of the product/catalog -- a per-line
@@ -392,6 +409,24 @@ def _migrate(conn):
         conn.execute("UPDATE user SET strap_markup_pct=1.5 WHERE username IN ('manuel', 'pasquale')")
         conn.commit()
 
+    if "markup_mode" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN markup_mode TEXT NOT NULL DEFAULT 'percent'")
+        conn.commit()
+    if "markup_value" not in cols:
+        conn.execute("ALTER TABLE user ADD COLUMN markup_value REAL NOT NULL DEFAULT 0")
+        conn.commit()
+        # v44 -- backfill from the legacy strap-only strap_markup_pct so
+        # manuel/pasquale (or anyone an admin had already set it for) keep
+        # the exact same hidden markup, now applied to Stretch Film too,
+        # not just Strap. Runs only once, the moment markup_value itself is
+        # first added -- an admin changing it afterwards is never
+        # overwritten on a later boot.
+        conn.execute(
+            "UPDATE user SET markup_mode='percent', markup_value=strap_markup_pct "
+            "WHERE strap_markup_pct IS NOT NULL AND strap_markup_pct != 0"
+        )
+        conn.commit()
+
     product_cols = {row["name"] for row in conn.execute("PRAGMA table_info(product)").fetchall()}
     if "width_mm" not in product_cols:
         # Stretch!F column ("Width (mm)"). Used by the cost engine's narrow-web
@@ -403,6 +438,9 @@ def _migrate(conn):
     line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
     if "pricing_basis" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN pricing_basis TEXT NOT NULL DEFAULT 'per_kg'")
+        conn.commit()
+    if "strap_custom_has_pallet" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN strap_custom_has_pallet INTEGER")
         conn.commit()
 
     # ---- Pre-Stretch support (v7) ----
@@ -1563,19 +1601,24 @@ def _seed_default_users(conn):
     empty) so new default accounts (e.g. pasquale/manuel, added later) get
     created on an already-deployed, already-seeded live DB too, without
     touching or duplicating any existing account."""
-    # v39 -- hidden PET/PP Strap markup (percentage points), owner-requested
-    # for these two accounts specifically -- not shown anywhere in their UI.
+    # v39 -- hidden markup (percentage points), owner-requested for these
+    # two accounts specifically -- not shown anywhere in their UI. v44:
+    # generalized from Strap-only (strap_markup_pct) to also cover Stretch
+    # Film (markup_mode/markup_value); both columns are kept in sync here
+    # for a brand-new DB so either code path (old or new) sees the value.
     strap_markup_by_username = {"manuel": 1.5, "pasquale": 1.5}
     for username, full_name, role, region, seller_type, adjustment in DEFAULT_USERS:
         exists = conn.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
         if exists:
             continue
+        markup_value = strap_markup_by_username.get(username, 0)
         conn.execute(
             """INSERT INTO user (username, full_name, password_hash, role, region,
-                                  seller_type, price_adjustment_usd_kg, strap_markup_pct)
-               VALUES (?,?,?,?,?,?,?,?)""",
+                                  seller_type, price_adjustment_usd_kg, strap_markup_pct,
+                                  markup_mode, markup_value)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (username, full_name, generate_password_hash("ChangeMe123!"), role, region,
-             seller_type, adjustment, strap_markup_by_username.get(username, 0)),
+             seller_type, adjustment, markup_value, "percent", markup_value),
         )
     conn.commit()
 

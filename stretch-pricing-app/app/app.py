@@ -170,6 +170,10 @@ def create_app():
         pricing_basis = data.get("pricing_basis", "per_kg")
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
+        # v44 -- hidden per-user markup, shared with Strap -- see
+        # user.markup_mode/markup_value and cost_engine.apply_hidden_markup().
+        hidden_markup_mode = g.user["markup_mode"] if "markup_mode" in g.user.keys() else None
+        hidden_markup_value = (g.user["markup_value"] if "markup_value" in g.user.keys() else 0) or 0
         colored = bool(data.get("colored"))
         # v39 -- UV is now a plain checkbox ("uv": true/false); which of the
         # 7 UVI_TYPES variants applies is derived from this same product's
@@ -194,11 +198,13 @@ def create_app():
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                 seller_type=seller_type, colored=colored, discount_pct=discount_pct,
+                hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
             )
             unit_price_full, _ = compute_prestretch_line(
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                 seller_type=seller_type, colored=colored, discount_pct=0,
+                hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
             )
             gross = cost_engine.round_half_up(unit_price * total_kg, 2)
             gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
@@ -232,7 +238,9 @@ def create_app():
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
                                              seller_type=seller_type,
                                              auto_manual_override=auto_manual_override, colored=colored,
-                                             discount_pct=discount_pct, uv_type=uv_type)
+                                             discount_pct=discount_pct, uv_type=uv_type,
+                                             hidden_markup_mode=hidden_markup_mode,
+                                             hidden_markup_value=hidden_markup_value)
         unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                            price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                            pricing_basis=pricing_basis,
@@ -242,7 +250,9 @@ def create_app():
                                            rolls_per_pallet_override=custom_rolls_per_pallet,
                                            seller_type=seller_type,
                                            auto_manual_override=auto_manual_override, colored=colored,
-                                           discount_pct=0, uv_type=uv_type)
+                                           discount_pct=0, uv_type=uv_type,
+                                           hidden_markup_mode=hidden_markup_mode,
+                                           hidden_markup_value=hidden_markup_value)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -330,16 +340,20 @@ def create_app():
         global_discount_pct = float(data.get("global_discount_pct") or 0)
         discount_pct = line_discount_pct + global_discount_pct
         credit_term = _strap_credit_term(data)
-        # Hidden per-user strap markup (e.g. Manuel/Pasquale) -- see
-        # user.strap_markup_pct and strap_pricing.compute_strap_line().
-        hidden_markup_pct = (g.user["strap_markup_pct"] if "strap_markup_pct" in g.user.keys() else 0) or 0
+        # v44 -- hidden per-user markup (e.g. Manuel/Pasquale), now shared
+        # with Stretch Film -- see user.markup_mode/markup_value and
+        # strap_pricing.compute_strap_line().
+        hidden_markup_mode = g.user["markup_mode"] if "markup_mode" in g.user.keys() else None
+        hidden_markup_value = (g.user["markup_value"] if "markup_value" in g.user.keys() else 0) or 0
 
         calc = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                   discount_pct=discount_pct, credit_term=credit_term,
-                                                  hidden_markup_pct=hidden_markup_pct)
+                                                  hidden_markup_mode=hidden_markup_mode,
+                                                  hidden_markup_value=hidden_markup_value)
         calc_full = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                        discount_pct=0, credit_term=credit_term,
-                                                       hidden_markup_pct=hidden_markup_pct)
+                                                       hidden_markup_mode=hidden_markup_mode,
+                                                       hidden_markup_value=hidden_markup_value)
         total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
@@ -417,8 +431,11 @@ def create_app():
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
         adjustment = (creator["price_adjustment_usd_kg"] if creator else 0) or 0
         creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
-        creator_strap_markup_pct = (creator["strap_markup_pct"] if creator and "strap_markup_pct" in creator.keys()
-                                     else 0) or 0
+        # v44 -- hidden per-user markup, shared by Stretch Film and Strap --
+        # see user.markup_mode/markup_value and cost_engine.apply_hidden_markup().
+        creator_markup_mode = (creator["markup_mode"] if creator and "markup_mode" in creator.keys() else None)
+        creator_markup_value = (creator["markup_value"] if creator and "markup_value" in creator.keys()
+                                 else 0) or 0
 
         for l in data.get("lines", []):
             line_product_line = l.get("product_line") or "stretch_film"
@@ -452,10 +469,12 @@ def create_app():
                 credit_term = _strap_credit_term(data)
                 calc = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                           discount_pct=discount_pct, credit_term=credit_term,
-                                                          hidden_markup_pct=creator_strap_markup_pct)
+                                                          hidden_markup_mode=creator_markup_mode,
+                                                          hidden_markup_value=creator_markup_value)
                 calc_full = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
                                                                discount_pct=0, credit_term=credit_term,
-                                                               hidden_markup_pct=creator_strap_markup_pct)
+                                                               hidden_markup_mode=creator_markup_mode,
+                                                               hidden_markup_value=creator_markup_value)
                 total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
@@ -467,14 +486,15 @@ def create_app():
                             pricing_basis, product_line, strap_custom_bom_key, strap_custom_width_mm,
                             strap_custom_thickness_mm, strap_custom_meters_per_coil,
                             strap_custom_core_weight_kg, strap_custom_has_box, strap_custom_ctr20,
-                            strap_custom_ctr40)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            strap_custom_ctr40, strap_custom_has_pallet)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, None, "Credit" if credit_term else "Cash", "Per Coil",
                          qty_pallets_display, unit_price, unit_price_full, total_kg, line_discount_pct,
                          "per_coil", line_product_line, strap_product["bom_key"], strap_product["width_mm"],
                          strap_product["thickness_mm"], strap_product["meters_per_coil"],
                          strap_product["core_weight_kg"], int(strap_product["has_box"]),
-                         int(strap_product["ctr20"]), int(strap_product["ctr40"])),
+                         int(strap_product["ctr20"]), int(strap_product["ctr40"]),
+                         int(strap_product["has_pallet"])),
                     )
                 else:
                     db.execute(
@@ -512,12 +532,14 @@ def create_app():
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
+                    hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
                 )
                 unit_price_full, _ = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=0,
+                    hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
@@ -552,6 +574,7 @@ def create_app():
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -560,6 +583,7 @@ def create_app():
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=0, uv_type=uv_type,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
             )
             db.execute(
                 """INSERT INTO quotation_line
@@ -705,8 +729,24 @@ def create_app():
                     "box": "Yes" if has_box else "No",
                     "container": "20ft" if ctr20 else "40ft",
                 }
+            # v42 -- a strap line's own pallet_type/packing_type DB columns
+            # hold an unrelated internal marker (see the INSERT in
+            # api_save_quotation()), not a real Pallet/Packing value, so the
+            # exported PDF/Excel show these instead: whether the line ships
+            # on a pallet at all, and whether it's boxed.
+            strap_pallet_display = strap_packing_display = None
+            if line_pl in ("pet", "pp"):
+                has_pallet_val = (bool(l["strap_custom_has_pallet"])
+                                   if "strap_custom_has_pallet" in l.keys() and l["strap_custom_has_pallet"] is not None
+                                   else True)
+                has_box_val = (bool(l["strap_custom_has_box"])
+                                if "strap_custom_has_box" in l.keys() and l["strap_custom_has_box"] is not None
+                                else False)
+                strap_pallet_display = "Pallet" if has_pallet_val else "No Pallet"
+                strap_packing_display = "Box" if has_box_val else "No Box"
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
-                               pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing))
+                               pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,
+                               strap_pallet_display=strap_pallet_display, strap_packing_display=strap_packing_display))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
@@ -793,9 +833,12 @@ def create_app():
     @admin_required
     def admin_user_update(uid):
         db = g.db
+        markup_mode = request.form.get("markup_mode", "percent")
+        if markup_mode not in ("percent", "cents_per_kg"):
+            markup_mode = "percent"
         db.execute(
             """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
-               seller_type=?, strap_markup_pct=? WHERE id=?""",
+               seller_type=?, markup_mode=?, markup_value=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
@@ -803,7 +846,8 @@ def create_app():
                 1 if request.form.get("active") == "on" else 0,
                 float(request.form.get("price_adjustment_usd_kg") or 0),
                 request.form.get("seller_type", "local"),
-                float(request.form.get("strap_markup_pct") or 0),
+                markup_mode,
+                float(request.form.get("markup_value") or 0),
                 uid,
             ),
         )
@@ -1680,11 +1724,10 @@ def build_pdf(q, lines, totals):
         # a real pallet/packing choice: those two columns are reused
         # internally to carry the line's payment-term surcharge state
         # ("Cash"/"Credit" and a fixed "Per Coil" marker -- see
-        # api_save_quotation()'s strap branch). Showing that raw internal
-        # value in the "Pallet"/"Packing" columns was confusing on its own
-        # even before it started visually colliding with the Product
-        # column -- a strap line has no Pallet/Packing concept here, so it
-        # shows a dash instead.
+        # api_save_quotation()'s strap branch). v42 -- load_quotation()
+        # now works out a real Pallet/Packing value for a strap line from
+        # its own saved Pallet/Box checkboxes (strap_pallet_display /
+        # strap_packing_display) instead of leaving the column blank.
         is_strap_line = line.get("product_line") in ("pet", "pp")
         # v41 -- Pallet/Packing/Basis are also wrapped in a Paragraph, not
         # just Product: "Standard Pallet"/"Automatic" are plain strings
@@ -1693,8 +1736,8 @@ def build_pdf(q, lines, totals):
         # collision bug the Product column had.
         rows.append([
             str(i), Paragraph(line["label"], label_style),
-            Paragraph("-" if is_strap_line else line["pallet_type"], label_style),
-            Paragraph("-" if is_strap_line else line["packing_type"], label_style),
+            Paragraph(line["strap_pallet_display"] if is_strap_line else line["pallet_type"], label_style),
+            Paragraph(line["strap_packing_display"] if is_strap_line else line["packing_type"], label_style),
             Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
             f"{line['unit_price_usd_kg']:.2f}", f"{line['line_total']:,.2f}",
@@ -1801,14 +1844,15 @@ def build_xlsx(q, lines, totals):
 
     stuffing_font = Font(italic=True, size=8, color="666666")
     for i, line in enumerate(lines, start=1):
-        # v41 -- see the matching comment in build_pdf(): a PET/PP Strap
+        # v42 -- see the matching comment in build_pdf(): a PET/PP Strap
         # line's pallet_type/packing_type columns hold an internal
         # payment-term marker ("Cash"/"Credit", "Per Coil"), not a real
-        # Pallet/Packing choice, so they show as a dash here too.
+        # Pallet/Packing choice -- these use the line's own saved Pallet/
+        # Box checkboxes instead (strap_pallet_display/strap_packing_display).
         is_strap_line = line.get("product_line") in ("pet", "pp")
         values = [
-            i, line["label"], "-" if is_strap_line else line["pallet_type"],
-            "-" if is_strap_line else line["packing_type"],
+            i, line["label"], line["strap_pallet_display"] if is_strap_line else line["pallet_type"],
+            line["strap_packing_display"] if is_strap_line else line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
             line["quantity_pallets"], cost_engine.round_half_up(line["total_kg"], 1),
             cost_engine.round_half_up(line["unit_price_usd_kg"], 2), cost_engine.round_half_up(line["line_total"], 2),

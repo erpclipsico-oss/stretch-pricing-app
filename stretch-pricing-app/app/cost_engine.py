@@ -543,6 +543,31 @@ def color_extra_usd_kg(conn, colored):
     return _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25)
 
 
+def apply_hidden_markup(price, markup_mode, markup_value):
+    """v44 -- a per-user HIDDEN markup (user.markup_mode/markup_value),
+    applied to the FINAL quoted $/KG price for BOTH Stretch Film/Pre-
+    Stretch (pricing.py) and PET/PP Strap (strap_pricing.py) lines. Never
+    surfaced anywhere in the UI/PDF/Excel breakdown -- same treatment the
+    old strap-only user.strap_markup_pct got (which this generalizes and
+    replaces; see db.py's migration backfill).
+
+    markup_mode == 'percent': markup_value is percentage points (e.g. 1.5
+    for +1.5%), applied multiplicatively -- same rule as the legacy
+    strap_markup_pct.
+    Anything else (the 'cents_per_kg' mode): markup_value is a flat USD/KG
+    amount (e.g. 0.05 for 5 cents/KG) added straight onto the price --
+    mirrors how the existing credit-term surcharge is applied in
+    strap_pricing.compute_strap_line().
+    A user has exactly one mode active at a time (admin's own choice on
+    the Users screen), never both."""
+    value = markup_value or 0
+    if not value:
+        return price
+    if markup_mode == "percent":
+        return price * (1 + value / 100.0)
+    return price + value
+
+
 def foreign_seller_extra_multiplier(conn, seller_type):
     """'Foreign sellers extra': an extra PERCENTAGE markup (not $/KG) on
     top of the final unit price, for any rep whose account is marked

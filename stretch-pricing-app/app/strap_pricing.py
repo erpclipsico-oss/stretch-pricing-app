@@ -318,18 +318,25 @@ def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
     return 0.0
 
 
-def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False, hidden_markup_pct=0):
+def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False,
+                        hidden_markup_mode=None, hidden_markup_value=0):
     """Full per-roll/per-kg breakdown for one strap_product row. Returns a
     dict with ex_work_price_roll, fob_price_roll/kg, cfr_price_roll/kg
     (Cash terms unless credit_term=True, in which case the flat $/kg
     surcharge is already included), plus gross_weight_kg (for converting
     a quantity of coils into total_kg elsewhere).
 
-    hidden_markup_pct: a per-user hidden markup (percentage points, e.g.
-    1.5 for 1.5%), from user.strap_markup_pct -- applied at the exact same
-    point discount_pct is (the inverse of a discount), so it flows through
-    into FOB/CFR/total the same consistent way. Not surfaced anywhere in
-    the price breakdown -- see app.py's _calculate_strap_line/api_save_quotation."""
+    hidden_markup_mode/hidden_markup_value (v44): a per-user hidden markup,
+    from user.markup_mode/markup_value (generalizes the old Strap-only
+    strap_markup_pct to also cover Stretch Film -- see
+    cost_engine.apply_hidden_markup() and pricing.py's unit_price_for()).
+    'percent' mode is applied at the exact same point discount_pct is (the
+    inverse of a discount), so it flows through into FOB/CFR/total the
+    same consistent way the old strap_markup_pct did. 'cents_per_kg' mode
+    is a flat USD/KG amount added onto the FINAL fob/cfr $/KG price,
+    mirroring how the credit-term surcharge below is applied. Neither is
+    surfaced anywhere in the price breakdown -- see app.py's
+    _calculate_strap_line/api_save_quotation."""
     cfg = LINE_CONFIG[line_key]
     line_numbers = _get_line_config(conn, line_key)
     bom = _get_bom(conn, line_key, product["bom_key"])
@@ -364,11 +371,12 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
         conn, line_key, dollar_rate, core_weight_kg, bool(product["has_box"]), bool(product["has_pallet"])
     )
 
+    markup_pct = (hidden_markup_value or 0) if hidden_markup_mode == "percent" else 0
     if core_weight_kg > 0:
         ex_work_price_roll = _roundup2(
             (packaging_total + coil_price)
             * (1 - (discount_pct or 0) / 100.0)
-            * (1 + (hidden_markup_pct or 0) / 100.0)
+            * (1 + (markup_pct or 0) / 100.0)
         )
     else:
         ex_work_price_roll = 0.0
@@ -392,6 +400,19 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     ex_work_price_kg = ex_work_price_roll / gross_weight_kg if gross_weight_kg else 0.0
     fob_price_kg = fob_price_roll / gross_weight_kg if gross_weight_kg else 0.0
     cfr_price_kg = cfr_price_roll / gross_weight_kg if gross_weight_kg else 0.0
+
+    # v44 -- 'cents_per_kg' mode: a flat hidden USD/KG amount, added
+    # straight onto the finished fob/cfr $/KG price (same mechanism as the
+    # credit-term surcharge just below), then the roll figures are
+    # re-derived from the adjusted $/KG so everything stays consistent.
+    if hidden_markup_mode == "cents_per_kg" and (hidden_markup_value or 0):
+        markup_amt = hidden_markup_value
+        if fob_price_roll > 0:
+            fob_price_kg = fob_price_kg + markup_amt
+            fob_price_roll = fob_price_kg * gross_weight_kg
+        if cfr_price_roll > 0:
+            cfr_price_kg = cfr_price_kg + markup_amt
+            cfr_price_roll = cfr_price_kg * gross_weight_kg
 
     if credit_term:
         surcharge = _get_setting(conn, "strap_credit_surcharge_usd_kg", 0.03)

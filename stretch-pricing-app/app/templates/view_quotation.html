@@ -23,8 +23,8 @@
       {% for l in lines %}
       <tr>
         <td>{{ l.label }}</td>
-        <td>{{ l.pallet_type }}</td>
-        <td>{{ l.packing_type }}</td>
+        <td>{{ l.strap_pallet_display if l.product_line in ('pet', 'pp') else l.pallet_type }}</td>
+        <td>{{ l.strap_packing_display if l.product_line in ('pet', 'pp') else l.packing_type }}</td>
         <td>{{ l.pricing_basis_label }}</td>
         <td class="num">{{ l.quantity_pallets }}</td>
         <td class="num">{{ '%.1f'|format(l.total_kg) }}</td>

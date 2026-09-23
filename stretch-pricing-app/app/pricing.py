@@ -93,7 +93,7 @@ def _discounted_factor(factor, discount_pct):
 
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
-                    colored=False, discount_pct=0, uv_type=None):
+                    colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -119,7 +119,15 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     uv_type (v36): this quotation LINE's own UV variant selection (a key
     from cost_engine.UV_TYPES, or None) -- overrides the margin film_type
     lookup and adds the flat UVI_FRACTION material cost; see
-    cost_engine.margin_pct_for()/compute_ex_work_usd_kg()."""
+    cost_engine.margin_pct_for()/compute_ex_work_usd_kg().
+    hidden_markup_mode/hidden_markup_value (v44): the priced-for user's own
+    HIDDEN markup (user.markup_mode/markup_value) -- applied last, on top
+    of everything else including the Foreign Seller multiplier, so it's
+    never surfaced anywhere in the UI/PDF/Excel breakdown. Gated behind
+    apply_extras same as the Foreign Seller multiplier, so it isn't
+    silently double-applied when this is an internal lookup of another
+    product's own price (e.g. Pre-Stretch borrowing its source SKU's sales
+    price) -- see cost_engine.apply_hidden_markup()."""
     factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
                                          rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
     factor = _discounted_factor(factor, discount_pct)
@@ -133,13 +141,15 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     price = base + (price_adjustment_usd_kg or 0)
     if apply_extras:
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
+        price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
     return cost_engine.round_half_up(price, 2)
 
 
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
-                  seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None):
+                  seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
+                  hidden_markup_mode=None, hidden_markup_value=0):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis controls which roll weight the line's total KG (and
@@ -168,7 +178,8 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     unit_price = unit_price_for(db, effective, country_class, customer_class, roll_size, price_adjustment_usd_kg,
                                  pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override,
                                  seller_type=seller_type, colored=colored, discount_pct=discount_pct,
-                                 uv_type=uv_type)
+                                 uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
+                                 hidden_markup_value=hidden_markup_value)
     gross_roll_weight = effective["roll_weight_kg"] or 0
     net_roll_weight = max(gross_roll_weight - (effective["core_weight_kg"] or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
@@ -273,7 +284,7 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
 
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
                                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0, seller_type=None,
-                               colored=False, discount_pct=0):
+                               colored=False, discount_pct=0, hidden_markup_mode=None, hidden_markup_value=0):
     roll_weight = roll_weight_kg or 0
     if roll_weight <= 0:
         return 0.0
@@ -297,19 +308,23 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     base += cost_engine._get_setting(db, "extra_prestretch_usd_kg", 0.12)
     price = base + (price_adjustment_usd_kg or 0)
     price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
+    # v44: hidden per-user markup, applied last -- see unit_price_for()'s
+    # matching comment.
+    price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
     return cost_engine.round_half_up(price, 2)
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
                              core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
-                             pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0):
+                             pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0,
+                             hidden_markup_mode=None, hidden_markup_value=0):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
     packaging type, instead of the product catalog's fixed values."""
     unit_price = prestretch_unit_price_for(
         db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
         rolls_per_pallet, packaging_type, price_adjustment_usd_kg, seller_type=seller_type, colored=colored,
-        discount_pct=discount_pct,
+        discount_pct=discount_pct, hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
     )
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
