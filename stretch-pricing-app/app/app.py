@@ -12,10 +12,14 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db, init_db
-from .pricing import compute_line, product_label, product_category, is_prestretch, compute_prestretch_line
+from .pricing import (
+    compute_line, product_label, disambiguate_labels, product_category,
+    is_prestretch, compute_prestretch_line,
+)
 from . import cost_engine
 from . import cost_upload
 from . import table_sync
+from . import strap_pricing
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -92,7 +96,18 @@ def create_app():
         products_rows = g.db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
         ).fetchall()
-        products = [dict(p, label=product_label(p), is_prestretch=is_prestretch(p)) for p in products_rows]
+        product_labels = disambiguate_labels(products_rows)
+        products = [
+            dict(p, label=lbl, is_prestretch=is_prestretch(p))
+            for p, lbl in zip(products_rows, product_labels)
+        ]
+        strap_products_rows = g.db.execute(
+            "SELECT * FROM strap_product ORDER BY line_key, code"
+        ).fetchall()
+        strap_products = [
+            dict(p, label=f"{strap_pricing.LINE_CONFIG[p['line_key']]['label']} – {p['code']}")
+            for p in strap_products_rows
+        ]
         freight = g.db.execute("SELECT * FROM freight ORDER BY country").fetchall()
         loading_ports = g.db.execute("SELECT * FROM loading_port ORDER BY port").fetchall()
         pallet_types = ["Standard Pallet", "Euro Pallet"]
@@ -103,6 +118,7 @@ def create_app():
         return render_template(
             "pricing.html",
             products=products,
+            strap_products=strap_products,
             freight=freight,
             loading_ports=loading_ports,
             pallet_types=pallet_types,
@@ -116,6 +132,11 @@ def create_app():
     @login_required
     def api_calculate_line():
         data = request.get_json(force=True)
+        product_line = data.get("product_line") or "stretch_film"
+
+        if product_line in ("pet", "pp"):
+            return _calculate_strap_line(data, product_line)
+
         product = g.db.execute("SELECT * FROM product WHERE id=?", (data.get("product_id"),)).fetchone()
         if not product:
             return jsonify({"error": "Unknown product"}), 400
@@ -127,6 +148,14 @@ def create_app():
         adjustment = g.user["price_adjustment_usd_kg"] or 0
         seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
         colored = bool(data.get("colored"))
+        # v27: Discount % now comes off the margin factor (see pricing.py's
+        # _discounted_factor()), not off the finished price -- so the
+        # line's own Discount % and the quotation's Global Discount % are
+        # combined here (added, in percentage points) and threaded straight
+        # into the price computation, rather than applied afterwards.
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        discount_pct = line_discount_pct + global_discount_pct
 
         if is_prestretch(product):
             roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
@@ -136,13 +165,21 @@ def create_app():
             unit_price, total_kg = compute_prestretch_line(
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
-                seller_type=seller_type, colored=colored,
+                seller_type=seller_type, colored=colored, discount_pct=discount_pct,
+            )
+            unit_price_full, _ = compute_prestretch_line(
+                g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
+                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                seller_type=seller_type, colored=colored, discount_pct=0,
             )
             gross = round(unit_price * total_kg, 2)
+            gross_full = round(unit_price_full * total_kg, 2)
             return jsonify({
                 "unit_price_usd_kg": unit_price,
+                "unit_price_full_usd_kg": unit_price_full,
                 "total_kg": total_kg,
                 "line_gross": gross,
+                "line_gross_full": gross_full,
                 "roll_weight_kg": roll_weight_kg,
                 "core_weight_kg": core_weight_kg,
                 "rolls_per_pallet": rolls_per_pallet,
@@ -166,8 +203,20 @@ def create_app():
                                              width_mm=custom_width_mm,
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
                                              seller_type=seller_type,
-                                             auto_manual_override=auto_manual_override, colored=colored)
+                                             auto_manual_override=auto_manual_override, colored=colored,
+                                             discount_pct=discount_pct)
+        unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
+                                           price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                           pricing_basis=pricing_basis,
+                                           roll_weight_kg=custom_roll_weight_kg,
+                                           core_weight_kg=custom_core_weight_kg,
+                                           width_mm=custom_width_mm,
+                                           rolls_per_pallet_override=custom_rolls_per_pallet,
+                                           seller_type=seller_type,
+                                           auto_manual_override=auto_manual_override, colored=colored,
+                                           discount_pct=0)
         gross = round(unit_price * total_kg, 2)
+        gross_full = round(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
                                                          custom_width_mm, auto_manual=auto_manual_override)
         rolls_per_pallet = cost_engine.effective_rolls_per_pallet(g.db, effective_product, pallet_type,
@@ -176,14 +225,62 @@ def create_app():
                                                 effective_product["roll_weight_kg"], pallet_type)
         return jsonify({
             "unit_price_usd_kg": unit_price,
+            "unit_price_full_usd_kg": unit_price_full,
             "total_kg": total_kg,
             "line_gross": gross,
+            "line_gross_full": gross_full,
             "roll_weight_kg": effective_product["roll_weight_kg"] or 0,
             "core_weight_kg": effective_product["core_weight_kg"] or 0,
             "width_mm": effective_product["width_mm"] if "width_mm" in effective_product else 0,
             "rolls_per_pallet": rolls_per_pallet,
             "pallets_per_container40": (tier["pallets_per_container40"] if tier else None),
             "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
+        })
+
+    def _strap_credit_term(data):
+        """Reuses the quotation's own Payment Term selector: anything other
+        than 'Cash (...)' triggers the strap sheets' flat $/kg credit-term
+        surcharge, exactly like the payment_term field already does for the
+        rest of the quotation."""
+        payment_term = (data.get("payment_term") or "").strip().lower()
+        return bool(payment_term) and not payment_term.startswith("cash")
+
+    def _calculate_strap_line(data, product_line):
+        product = g.db.execute(
+            "SELECT * FROM strap_product WHERE id=? AND line_key=?",
+            (data.get("strap_product_id"), product_line),
+        ).fetchone()
+        if not product:
+            return jsonify({"error": "Unknown strap product"}), 400
+        qty_coils = float(data.get("quantity_coils") or 0)
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        discount_pct = line_discount_pct + global_discount_pct
+        credit_term = _strap_credit_term(data)
+
+        calc = strap_pricing.compute_strap_line(g.db, product_line, product,
+                                                  discount_pct=discount_pct, credit_term=credit_term)
+        calc_full = strap_pricing.compute_strap_line(g.db, product_line, product,
+                                                       discount_pct=0, credit_term=credit_term)
+        total_kg = round(calc["gross_weight_kg"] * qty_coils, 2)
+        unit_price = calc["cfr_price_kg"]
+        unit_price_full = calc_full["cfr_price_kg"]
+        gross = round(unit_price * total_kg, 2)
+        gross_full = round(unit_price_full * total_kg, 2)
+        return jsonify({
+            "unit_price_usd_kg": unit_price,
+            "unit_price_full_usd_kg": unit_price_full,
+            "total_kg": total_kg,
+            "line_gross": gross,
+            "line_gross_full": gross_full,
+            "gross_weight_kg": calc["gross_weight_kg"],
+            "net_weight_kg": calc["net_weight_kg"],
+            "ex_work_price_roll": calc["ex_work_price_roll"],
+            "fob_price_roll": calc["fob_price_roll"],
+            "cfr_price_roll": calc["cfr_price_roll"],
+            "ex_work_price_kg": calc["ex_work_price_kg"],
+            "fob_price_kg": calc["fob_price_kg"],
+            "cfr_price_kg": calc["cfr_price_kg"],
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
@@ -236,6 +333,38 @@ def create_app():
         creator_seller_type = (creator["seller_type"] if creator and "seller_type" in creator.keys() else None)
 
         for l in data.get("lines", []):
+            line_product_line = l.get("product_line") or "stretch_film"
+
+            if line_product_line in ("pet", "pp"):
+                strap_product = db.execute(
+                    "SELECT * FROM strap_product WHERE id=? AND line_key=?",
+                    (l.get("strap_product_id"), line_product_line),
+                ).fetchone()
+                if not strap_product:
+                    continue
+                qty_coils = float(l.get("quantity_coils") or 0)
+                line_discount_pct = float(l.get("line_discount_pct") or 0)
+                discount_pct = line_discount_pct + global_discount_pct
+                credit_term = _strap_credit_term(data)
+                calc = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
+                                                          discount_pct=discount_pct, credit_term=credit_term)
+                calc_full = strap_pricing.compute_strap_line(db, line_product_line, strap_product,
+                                                               discount_pct=0, credit_term=credit_term)
+                total_kg = round(calc["gross_weight_kg"] * qty_coils, 2)
+                unit_price = calc["cfr_price_kg"]
+                unit_price_full = calc_full["cfr_price_kg"]
+                db.execute(
+                    """INSERT INTO quotation_line
+                       (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
+                        unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
+                        pricing_basis, product_line)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (quotation_id, strap_product["id"], "Credit" if credit_term else "Cash", "Per Coil",
+                     qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
+                     "per_coil", line_product_line),
+                )
+                continue
+
             product = db.execute("SELECT * FROM product WHERE id=?", (l.get("product_id"),)).fetchone()
             if not product:
                 continue
@@ -243,6 +372,11 @@ def create_app():
             pricing_basis = l.get("pricing_basis", "per_kg")
 
             colored = bool(l.get("colored"))
+            # v27: combine this line's own Discount % with the quotation's
+            # Global Discount % (percentage points) -- both come off the
+            # margin factor the same way, see pricing._discounted_factor().
+            line_discount_pct = float(l.get("line_discount_pct") or 0)
+            discount_pct = line_discount_pct + global_discount_pct
 
             if is_prestretch(product):
                 roll_weight_kg = float(l.get("prestretch_roll_weight_kg") or 0)
@@ -253,18 +387,24 @@ def create_app():
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
-                    seller_type=creator_seller_type, colored=colored,
+                    seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
+                )
+                unit_price_full, _ = compute_prestretch_line(
+                    db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                    roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                    price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                    seller_type=creator_seller_type, colored=colored, discount_pct=0,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
                        (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                        unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
-                        prestretch_roll_weight_kg, prestretch_core_weight_kg, prestretch_rolls_per_pallet,
-                        prestretch_packaging_type)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                        colored, prestretch_roll_weight_kg, prestretch_core_weight_kg,
+                        prestretch_rolls_per_pallet, prestretch_packaging_type)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
-                     float(l.get("quantity_pallets") or 0), unit_price, total_kg,
-                     float(l.get("line_discount_pct") or 0), pricing_basis, int(colored),
+                     float(l.get("quantity_pallets") or 0), unit_price, unit_price_full, total_kg,
+                     line_discount_pct, pricing_basis, int(colored),
                      roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type),
                 )
                 continue
@@ -285,16 +425,25 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
+                discount_pct=discount_pct,
+            )
+            unit_price_full, _ = compute_line(
+                db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
+                roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+                width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
+                seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
+                discount_pct=0,
             )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                    unit_price_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
+                    unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
-                 unit_price, total_kg, float(l.get("line_discount_pct") or 0), pricing_basis, int(colored),
+                 unit_price, unit_price_full, total_kg, line_discount_pct, pricing_basis, int(colored),
                  (float(custom_roll_weight_kg) if custom_roll_weight_kg not in (None, "") else None),
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
@@ -348,18 +497,37 @@ def create_app():
         if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"]:
             abort(403)
         line_rows = db.execute(
-            """SELECT ql.*, p.stretch_ability, p.micron FROM quotation_line ql
-               LEFT JOIN product p ON p.id = ql.product_id WHERE ql.quotation_id=?""",
+            """SELECT ql.*, p.stretch_ability, p.micron, sp.code AS strap_code
+               FROM quotation_line ql
+               LEFT JOIN product p ON p.id = ql.product_id
+                    AND (ql.product_line IS NULL OR ql.product_line = 'stretch_film')
+               LEFT JOIN strap_product sp ON sp.id = ql.product_id
+                    AND ql.product_line IN ('pet', 'pp')
+               WHERE ql.quotation_id=?""",
             (qid,),
         ).fetchall()
-        basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG"}
+        basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG",
+                         "per_coil": "$/KG (CFR)"}
         lines = []
         for l in line_rows:
-            label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
-            gross = l["unit_price_usd_kg"] * l["total_kg"]
-            line_total = round(gross * (1 - (l["line_discount_pct"] or 0) / 100), 2)
+            line_pl = l["product_line"] if "product_line" in l.keys() and l["product_line"] else "stretch_film"
+            if line_pl in ("pet", "pp"):
+                label = f"{strap_pricing.LINE_CONFIG[line_pl]['label']} – {l['strap_code']}" if l["strap_code"] else "-"
+            else:
+                label = f"{l['micron']}μm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+            # v27: unit_price_usd_kg already has the discount baked in (it
+            # comes off the margin factor at save time, not applied again
+            # here) -- so the line total is a plain multiply, no further
+            # discount math. unit_price_full_usd_kg is the frozen no-discount
+            # reference price, used only to show the Discount $ figure in
+            # compute_totals(); NULL on quotes saved before v27 falls back
+            # to unit_price_usd_kg (i.e. shows as no discount).
+            line_total = round(l["unit_price_usd_kg"] * l["total_kg"], 2)
+            full_unit = l["unit_price_full_usd_kg"] if ("unit_price_full_usd_kg" in l.keys()
+                                                          and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
+            line_total_full = round(full_unit * l["total_kg"], 2)
             basis = l["pricing_basis"] if "pricing_basis" in l.keys() and l["pricing_basis"] else "per_kg"
-            lines.append(dict(l, label=label, line_total=line_total,
+            lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
                                pricing_basis_label=basis_labels.get(basis, "$/KG")))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
@@ -379,14 +547,27 @@ def create_app():
         return float(m.group(0)) if m else 0.0
 
     def compute_totals(db, q, lines=None):
+        # v27: discount now comes off each line's own margin factor (see
+        # pricing._discounted_factor()) and is already baked into the
+        # stored/computed unit_price_usd_kg -- so `total` here is simply the
+        # sum of the (already net) line totals, not a further % reduction.
+        # `subtotal` is the pre-discount REFERENCE total (built from each
+        # line's frozen unit_price_full_usd_kg), kept only so the "Subtotal
+        # (EX-Work)" / "Discount" rows in the quote builder, saved-quotation
+        # view and PDF keep meaning what their labels say, with no other
+        # display-layer changes needed.
         if lines is None:
             line_rows = db.execute("SELECT * FROM quotation_line WHERE quotation_id=?", (q["id"],)).fetchall()
             lines = []
             for l in line_rows:
-                gross = l["unit_price_usd_kg"] * l["total_kg"]
-                lines.append({"line_total": round(gross * (1 - (l["line_discount_pct"] or 0) / 100), 2)})
-        subtotal = round(sum(l["line_total"] for l in lines), 2)
-        total = round(subtotal * (1 - (q["global_discount_pct"] or 0) / 100), 2)
+                full_unit = l["unit_price_full_usd_kg"] if ("unit_price_full_usd_kg" in l.keys()
+                                                              and l["unit_price_full_usd_kg"] is not None) else l["unit_price_usd_kg"]
+                lines.append({
+                    "line_total": round(l["unit_price_usd_kg"] * l["total_kg"], 2),
+                    "line_total_full": round(full_unit * l["total_kg"], 2),
+                })
+        total = round(sum(l["line_total"] for l in lines), 2)
+        subtotal = round(sum(l.get("line_total_full", l["line_total"]) for l in lines), 2)
 
         # FOB Total = EX-Work total (after discount) + the selected loading
         # port's flat handling/customs/trucking add-on (Alexandria vs
@@ -1069,10 +1250,11 @@ def create_app():
         products = db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
         ).fetchall()
+        product_labels = disambiguate_labels(products)
         rows = []
-        for p in products:
+        for p, lbl in zip(products, product_labels):
             bd = cost_engine.breakdown(db, p)
-            rows.append({"product": p, "label": product_label(p), "breakdown": bd})
+            rows.append({"product": p, "label": lbl, "breakdown": bd})
         return render_template("admin_cost_preview.html", rows=rows)
 
     return app
@@ -1164,7 +1346,7 @@ def build_pdf(q, lines, totals):
             str(i), line["label"], line["pallet_type"], line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
-            f"{line['unit_price_usd_kg']:.3f}", f"{line['line_total']:,.2f}",
+            f"{line['unit_price_usd_kg']:.2f}", f"{line['line_total']:,.2f}",
         ])
     table = Table(rows, colWidths=[16, 108, 58, 58, 62, 48, 48, 48, 60])
     table.setStyle(TableStyle([
@@ -1179,7 +1361,6 @@ def build_pdf(q, lines, totals):
     elements.append(Spacer(1, 14))
 
     totals_rows = [
-        ["Subtotal (EX-Work)", f"${totals['subtotal']:,.2f}"],
         [f"Global Discount ({q['global_discount_pct'] or 0}%)",
          f"-${round(totals['subtotal'] - totals['total'], 2):,.2f}"],
         [f"FOB Total ({q['loading_port'] or '-'})", f"${totals['fob_total']:,.2f}"],

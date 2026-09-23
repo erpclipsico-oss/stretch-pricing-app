@@ -28,7 +28,7 @@
       "key": "capacity_usage_pct",
       "label": "Capacity Usage % (machine utilization)",
       "value": 0.8,
-      "help": "'Conversion cost' I2 / 'تكاليف ثابتة' L1. Assumed factory utilization used to convert daily tons capacity into monthly production tons for spreading fixed and variable overhead."
+      "help": "'Conversion cost' I2 / '\u062a\u0643\u0627\u0644\u064a\u0641 \u062b\u0627\u0628\u062a\u0629' L1. Assumed factory utilization used to convert daily tons capacity into monthly production tons for spreading fixed and variable overhead."
     },
     {
       "key": "fob_cost_per_container",
@@ -46,7 +46,7 @@
       "key": "material_interest_rate",
       "label": "Material interest rate (fraction)",
       "value": 0.0,
-      "help": "'تكاليف متغيرة' D5 = ((3.216%+5.35%)/4)*(1-22.5%). Interest cost on resin purchased on credit; applied to the sum of material composition costs. NOTE: the source workbook currently has this line disabled for the month (a neighbouring cell's note: removed this month due to how the material-interest file is being managed, covered instead by credit interest), i.e. effectively 0 in the live workbook. Stored here as an editable rate defaulting to the computed 1.66% so it can be turned back on by an admin; set to 0 to match the current live workbook behaviour."
+      "help": "'\u062a\u0643\u0627\u0644\u064a\u0641 \u0645\u062a\u063a\u064a\u0631\u0629' D5 = ((3.216%+5.35%)/4)*(1-22.5%). Interest cost on resin purchased on credit; applied to the sum of material composition costs. NOTE: the source workbook currently has this line disabled for the month (a neighbouring cell's note: removed this month due to how the material-interest file is being managed, covered instead by credit interest), i.e. effectively 0 in the live workbook. Stored here as an editable rate defaulting to the computed 1.66% so it can be turned back on by an admin; set to 0 to match the current live workbook behaviour."
     },
     {
       "key": "electricity_fixed_capacity_kw",
@@ -120,7 +120,7 @@
       "label": "Enable",
       "category": "resin",
       "unit": "ton",
-      "value": 1250
+      "value": 1490
     },
     {
       "material_key": "uvi",
@@ -148,7 +148,7 @@
       "label": "Core",
       "category": "packaging",
       "unit": "kilo",
-      "value": 29
+      "value": 35
     },
     {
       "material_key": "stretch",
@@ -176,7 +176,7 @@
       "label": "Cap 1100~1200",
       "category": "packaging",
       "unit": "piece",
-      "value": 36
+      "value": 50
     },
     {
       "material_key": "pallet",
@@ -216,104 +216,104 @@
   ],
   "labor_employees": [
     {
-      "name": "اشرف عيسى",
-      "role": "رئيس وردية",
+      "name": "\u0627\u0634\u0631\u0641 \u0639\u064a\u0633\u0649",
+      "role": "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
       "base_2023_egp": 3600,
       "increase_rate": 0.3
     },
     {
-      "name": "عبد المعز",
-      "role": "رئيس وردية",
+      "name": "\u0639\u0628\u062f \u0627\u0644\u0645\u0639\u0632",
+      "role": "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
       "base_2023_egp": 3600,
       "increase_rate": 0.3
     },
     {
-      "name": "محمد حسن احمد مرسي",
-      "role": "رئيس وردية",
+      "name": "\u0645\u062d\u0645\u062f \u062d\u0633\u0646 \u0627\u062d\u0645\u062f \u0645\u0631\u0633\u064a",
+      "role": "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
       "base_2023_egp": 3600,
       "increase_rate": 0.3
     },
     {
-      "name": "محمود محمد ابونيه",
-      "role": "عامل انتاج",
+      "name": "\u0645\u062d\u0645\u0648\u062f \u0645\u062d\u0645\u062f \u0627\u0628\u0648\u0646\u064a\u0647",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2750,
       "increase_rate": 0.3
     },
     {
-      "name": "سعد الحامدي",
-      "role": "عامل انتاج",
+      "name": "\u0633\u0639\u062f \u0627\u0644\u062d\u0627\u0645\u062f\u064a",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2400,
       "increase_rate": 0.3
     },
     {
-      "name": "صابر كامل عطية",
-      "role": "عامل انتاج",
+      "name": "\u0635\u0627\u0628\u0631 \u0643\u0627\u0645\u0644 \u0639\u0637\u064a\u0629",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2500,
       "increase_rate": 0.3
     },
     {
-      "name": "احمد حسين محمد",
-      "role": "عامل انتاج",
+      "name": "\u0627\u062d\u0645\u062f \u062d\u0633\u064a\u0646 \u0645\u062d\u0645\u062f",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2000,
       "increase_rate": 0.3
     },
     {
-      "name": "عيسى اشرف عيسى",
-      "role": "عامل انتاج",
+      "name": "\u0639\u064a\u0633\u0649 \u0627\u0634\u0631\u0641 \u0639\u064a\u0633\u0649",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2000,
       "increase_rate": 0.3
     },
     {
-      "name": "حماده كامل محمد ابراهيم",
-      "role": "عامل انتاج",
+      "name": "\u062d\u0645\u0627\u062f\u0647 \u0643\u0627\u0645\u0644 \u0645\u062d\u0645\u062f \u0627\u0628\u0631\u0627\u0647\u064a\u0645",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2200,
       "increase_rate": 0.3
     },
     {
-      "name": "محمد عبد الحميد عبد الهادي",
-      "role": "عامل انتاج",
+      "name": "\u0645\u062d\u0645\u062f \u0639\u0628\u062f \u0627\u0644\u062d\u0645\u064a\u062f \u0639\u0628\u062f \u0627\u0644\u0647\u0627\u062f\u064a",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2200,
       "increase_rate": 0.3
     },
     {
-      "name": "احمد فوزى رمضان",
-      "role": "عامل انتاج",
+      "name": "\u0627\u062d\u0645\u062f \u0641\u0648\u0632\u0649 \u0631\u0645\u0636\u0627\u0646",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2500,
       "increase_rate": 0.3
     },
     {
-      "name": "صبحى احمد حموده",
-      "role": "عامل انتاج",
+      "name": "\u0635\u0628\u062d\u0649 \u0627\u062d\u0645\u062f \u062d\u0645\u0648\u062f\u0647",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2700,
       "increase_rate": 0.3
     },
     {
-      "name": "سعيد محمد سعيد",
-      "role": "عامل انتاج",
+      "name": "\u0633\u0639\u064a\u062f \u0645\u062d\u0645\u062f \u0633\u0639\u064a\u062f",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2200,
       "increase_rate": 0.3
     },
     {
-      "name": "احمد محمود عطية الشيشتاوي",
-      "role": "عامل انتاج",
+      "name": "\u0627\u062d\u0645\u062f \u0645\u062d\u0645\u0648\u062f \u0639\u0637\u064a\u0629 \u0627\u0644\u0634\u064a\u0634\u062a\u0627\u0648\u064a",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2500,
       "increase_rate": 0.3
     },
     {
-      "name": "محمد جابر",
-      "role": "عامل انتاج",
+      "name": "\u0645\u062d\u0645\u062f \u062c\u0627\u0628\u0631",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 3500,
       "increase_rate": 0.3
     },
     {
-      "name": "ابراهيم محمد صبري السيد",
-      "role": "عامل انتاج",
+      "name": "\u0627\u0628\u0631\u0627\u0647\u064a\u0645 \u0645\u062d\u0645\u062f \u0635\u0628\u0631\u064a \u0627\u0644\u0633\u064a\u062f",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2000,
       "increase_rate": 0.3
     },
     {
-      "name": "محمد ثابت ابوضيف",
-      "role": "عامل انتاج",
+      "name": "\u0645\u062d\u0645\u062f \u062b\u0627\u0628\u062a \u0627\u0628\u0648\u0636\u064a\u0641",
+      "role": "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
       "base_2023_egp": 2000,
       "increase_rate": 0.3
     }
@@ -634,228 +634,228 @@
   ],
   "variable_cost_items": [
     {
-      "name": "اكرامية مفرقعات",
+      "name": "\u0627\u0643\u0631\u0627\u0645\u064a\u0629 \u0645\u0641\u0631\u0642\u0639\u0627\u062a",
       "value_egp_per_ton": 32.323232323232325
     },
     {
-      "name": "عمولة استرداد خطاب ضمان",
+      "name": "\u0639\u0645\u0648\u0644\u0629 \u0627\u0633\u062a\u0631\u062f\u0627\u062f \u062e\u0637\u0627\u0628 \u0636\u0645\u0627\u0646",
       "value_egp_per_ton": 6.0606060606060606
     }
   ],
   "fixed_cost_items": [
     {
       "category": "production",
-      "name": "كهرباء بريموباك",
+      "name": "\u0643\u0647\u0631\u0628\u0627\u0621 \u0628\u0631\u064a\u0645\u0648\u0628\u0627\u0643",
       "value_egp": 53100
     },
     {
       "category": "production",
-      "name": "مياه",
+      "name": "\u0645\u064a\u0627\u0647",
       "value_egp": 1456.6499999999999
     },
     {
       "category": "production",
-      "name": "اجور عمال الانتاج",
+      "name": "\u0627\u062c\u0648\u0631 \u0639\u0645\u0627\u0644 \u0627\u0644\u0627\u0646\u062a\u0627\u062c",
       "value_egp": 57525
     },
     {
       "category": "production",
-      "name": "اضافي عمال الانتاج",
+      "name": "\u0627\u0636\u0627\u0641\u064a \u0639\u0645\u0627\u0644 \u0627\u0644\u0627\u0646\u062a\u0627\u062c",
       "value_egp": 23010
     },
     {
       "category": "production",
-      "name": "مرتبات صناعية غ.م.",
+      "name": "\u0645\u0631\u062a\u0628\u0627\u062a \u0635\u0646\u0627\u0639\u064a\u0629 \u063a.\u0645.",
       "value_egp": 138446.21198999998
     },
     {
       "category": "production",
-      "name": "اضافي مرتبات صناعية غ.م.",
+      "name": "\u0627\u0636\u0627\u0641\u064a \u0645\u0631\u062a\u0628\u0627\u062a \u0635\u0646\u0627\u0639\u064a\u0629 \u063a.\u0645.",
       "value_egp": 24538.092480000003
     },
     {
       "category": "production",
-      "name": "تأمينات اجتماعية",
+      "name": "\u062a\u0623\u0645\u064a\u0646\u0627\u062a \u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629",
       "value_egp": 36111.386960724994
     },
     {
       "category": "production",
-      "name": "انتقالات وماموريات",
+      "name": "\u0627\u0646\u062a\u0642\u0627\u0644\u0627\u062a \u0648\u0645\u0627\u0645\u0648\u0631\u064a\u0627\u062a",
       "value_egp": 22319.333333333332
     },
     {
       "category": "production",
-      "name": "علاج",
+      "name": "\u0639\u0644\u0627\u062c",
       "value_egp": 1000
     },
     {
       "category": "production",
-      "name": "مكافأت",
+      "name": "\u0645\u0643\u0627\u0641\u0623\u062a",
       "value_egp": 3906.6666666666665
     },
     {
       "category": "production",
-      "name": "اعياد و مناسبات",
+      "name": "\u0627\u0639\u064a\u0627\u062f \u0648 \u0645\u0646\u0627\u0633\u0628\u0627\u062a",
       "value_egp": 60900
     },
     {
       "category": "production",
-      "name": "مصروف الاهلاك \"عام\"",
+      "name": "\u0645\u0635\u0631\u0648\u0641 \u0627\u0644\u0627\u0647\u0644\u0627\u0643 \"\u0639\u0627\u0645\"",
       "value_egp": 27906.586175000004
     },
     {
       "category": "production",
-      "name": "مصروف الاهلاك \"بريموباك\"",
+      "name": "\u0645\u0635\u0631\u0648\u0641 \u0627\u0644\u0627\u0647\u0644\u0627\u0643 \"\u0628\u0631\u064a\u0645\u0648\u0628\u0627\u0643\"",
       "value_egp": 285118.71599999996
     },
     {
       "category": "production",
-      "name": "مصروف الاهلاك \"Uni Tech\"",
+      "name": "\u0645\u0635\u0631\u0648\u0641 \u0627\u0644\u0627\u0647\u0644\u0627\u0643 \"Uni Tech\"",
       "value_egp": 30840.7001666667
     },
     {
       "category": "production",
-      "name": "ايجار مخزن",
+      "name": "\u0627\u064a\u062c\u0627\u0631 \u0645\u062e\u0632\u0646",
       "value_egp": 21046.144680000005
     },
     {
       "category": "production",
-      "name": "صيانة و قطع غيار بريموباك",
+      "name": "\u0635\u064a\u0627\u0646\u0629 \u0648 \u0642\u0637\u0639 \u063a\u064a\u0627\u0631 \u0628\u0631\u064a\u0645\u0648\u0628\u0627\u0643",
       "value_egp": 95023.34449214255
     },
     {
       "category": "production",
-      "name": "م.سيارات",
+      "name": "\u0645.\u0633\u064a\u0627\u0631\u0627\u062a",
       "value_egp": 19701.15
     },
     {
       "category": "production",
-      "name": "م.كلاركات",
+      "name": "\u0645.\u0643\u0644\u0627\u0631\u0643\u0627\u062a",
       "value_egp": 4755.483870967742
     },
     {
       "category": "production",
-      "name": "امن صناعي",
+      "name": "\u0627\u0645\u0646 \u0635\u0646\u0627\u0639\u064a",
       "value_egp": 5195.141271818182
     },
     {
       "category": "production",
-      "name": "اخرى",
+      "name": "\u0627\u062e\u0631\u0649",
       "value_egp": 77406
     },
     {
       "category": "selling",
-      "name": "عمولات و مصروفات بنكية",
+      "name": "\u0639\u0645\u0648\u0644\u0627\u062a \u0648 \u0645\u0635\u0631\u0648\u0641\u0627\u062a \u0628\u0646\u0643\u064a\u0629",
       "value_egp": 16459.819258064515
     },
     {
       "category": "selling",
-      "name": "رسوم و تراخيص",
+      "name": "\u0631\u0633\u0648\u0645 \u0648 \u062a\u0631\u0627\u062e\u064a\u0635",
       "value_egp": 12148.274745866904
     },
     {
       "category": "selling",
-      "name": "معارض",
+      "name": "\u0645\u0639\u0627\u0631\u0636",
       "value_egp": 43827.130545565764
     },
     {
       "category": "selling",
-      "name": "اخرى",
+      "name": "\u0627\u062e\u0631\u0649",
       "value_egp": 49523.208288983245
     },
     {
       "category": "selling",
-      "name": "رواتب بيع",
+      "name": "\u0631\u0648\u0627\u062a\u0628 \u0628\u064a\u0639",
       "value_egp": 25295.4153
     },
     {
       "category": "selling",
-      "name": "تأمينات اجتماعية",
+      "name": "\u062a\u0623\u0645\u064a\u0646\u0627\u062a \u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629",
       "value_egp": 5105.8125
     },
     {
       "category": "selling",
-      "name": "اخرى",
+      "name": "\u0627\u062e\u0631\u0649",
       "value_egp": 5007.389692206604
     },
     {
       "category": "admin",
-      "name": "رواتب ادارة",
+      "name": "\u0631\u0648\u0627\u062a\u0628 \u0627\u062f\u0627\u0631\u0629",
       "value_egp": 118813.0029
     },
     {
       "category": "admin",
-      "name": "اضافي",
+      "name": "\u0627\u0636\u0627\u0641\u064a",
       "value_egp": 10000.2672
     },
     {
       "category": "admin",
-      "name": "تأمينات اجتماعية",
+      "name": "\u062a\u0623\u0645\u064a\u0646\u0627\u062a \u0627\u062c\u062a\u0645\u0627\u0639\u064a\u0629",
       "value_egp": 24299.88466025
     },
     {
       "category": "admin",
-      "name": "انتقالات وماموريات",
+      "name": "\u0627\u0646\u062a\u0642\u0627\u0644\u0627\u062a \u0648\u0645\u0627\u0645\u0648\u0631\u064a\u0627\u062a",
       "value_egp": 4659.241935483871
     },
     {
       "category": "admin",
-      "name": "اعياد و مناسبات",
+      "name": "\u0627\u0639\u064a\u0627\u062f \u0648 \u0645\u0646\u0627\u0633\u0628\u0627\u062a",
       "value_egp": 26100
     },
     {
       "category": "admin",
-      "name": "مكافأت و حوافز",
+      "name": "\u0645\u0643\u0627\u0641\u0623\u062a \u0648 \u062d\u0648\u0627\u0641\u0632",
       "value_egp": 15024.193548387097
     },
     {
       "category": "admin",
-      "name": "رسوم و تراخيص",
+      "name": "\u0631\u0633\u0648\u0645 \u0648 \u062a\u0631\u0627\u062e\u064a\u0635",
       "value_egp": 77479.87862903226
     },
     {
       "category": "admin",
-      "name": "اتعاب و استشارات",
+      "name": "\u0627\u062a\u0639\u0627\u0628 \u0648 \u0627\u0633\u062a\u0634\u0627\u0631\u0627\u062a",
       "value_egp": 3048.3870967741937
     },
     {
       "category": "admin",
-      "name": "الادارة العليا",
+      "name": "\u0627\u0644\u0627\u062f\u0627\u0631\u0629 \u0627\u0644\u0639\u0644\u064a\u0627",
       "value_egp": 59420.467741935485
     },
     {
       "category": "admin",
-      "name": "مرافق",
+      "name": "\u0645\u0631\u0627\u0641\u0642",
       "value_egp": 4283.41935483871
     },
     {
       "category": "admin",
-      "name": "ايجار",
+      "name": "\u0627\u064a\u062c\u0627\u0631",
       "value_egp": 13846.062381404176
     },
     {
       "category": "admin",
-      "name": "اخرى",
+      "name": "\u0627\u062e\u0631\u0649",
       "value_egp": 43346.52580645162
     },
     {
       "category": "admin",
-      "name": "مصروف الاهلاك الاداري",
+      "name": "\u0645\u0635\u0631\u0648\u0641 \u0627\u0644\u0627\u0647\u0644\u0627\u0643 \u0627\u0644\u0627\u062f\u0627\u0631\u064a",
       "value_egp": 6592.566629032259
     },
     {
       "category": "financial",
-      "name": "عمولات و مصروفات بنكية",
+      "name": "\u0639\u0645\u0648\u0644\u0627\u062a \u0648 \u0645\u0635\u0631\u0648\u0641\u0627\u062a \u0628\u0646\u0643\u064a\u0629",
       "value_egp": 28653.820025806453
     },
     {
       "category": "financial",
-      "name": "دمغات و فوائد",
+      "name": "\u062f\u0645\u063a\u0627\u062a \u0648 \u0641\u0648\u0627\u0626\u062f",
       "value_egp": 7258.073225806452
     },
     {
       "category": "financial",
-      "name": "فوائد و دمغات بريموباك",
+      "name": "\u0641\u0648\u0627\u0626\u062f \u0648 \u062f\u0645\u063a\u0627\u062a \u0628\u0631\u064a\u0645\u0648\u0628\u0627\u0643",
       "value_egp": 70366.37666666666
     }
   ],
@@ -978,7 +978,7 @@
       "corrugated_kg": 0,
       "stretch_kg": 1,
       "pallet_qty": 1,
-      "override_note": "Hend: Based on Abdel Karim's revision (phone call in the presence of Eng. Rami) - instead of 80. (Original Arabic note on this cell: بناء على تعديل عبد الكريم (مكالمة في حضور م/رامي) بدلا من 80)"
+      "override_note": "Hend: Based on Abdel Karim's revision (phone call in the presence of Eng. Rami) - instead of 80. (Original Arabic note on this cell: \u0628\u0646\u0627\u0621 \u0639\u0644\u0649 \u062a\u0639\u062f\u064a\u0644 \u0639\u0628\u062f \u0627\u0644\u0643\u0631\u064a\u0645 (\u0645\u0643\u0627\u0644\u0645\u0629 \u0641\u064a \u062d\u0636\u0648\u0631 \u0645/\u0631\u0627\u0645\u064a) \u0628\u062f\u0644\u0627 \u0645\u0646 80)"
     },
     {
       "packing_key": "manual_smallbox15_eur",

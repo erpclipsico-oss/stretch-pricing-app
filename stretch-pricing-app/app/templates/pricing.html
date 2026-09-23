@@ -95,6 +95,35 @@
   </table>
   </div>
 
+  <div class="lines-header" style="margin-top:18px;">
+    <h3>PET / PP Strap lines</h3>
+    <button type="button" class="btn btn-outline" id="addStrapLineBtn">+ Add strap line</button>
+  </div>
+  <div style="overflow-x:auto;">
+  <table class="lines-table lines-table-compact" id="strapLinesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Product</th>
+        <th>Qty (coils)</th>
+        <th>Discount %</th>
+        <th>EXW $/kg</th>
+        <th>FOB $/kg</th>
+        <th>CFR $/kg</th>
+        <th>Total KG</th>
+        <th>Line total $</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="strapLinesBody"></tbody>
+  </table>
+  </div>
+  <p style="font-size:0.78rem; color:#666; margin-top:6px;">
+    Strap lines price by coil (Ex-Work → +profit/core → +packaging → +per-container FOB/shipping share),
+    using the quotation's own Payment Term above (Cash vs Credit surcharge). CFR $/kg already includes
+    freight, so it feeds straight into the totals below the same way Stretch Film's CIF $/kg does.
+  </p>
+
   <div class="totals-box">
     <div><span>Subtotal (EX-Work)</span><strong id="subtotalCell">$0.00</strong></div>
     <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
@@ -121,6 +150,11 @@ const LOADING_PORTS = [
 const FREIGHT = [
   {% for f in freight %}
   {country: {{ f.country|tojson }}, shipping_rate_usd: {{ f.shipping_rate_usd|tojson }}},
+  {% endfor %}
+];
+const STRAP_PRODUCTS = [
+  {% for p in strap_products %}
+  {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }}},
   {% endfor %}
 ];
 
@@ -256,6 +290,54 @@ function renumber() {
   });
 }
 
+let strapLineSeq = 0;
+
+function addStrapLine() {
+  strapLineSeq += 1;
+  const id = 'strapline_' + strapLineSeq;
+  const tr = document.createElement('tr');
+  tr.id = id;
+  tr.innerHTML = `
+    <td>${strapLineSeq}</td>
+    <td>
+      <select class="f-strap-product">
+        ${STRAP_PRODUCTS.map(p => `<option value="${p.id}" data-line="${p.line_key}">${p.label}</option>`).join('')}
+      </select>
+    </td>
+    <td><input type="number" class="f-strap-qty compact-input" value="1" min="0" step="1"></td>
+    <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
+    <td class="f-strap-exw num">0.00</td>
+    <td class="f-strap-fob num">0.00</td>
+    <td class="f-strap-cfr num">0.00</td>
+    <td class="f-strap-kg num">0</td>
+    <td class="f-strap-total num">$0.00</td>
+    <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
+  `;
+  document.getElementById('strapLinesBody').appendChild(tr);
+  tr.querySelector('.btn-remove').addEventListener('click', () => {
+    tr.remove();
+    renumberStrap();
+  });
+}
+
+function renumberStrap() {
+  [...document.querySelectorAll('#strapLinesBody tr')].forEach((tr, i) => {
+    tr.children[0].textContent = i + 1;
+  });
+}
+
+function readStrapLines() {
+  return [...document.querySelectorAll('#strapLinesBody tr')].map(tr => {
+    const sel = tr.querySelector('.f-strap-product');
+    return {
+      product_line: sel.selectedOptions[0].dataset.line,
+      strap_product_id: sel.value,
+      quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
+    };
+  });
+}
+
 function readLines() {
   return [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')].map(tr => {
     const line = {
@@ -294,7 +376,14 @@ async function calculateAll() {
   // and simply defaults+ignores them for margin purposes, so they're left out
   // of this payload entirely rather than sent as fixed placeholder values.
   const rows = [...document.querySelectorAll('#linesBody tr:not(.prestretch-row)')];
-  let subtotal = 0;
+  // v27: Discount % (per-line + Global Discount %) now comes off the
+  // margin factor server-side (see pricing._discounted_factor()) instead
+  // of being applied afterwards here -- so it has to be sent with every
+  // line's own /api/calculate-line call, and the EXW $/kg column the
+  // server returns is already the final, discounted price.
+  const globalDiscountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
+  let subtotal = 0;      // net of discount (what's actually charged)
+  let subtotalFull = 0;  // reference total with no discount, for the Discount $ row
   let totalKgAll = 0;
   const rowCalc = []; // {tr, exwUnit, totalKg} for the FOB/CIF-per-kg second pass
   for (const tr of rows) {
@@ -304,7 +393,11 @@ async function calculateAll() {
     const pricing_basis = tr.querySelector('.f-basis').value;
     const colored = tr.querySelector('.f-colored').checked;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
-    const payload = {product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored};
+    const line_discount_pct = parseFloat(tr.querySelector('.f-discount').value || 0);
+    const payload = {
+      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored,
+      line_discount_pct, global_discount_pct: globalDiscountPct,
+    };
     if (isPrestretch(product_id)) {
       const pr = tr.nextElementSibling;
       payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
@@ -344,16 +437,50 @@ async function calculateAll() {
     }
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
     tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(2);
-    const lineDiscountPct = parseFloat(tr.querySelector('.f-discount').value || 0);
-    const lineNet = data.line_gross * (1 - lineDiscountPct / 100);
-    tr.querySelector('.f-total').textContent = '$' + lineNet.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    subtotal += lineNet;
+    tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    subtotal += data.line_gross;
+    subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
     totalKgAll += data.total_kg;
     rowCalc.push({tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg});
   }
-  const discountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
-  const discount = subtotal * discountPct / 100;
-  const total = subtotal - discount;
+
+  // Strap lines (PET/PP): each line already returns its own final CFR
+  // $/kg (freight-inclusive, see strap_pricing.py), so it's added straight
+  // into subtotal/subtotalFull/totalKgAll the same way a Stretch Film
+  // line's EX-Work $/kg is -- no per-line FOB/CIF spread needed here,
+  // unlike the rowCalc loop above, since a strap line's own FOB/CFR $/kg
+  // is shown directly from what the API already computed.
+  const paymentTerm = document.getElementById('payment_term').value;
+  const strapRows = [...document.querySelectorAll('#strapLinesBody tr')];
+  for (const tr of strapRows) {
+    const sel = tr.querySelector('.f-strap-product');
+    const payload = {
+      product_line: sel.selectedOptions[0].dataset.line,
+      strap_product_id: sel.value,
+      quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
+      global_discount_pct: globalDiscountPct,
+      payment_term: paymentTerm,
+    };
+    const resp = await fetch('/api/calculate-line', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data.error) continue;
+    tr.querySelector('.f-strap-exw').textContent = data.ex_work_price_kg.toFixed(2);
+    tr.querySelector('.f-strap-fob').textContent = data.fob_price_kg.toFixed(2);
+    tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_kg.toFixed(2);
+    tr.querySelector('.f-strap-kg').textContent = data.total_kg.toLocaleString();
+    tr.querySelector('.f-strap-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    subtotal += data.line_gross;
+    subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
+    totalKgAll += data.total_kg;
+  }
+
+  const discount = subtotalFull - subtotal;
+  const total = subtotal;
 
   // FOB Total = EX-Work total (after discount) + the selected loading
   // port's FOB add-on. CIF Total = FOB Total + freight to the selected
@@ -383,7 +510,7 @@ async function calculateAll() {
   }
 
   const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('subtotalCell').textContent = money(subtotal);
+  document.getElementById('subtotalCell').textContent = money(subtotalFull);
   document.getElementById('discountCell').textContent = '-' + money(discount);
   document.getElementById('fobTotalCell').textContent = money(fobTotal);
   document.getElementById('cifTotalCell').textContent = money(cifTotal);
@@ -398,7 +525,7 @@ async function saveQuotation() {
     destination: document.getElementById('destination').value,
     payment_term: document.getElementById('payment_term').value,
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
-    lines: readLines(),
+    lines: [...readLines(), ...readStrapLines()],
   };
   const resp = await fetch('/api/save-quotation', {
     method: 'POST',
@@ -415,6 +542,7 @@ async function saveQuotation() {
 }
 
 document.getElementById('addLineBtn').addEventListener('click', () => addLine());
+document.getElementById('addStrapLineBtn').addEventListener('click', () => addStrapLine());
 document.getElementById('calcBtn').addEventListener('click', calculateAll);
 document.getElementById('saveBtn').addEventListener('click', saveQuotation);
 document.getElementById('resetBtn').addEventListener('click', () => location.reload());

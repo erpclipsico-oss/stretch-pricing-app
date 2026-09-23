@@ -30,6 +30,32 @@ def product_label(product):
     return f"{product['micron']}μm – {product['stretch_ability']}"
 
 
+def disambiguate_labels(products):
+    """v28 -- several products share an identical micron+stretch_ability
+    combo but differ only in roll_weight_kg (e.g. a 16kg standard sales
+    roll vs a 50kg jumbo roll used as the source for prestretch products).
+    product_label() alone can't tell them apart, so the /pricing product
+    picker was showing the exact same text twice for two different
+    products with different prices -- a user could pick the wrong one by
+    accident with no way to notice. This appends the roll weight only to
+    the labels that actually collide, leaving every non-colliding label
+    unchanged. Returns a list of label strings, same order/length as
+    `products`."""
+    from collections import Counter
+
+    base_labels = [product_label(p) for p in products]
+    counts = Counter(base_labels)
+    out = []
+    for p, base in zip(products, base_labels):
+        if counts[base] > 1:
+            rw = p["roll_weight_kg"]
+            rw_str = (f"{rw:g}" if isinstance(rw, (int, float)) else str(rw)) if rw is not None else "?"
+            out.append(f"{base} ({rw_str}kg roll)")
+        else:
+            out.append(base)
+    return out
+
+
 def product_category(product):
     s = (product["stretch_ability"] or "").lower()
     uv = "uvi" in s
@@ -46,9 +72,21 @@ def product_category(product):
     return ("uvi_" + base) if uv else ("automatic_" + base)
 
 
+def _discounted_factor(factor, discount_pct):
+    """v27: a quotation's Discount % (per-line + global, added together in
+    percentage points) comes off the margin factor itself, never off the
+    EX-Work cost -- e.g. a 20% margin with a 5% discount becomes a 15%
+    margin, so price = EX-Work * 1.15 instead of EX-Work * 1.20. Floored at
+    0% so a discount alone can never push the price below EX-Work cost +
+    extras + adjustment (the discount eats into profit only, confirmed with
+    the business owner -- previously discount was a flat % off the whole
+    finished price, which ate into cost too)."""
+    return max((factor or 0) - (discount_pct or 0) / 100.0, 0.0)
+
+
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
-                    colored=False):
+                    colored=False, discount_pct=0):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -62,6 +100,8 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     'local'/None) -- drives the Extras "Foreign sellers extra %" markup.
     colored: this quotation LINE's own "Colored" checkbox (v21.1) -- drives
     the Extras "Color extra" $/KG surcharge; not a property of the product.
+    discount_pct: this line's own Discount % plus the quotation's Global
+    Discount %, added together -- see _discounted_factor().
     `product["auto_manual"]` is expected to already reflect the line's own
     Packing type choice (Automatic vs a Manual variant), not necessarily
     the catalog default -- see compute_line()/cost_engine.with_overrides().
@@ -71,6 +111,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     line leaves this at the default True."""
     factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
                                          rolls_per_pallet_override=rolls_per_pallet_override)
+    factor = _discounted_factor(factor, discount_pct)
     ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
                                                   rolls_per_pallet_override=rolls_per_pallet_override)
     base = ex_work * (1 + factor)
@@ -79,13 +120,13 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     price = base + (price_adjustment_usd_kg or 0)
     if apply_extras:
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
-    return round(price, 4)
+    return round(price, 2)
 
 
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
-                  seller_type=None, auto_manual_override=None, colored=False):
+                  seller_type=None, auto_manual_override=None, colored=False, discount_pct=0):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis controls which roll weight the line's total KG (and
@@ -113,7 +154,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective, pallet_type, rolls_per_pallet_override)
     unit_price = unit_price_for(db, effective, country_class, customer_class, roll_size, price_adjustment_usd_kg,
                                  pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override,
-                                 seller_type=seller_type, colored=colored)
+                                 seller_type=seller_type, colored=colored, discount_pct=discount_pct)
     gross_roll_weight = effective["roll_weight_kg"] or 0
     net_roll_weight = max(gross_roll_weight - (effective["core_weight_kg"] or 0), 0)
     roll_weight = net_roll_weight if pricing_basis == "net" else gross_roll_weight
@@ -218,7 +259,7 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
 
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
                                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0, seller_type=None,
-                               colored=False):
+                               colored=False, discount_pct=0):
     roll_weight = roll_weight_kg or 0
     if roll_weight <= 0:
         return 0.0
@@ -231,6 +272,9 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     # packaging variants), keyed by this line's packaging_type
     # ('boxes'/'no_boxes' -> 'Pre-stretch (Box)'/'Pre-stretch (No Box)').
     factor = cost_engine.margin_pct_for(db, product, prestretch_packaging_type=packaging_type)
+    # v27: discount comes off this margin factor too, same rule as every
+    # other product -- see _discounted_factor().
+    factor = _discounted_factor(factor, discount_pct)
     base = ex_work * (1 + factor)
     # Extras (v21): Pre-Stretch's own dedicated $/KG surcharge, plus the
     # same Color extra every other product gets (v21.1: driven by the
@@ -239,18 +283,19 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     base += cost_engine._get_setting(db, "extra_prestretch_usd_kg", 0.12)
     price = base + (price_adjustment_usd_kg or 0)
     price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
-    return round(price, 4)
+    return round(price, 2)
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
                              core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
-                             pricing_basis="per_kg", seller_type=None, colored=False):
+                             pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
     packaging type, instead of the product catalog's fixed values."""
     unit_price = prestretch_unit_price_for(
         db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
         rolls_per_pallet, packaging_type, price_adjustment_usd_kg, seller_type=seller_type, colored=colored,
+        discount_pct=discount_pct,
     )
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)

@@ -25,14 +25,13 @@
         <td>{{ l.pricing_basis_label }}</td>
         <td class="num">{{ l.quantity_pallets }}</td>
         <td class="num">{{ '%.1f'|format(l.total_kg) }}</td>
-        <td class="num">{{ '%.3f'|format(l.unit_price_usd_kg) }}</td>
+        <td class="num">{{ '%.2f'|format(l.unit_price_usd_kg) }}</td>
         <td class="num">${{ '%.2f'|format(l.line_total) }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   <div class="totals-box">
-    <div><span>Subtotal (EX-Work)</span><strong>${{ '%.2f'|format(totals.subtotal) }}</strong></div>
     <div><span>Discount</span><strong>-${{ '%.2f'|format(totals.subtotal - totals.total) }}</strong></div>
     <div class="grand"><span>FOB Total ({{ q.loading_port or '-' }})</span><strong>${{ '%.2f'|format(totals.fob_total) }}</strong></div>
     <div class="grand"><span>CIF Total ({{ q.destination or '-' }})</span><strong>${{ '%.2f'|format(totals.cif_total) }}</strong></div>

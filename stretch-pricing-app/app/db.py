@@ -91,11 +91,41 @@ CREATE TABLE IF NOT EXISTS quotation_line (
     packing_type TEXT DEFAULT 'Automatic',
     quantity_pallets REAL DEFAULT 1,
     unit_price_usd_kg REAL DEFAULT 0,
+    unit_price_full_usd_kg REAL,
     total_kg REAL DEFAULT 0,
     line_discount_pct REAL DEFAULT 0,
     pricing_basis TEXT NOT NULL DEFAULT 'per_kg',
-    FOREIGN KEY (quotation_id) REFERENCES quotation(id),
-    FOREIGN KEY (product_id) REFERENCES product(id)
+    -- v30: which product line this row belongs to -- 'stretch_film' (the
+    -- original, default) or 'pet'/'pp' (see strap_pricing.py). For a strap
+    -- line, product_id points into strap_product, NOT product; the two
+    -- id spaces are independent, disambiguated by this column. unit_price
+    -- means EX-Work for stretch_film lines but the final CFR (freight
+    -- already included) $/kg for strap lines -- deliberately so, because
+    -- it lets compute_totals()/view_quotation.html/build_pdf() sum every
+    -- line the exact same way with zero changes: each line's unit_price
+    -- is simply "this line's contribution to the bottom line", however
+    -- that line's own product family prices itself.
+    product_line TEXT NOT NULL DEFAULT 'stretch_film',
+    FOREIGN KEY (quotation_id) REFERENCES quotation(id)
+);
+
+-- v30 -- PET Strap / PP Strap product lines (see strap_pricing.py for the
+-- full cost engine). A separate catalog table because the two lines' own
+-- dimensions (width/thickness/meters-per-coil, cash/40ft-container flags)
+-- don't apply to Stretch Film's roll/pallet-based product table at all.
+CREATE TABLE IF NOT EXISTS strap_product (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_key TEXT NOT NULL,        -- 'pet' | 'pp'
+    code TEXT NOT NULL,
+    bom_key TEXT NOT NULL,
+    width_mm REAL NOT NULL,
+    thickness_mm REAL NOT NULL,
+    meters_per_coil REAL NOT NULL,
+    core_weight_kg REAL NOT NULL DEFAULT 1,
+    has_box INTEGER NOT NULL DEFAULT 0,
+    has_pallet INTEGER NOT NULL DEFAULT 1,
+    ctr20 INTEGER NOT NULL DEFAULT 0,
+    ctr40 INTEGER NOT NULL DEFAULT 0
 );
 
 -- ============== Cost engine: raw, editable inputs behind EX-Work cost =====
@@ -279,6 +309,8 @@ def init_db():
     _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
     _seed_extras_settings(conn)
+    _fix_stale_material_rates_v8(conn)
+    _seed_strap_data(conn)
     conn.close()
 
 
@@ -377,6 +409,26 @@ def _migrate(conn):
     if "colored" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN colored INTEGER NOT NULL DEFAULT 0")
         conn.commit()
+
+    # ---- Discount-off-margin (v27): the reference ("full", no-discount)
+    # unit price is now frozen alongside the actual (discounted) one at
+    # save time, so the saved quotation / PDF can show a true Discount $
+    # figure without re-deriving the cost-engine formulas later (which
+    # could drift if margin_factor or costs change after the quote was
+    # saved). NULL on old rows -- treated as "no discount was recorded",
+    # i.e. equal to unit_price_usd_kg, everywhere it's read.
+    if "unit_price_full_usd_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN unit_price_full_usd_kg REAL")
+        conn.commit()
+
+    # ---- Multi product-line (v30): PET Strap / PP Strap alongside Stretch
+    # Film. Existing rows are all Stretch Film, hence the default.
+    if "product_line" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN product_line TEXT NOT NULL DEFAULT 'stretch_film'")
+        conn.commit()
+    # strap_product itself is created by SCHEMA's CREATE TABLE IF NOT EXISTS
+    # above -- that runs on every boot (conn.executescript(SCHEMA)), fresh or
+    # existing DB alike, so no manual ALTER/CREATE is needed for it here.
 
     # ---- Product-specific packaging override (v15): a handful of products
     # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
@@ -1358,6 +1410,36 @@ def _fix_stale_global_settings_v7(conn):
         cost_engine.recalculate_all_products(conn)
 
 
+# v28 -- 3 material_rate values were seeded from a stale/intermediate import
+# (full_import_h136.json) and never matched the reference app's own admin
+# Settings -> Materials screen (ground truth, confirmed against the
+# reference app's sales_manager account). Corrected here, not just in
+# cost_seed.json, because Render's free tier has no persistent disk: every
+# boot runs the full seed chain from scratch, and a later seed step
+# (_seed_full_import_v4) already overwrote cost_seed.json's original values
+# with different-but-still-wrong ones, so cost_seed.json alone would not
+# fix the values the app actually serves.
+STALE_MATERIAL_RATES_V8 = {
+    "core": 35,     # packaging, kilo -- was 30
+    "enable": 1490,  # resin, ton -- was 1290
+    "cap": 50,      # packaging, piece ("Cap 1100~1200") -- was 46
+}
+
+
+def _fix_stale_material_rates_v8(conn):
+    from . import cost_engine
+
+    changed = False
+    for key, correct_value in STALE_MATERIAL_RATES_V8.items():
+        row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if row is not None and row["value"] != correct_value:
+            conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (correct_value, key))
+            changed = True
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
+
+
 def _seed_margin_factor_v5(conn):
     """v18 -- owner-confirmed full replacement of the country_class x
     customer_class x roll_size `factor` margin system with the reference
@@ -1411,5 +1493,129 @@ def _seed_default_users(conn):
                VALUES (?,?,?,?,?,?,?)""",
             (username, full_name, generate_password_hash("ChangeMe123!"), role, region,
              seller_type, adjustment),
+        )
+    conn.commit()
+
+
+# ============================================================================
+# v30 -- PET Strap / PP Strap product lines
+# ============================================================================
+# Reverse-engineered directly from the owner's own PET_Export_pricing_1.25.xlsx
+# and PP_Export_pricing_1.32.xlsx cost sheets (Material cost / Fixed Cost /
+# Electricity-Powers / PET-PP product tabs). See app/strap_pricing.py for the
+# full formula chain these feed. Material rates use a namespaced key
+# ("pet_"/"pp_" prefix) so they never collide with -- or accidentally get
+# edited alongside -- Stretch Film's own same-named materials (Core, Box,
+# Pallet, etc. are genuinely different physical items/suppliers with
+# different rates for this line; confirmed by comparing the two sheets'
+# values against the live material_rate table, which did not match).
+#
+# material_key, label, category, unit, value
+STRAP_MATERIAL_RATES = [
+    # -- PET --
+    ("pet_c4", "PET: C4", "resin", "ton", 1190),
+    ("pet_resin", "PET: PET Resin", "resin", "ton", 35000),
+    ("pet_color", "PET: Color/Green S66", "resin", "ton", 150000),
+    ("pet_core", "PET: Core", "packaging", "kilo", 40),
+    ("pet_stretch", "PET: Stretch wrap", "packaging", "kilo", 60),
+    ("pet_cardboard", "PET: Cardboard 400~500", "packaging", "piece", 20),
+    ("pet_pallet", "PET: Pallet", "packaging", "piece", 500),
+    ("pet_box", "PET: Box", "packaging", "piece", 40),
+    ("pet_jwan", "PET: Jwan", "packaging", "piece", 5),
+    # -- PP --
+    ("pp_5032", "PP: 5032 PP", "resin", "ton", 1375),
+    ("pp_coco3", "PP: COCO3", "resin", "ton", 23000),
+    ("pp_recycled_colored", "PP: Recycled Colored PP", "resin", "ton", 36500),
+    ("pp_recycled_pure", "PP: Recycled Pure PP", "resin", "ton", 32000),
+    ("pp_color", "PP: Color", "resin", "ton", 172500),
+    ("pp_core", "PP: Core", "packaging", "kilo", 42),
+    ("pp_stretch", "PP: Stretch wrap", "packaging", "kilo", 60),
+    ("pp_cardboard", "PP: Cardboard 400~500", "packaging", "piece", 20),
+    ("pp_pallet", "PP: Pallet", "packaging", "piece", 470),
+    ("pp_box", "PP: Box", "packaging", "piece", 42),
+    ("pp_jwan", "PP: Jwan", "packaging", "piece", 5),
+]
+
+# key, label, value, help
+STRAP_GLOBAL_SETTINGS = [
+    ("strap_fob_cost_per_container_usd", "PET/PP Strap: FOB cost per container ($)", 1100,
+     "Flat FOB handling cost per shipping container, shared by the PET Strap and PP Strap lines. "
+     "Divided across the rolls that fit in a container (by core weight, 20ft/40ft, box/pallet) to "
+     "get each line's per-roll FOB share -- see strap_pricing.py."),
+    ("strap_shipping_rate_per_container_usd", "PET/PP Strap: shipping rate per container ($)", 1200,
+     "Flat sea-freight cost per shipping container, shared by the PET Strap and PP Strap lines, "
+     "added on top of the FOB share the same way to get each line's per-roll CFR price."),
+    ("strap_credit_surcharge_usd_kg", "PET/PP Strap: credit-term surcharge ($/kg)", 0.03,
+     "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is not Cash."),
+]
+
+# line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg, has_box, has_pallet, ctr20, ctr40
+STRAP_PRODUCTS = [
+    # -- PET (BOM: pet_green for all current catalog rows) --
+    ("pet", "PET 12 x 0.531", "pet_green", 12, 0.531, 2800, 1, 0, 1, 0, 1),
+    ("pet", "PET 12 x 0.582", "pet_green", 12, 0.582, 2500, 1, 0, 1, 0, 1),
+    ("pet", "PET 12 x 0.678", "pet_green", 12, 0.678, 2000, 1, 0, 1, 0, 1),
+    ("pet", "PET 15 x 0.72", "pet_green", 15, 0.72, 1400, 1, 0, 1, 0, 1),
+    ("pet", "PET 15.5 x 0.823", "pet_green", 15.5, 0.823, 1200, 1, 0, 1, 0, 1),
+    ("pet", "PET 16 x 1.03", "pet_green", 16, 1.03, 1000, 1, 0, 1, 0, 1),
+    ("pet", "PET 19 x 1.026", "pet_green", 19, 1.026, 850, 1, 0, 1, 0, 1),
+    ("pet", "PET 19 x 0.716", "pet_green", 19, 0.716, 1000, 1, 0, 1, 0, 1),
+    ("pet", "PET 15 x 0.62 (1750m)", "pet_green", 15, 0.62, 1750, 1, 0, 1, 1, 0),
+    ("pet", "PET 15 x 0.593", "pet_green", 15, 0.593, 2000, 1, 0, 1, 1, 0),
+    ("pet", "PET 15 x 0.688", "pet_green", 15, 0.688, 1750, 1, 0, 1, 1, 0),
+    ("pet", "PET 15 x 0.69", "pet_green", 15, 0.69, 1750, 1, 1, 1, 1, 0),
+    ("pet", "PET 12 x 0.732", "pet_green", 12, 0.732, 2000, 1, 0, 1, 1, 0),
+    ("pet", "PET 15 x 1", "pet_green", 15, 1, 1000, 1, 0, 1, 1, 1),
+    ("pet", "PET 14 x 0.71", "pet_green", 14, 0.71, 1750, 1, 0, 1, 0, 1),
+    ("pet", "PET 15 x 0.62 (750m)", "pet_green", 15, 0.62, 750, 1, 0, 1, 0, 1),
+    ("pet", "PET 11.5 x 0.565", "pet_green", 11.5, 0.565, 2500, 1, 0, 1, 0, 1),
+    # -- PP --
+    ("pp", "PP 12071.3", "pure_white", 12, 0.713, 2000, 1, 1, 1, 0, 1),
+    ("pp", "PP 12085", "pure_color", 12, 0.85, 2000, 1, 0, 1, 0, 1),
+    ("pp", "PP 8064.1", "pure_white", 8, 0.641, 2700, 0.5, 1, 1, 0, 1),
+    ("pp", "PP 12076", "pure_color", 12, 0.76, 1200, 0.25, 1, 1, 0, 1),
+    ("pp", "PP 12071.4", "pure_white", 12, 0.714, 1500, 0.5, 1, 1, 0, 1),
+]
+
+
+def _seed_strap_data(conn):
+    """v30 -- PET Strap / PP Strap: material rates, shared freight settings,
+    and the starting catalog. Per-row idempotent (matches every other seed
+    function in this file) so re-running on an already-seeded live DB adds
+    nothing and never overwrites a value the owner has since edited."""
+    for key, label, category, unit, value in STRAP_MATERIAL_RATES:
+        exists = conn.execute("SELECT id FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+            (key, label, category, unit, value),
+        )
+    conn.commit()
+
+    for key, label, value, help_text in STRAP_GLOBAL_SETTINGS:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (key, label, value, help_text),
+        )
+    conn.commit()
+
+    for (line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
+         has_box, has_pallet, ctr20, ctr40) in STRAP_PRODUCTS:
+        exists = conn.execute(
+            "SELECT id FROM strap_product WHERE line_key=? AND code=?", (line_key, code)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO strap_product
+               (line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
+                has_box, has_pallet, ctr20, ctr40)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
+             has_box, has_pallet, ctr20, ctr40),
         )
     conn.commit()
