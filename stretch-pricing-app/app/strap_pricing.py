@@ -327,19 +327,23 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     surcharge is already included), plus gross_weight_kg (for converting
     a quantity of coils into total_kg elsewhere).
 
-    fob_container_usd/shipping_container_usd (v61): the per-container FOB
+    fob_container_usd/shipping_container_usd: the per-container FOB
     handling / international-freight $ amount to spread across this line
-    (via _container_share() below), same as ever -- but now the CALLER is
-    expected to supply the actual numbers looked up from the SAME
-    admin-editable Loading Ports / Freight tables Stretch Film uses (see
-    app.py's _fob_addon_for_port()/_freight_for_destination()), keyed by
-    the quotation's own Loading Port + Destination selection, instead of
-    each strap line silently pricing every shipment through one hardcoded
-    port/destination. Passing None for either falls back to the old flat
-    admin settings (strap_fob_cost_per_container_usd /
-    strap_shipping_rate_per_container_usd) purely so any caller that
-    hasn't been updated yet still gets a number rather than 0 -- every
-    in-app call site now always supplies both explicitly.
+    (via _container_share() below).
+
+    shipping_container_usd (v61): the CALLER is expected to supply this
+    looked up from the SAME admin-editable Freight table Stretch Film
+    uses (see app.py's _freight_for_destination()), keyed by the
+    quotation's own Destination selection, instead of each strap line
+    silently pricing every shipment through one hardcoded destination.
+
+    fob_container_usd (v62 -- reverted from v61's brief shared-Loading-
+    Ports experiment per the owner's clarification: only the shipping/
+    freight leg is shared with Stretch Film, not FOB): left as its own
+    separate flat per-container setting -- every in-app call site now
+    always passes None here, which falls back to the admin-editable
+    strap_fob_cost_per_container_usd setting (Admin > PET/PP Strap
+    Costing), same as before v61.
 
     hidden_markup_mode/hidden_markup_value (v44): a per-user hidden markup,
     from user.markup_mode/markup_value (generalizes the old Strap-only

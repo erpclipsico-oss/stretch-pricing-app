@@ -6,12 +6,12 @@
   <p class="hint" style="margin-bottom:14px;">
     Everything that prices the PET Strap and PP Strap lines, in one place: dollar rate, material
     prices, BOM recipes (composition/profit/waste), per-line fixed cost/electricity/direct labor,
-    and the credit-term surcharge. Stretch Film pricing is unaffected by anything on this page
-    except the Dollar Rate, which both product lines share.
-    <strong>FOB/shipping costs for PET Strap and PP Strap are no longer set here</strong> — they're
-    now pulled from the same Loading Ports &amp; Freight tables Stretch Film uses, under
-    <a href="{{ url_for('admin_loading_ports') }}">Catalog &amp; Rates &gt; Loading Ports (FOB)</a>
-    and <a href="{{ url_for('admin_freight') }}">Catalog &amp; Rates &gt; Freight</a>.
+    FOB cost per container, and the credit-term surcharge. Stretch Film pricing is unaffected by
+    anything on this page except the Dollar Rate, which both product lines share.
+    <strong>The shipping/freight rate is no longer set here</strong> — it's pulled from the same
+    Freight table Stretch Film uses, under
+    <a href="{{ url_for('admin_freight') }}">Catalog &amp; Rates &gt; Freight</a> (picked by the
+    quotation's own Destination). FOB cost per container below stays Strap's own separate setting.
   </p>
   <form method="post">
 
@@ -99,10 +99,11 @@
     </div>
     {% endfor %}
 
-    <div class="panel-header" style="margin-top:28px;"><h2>Credit terms</h2></div>
+    <div class="panel-header" style="margin-top:28px;"><h2>FOB &amp; credit terms</h2></div>
     <p class="hint" style="margin-bottom:10px;">
-      Shared by PET Strap and PP Strap. (FOB/shipping-per-container settings moved to the shared
-      Loading Ports &amp; Freight tables -- see the note above.)
+      Shared by PET Strap and PP Strap (per-container cost, split across whatever fits in the
+      container). Independent of Stretch Film's own Loading-Port settings. (The shipping/freight
+      rate moved to the shared Freight table -- see the note above.)
     </p>
     <div class="edit-grid">
       <div class="edit-row header-row"><span style="width:340px;">Setting</span><span style="width:100px;">Value</span></div>

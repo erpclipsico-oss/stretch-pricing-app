@@ -690,12 +690,12 @@ async function calculateAll() {
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
-      // v61 -- Strap FOB/CFR now looks up the SAME Loading Ports / Freight
-      // tables Stretch Film uses (see _fob_addon_for_port()/
-      // _freight_for_destination() in app.py), keyed by this quotation's
-      // own Loading Port + Destination pick, so the live preview needs
-      // to send them same as the top-level Stretch FOB/CIF math already does.
-      loading_port: document.getElementById('loading_port').value,
+      // v62 -- Strap's shipping/freight leg now looks up the SAME Freight
+      // table Stretch Film uses (see _freight_for_destination() in
+      // app.py), keyed by this quotation's own Destination pick, so the
+      // live preview needs to send it same as the top-level Stretch
+      // FOB/CIF math already does. FOB (loading port) stays Strap's own
+      // separate flat setting, so loading_port isn't needed here.
       destination: document.getElementById('destination').value,
     };
     if (custom) {
@@ -904,11 +904,13 @@ document.getElementById('resetBtn').addEventListener('click', () => location.rel
 // Discount % also auto-recalculate now -- see scheduleRecalc()'s comment.
 document.getElementById('payment_term').addEventListener('change', scheduleRecalc);
 document.getElementById('global_discount_pct').addEventListener('input', scheduleRecalc);
-// v61 -- Loading Port / Destination now also drive each Strap line's own
-// FOB/CFR $ (looked up server-side from the same Rates tables Stretch
-// Film uses), not just the quote-level FOB/CIF Total math above, so
-// changing either has to re-run the strap lines' own /api/calculate-line
-// call too.
+// v61/v62 -- Destination now also drives each Strap line's own CFR $
+// (looked up server-side from the shared Freight table Stretch Film
+// uses), not just the quote-level FOB/CIF Total math above, so changing
+// it has to re-run the strap lines' own /api/calculate-line call too.
+// Loading Port only affects the quote-level Stretch FOB/CIF math (and
+// Strap's own separate flat FOB setting, unaffected by this dropdown),
+// but is wired the same way so its Total updates live too.
 document.getElementById('loading_port').addEventListener('change', scheduleRecalc);
 document.getElementById('destination').addEventListener('change', scheduleRecalc);
 
