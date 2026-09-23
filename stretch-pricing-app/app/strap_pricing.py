@@ -1,4 +1,4 @@
-"""PET Strap / PP Strap cost engine (v30).
+"""PET Strap / PP Strap cost engine (v30, DB-backed costing as of v34).
 
 Reverse-engineered directly from the owner's own PET_Export_pricing_1.25.xlsx
 and PP_Export_pricing_1.32.xlsx cost sheets. Both sheets share the exact same
@@ -19,15 +19,17 @@ the one exception -- the sheets computed those with plain arithmetic, no
 ROUNDUP, so this does the same.
 
 Shared per-kg/per-piece EGP packaging materials (core, stretch wrap,
-cardboard, pallet, box, jwan) and the container FOB/shipping settings are
-read live from the DB (material_rate / global_setting) so they stay
-admin-editable exactly like every other cost input in this app. The BOM
-composition percentages and per-line fixed cost / electricity / direct
-labor $-per-kg constants are the one part frozen here as Python constants
-(matching how Stretch Film's own BOM tables and Fixed-Cost-per-kg figure
-work) -- see LINE_CONFIG.
+cardboard, pallet, box, jwan), the container FOB/shipping settings, the BOM
+recipes (composition %, profit %, waste %) and the per-line electricity /
+fixed cost / direct labor $-per-kg figures are all read live from the DB
+(material_rate / global_setting / strap_bom / strap_line_config -- v34) so
+every number in the cost chain is admin-editable. Only the *structure* of
+each recipe -- which component keys exist and which material_rate suffix/
+unit/currency each one maps to -- stays a Python constant here (COMPONENT_DEFS),
+since that's a definition of what a BOM key means, not a price.
 """
 
+import json
 import math
 
 CORE_WEIGHT_THRESHOLD_KG = 0.7
@@ -67,30 +69,15 @@ def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
     meters = net_target_max_kg * 1000.0 / gm_per_m
     return int(meters // 10) * 10
 
-# Composition fractions of each raw-material *rate key* (matched against
-# material_rate.material_key with the line's own "pet_"/"pp_" prefix),
-# the profit margin applied to Ex-Work before container freight, and the
-# waste% applied on top of the raw material cost. profit/waste values and
-# component keys come directly from each sheet's own "Material cost" tab.
-BOM_DEFS = {
-    "pet": {
-        "pet_green": {"components": {"resin": 0.96, "c4": 0.02, "color": 0.02},
-                      "profit": 0.16, "waste": 0.01},
-        "pet_colors": {"components": {"resin": 0.935, "c4": 0.02, "color": 0.045},
-                       "profit": 0.16, "waste": 0.01},
-    },
-    "pp": {
-        "pure_white": {"components": {"5032": 0.97, "coco3": 0.03},
-                       "profit": 0.12, "waste": 0.04},
-        "pure_color": {"components": {"5032": 0.955, "color": 0.045},
-                       "profit": 0.12, "waste": 0.08},
-        "recycled_pure_white": {"components": {"5032": 0.5, "recycled_pure": 0.45, "coco3": 0.05},
-                                 "profit": 0.16, "waste": 0.04},
-        "recycled_color": {"components": {"recycled_colored": 0.99, "color": 0.01},
-                            "profit": 0.20, "waste": 0.08},
-        "recycled_pure_colors": {"components": {"5032": 0.5, "recycled_pure": 0.45, "color": 0.05},
-                                  "profit": 0.16, "waste": 0.08},
-    },
+# v34 -- BOM composition %, profit % and waste % are now stored (and
+# admin-editable) in the strap_bom DB table -- see _get_bom() below and
+# db.STRAP_BOM_SEED for the seeded starting values (identical to what used
+# to be hardcoded here). BOM_KEYS just lists which bom_keys are structurally
+# valid for each line, for request validation, independent of their current
+# DB-stored numbers.
+BOM_KEYS = {
+    "pet": ["pet_green", "pet_colors"],
+    "pp": ["pure_white", "pure_color", "recycled_pure_white", "recycled_color", "recycled_pure_colors"],
 }
 
 # Human labels for each BOM key, in display order -- used by the "Custom
@@ -118,7 +105,11 @@ BOM_LABELS = {
 # needs no /dollar_rate conversion; 'egp' does. The extra multiplier is the
 # small scrap/waste surcharge each sheet bakes into its *main* resin only
 # (1.04x for PET's "C4", 1.035x for PP's "5032 PP" -- mirrors the 1.04x the
-# original Stretch Film engine already applies the same way).
+# original Stretch Film engine already applies the same way). Structural
+# (which component keys exist / what they map to), not a price -- stays a
+# Python constant. electricity/fixed-cost/direct-labor per line and BOM
+# composition/profit/waste are DB-stored (v34) -- see _get_line_config()
+# and _get_bom() below.
 LINE_CONFIG = {
     "pet": {
         "label": "PET Strap",
@@ -127,9 +118,6 @@ LINE_CONFIG = {
             "c4": ("c4", "ton", "usd", 1.04),
             "color": ("color", "ton", "egp", 1.0),
         },
-        "electricity_per_ton_egp": 3233.8378874999994,
-        "fixed_cost_per_kg_usd": 0.15238135851623189,
-        "direct_labor_per_kg_usd": 0.0,
     },
     "pp": {
         "label": "PP Strap",
@@ -140,9 +128,6 @@ LINE_CONFIG = {
             "recycled_pure": ("recycled_pure", "ton", "egp", 1.0),
             "color": ("color", "ton", "egp", 1.0),
         },
-        "electricity_per_ton_egp": 4937.625783806608,
-        "fixed_cost_per_kg_usd": 0.12505020582355653,
-        "direct_labor_per_kg_usd": 0.023584587962962967,
     },
 }
 
@@ -171,6 +156,37 @@ def _material_rate(conn, line_key, suffix):
 
 def _dollar_rate(conn):
     return _get_setting(conn, "dollar_rate", 45)
+
+
+def _get_bom(conn, line_key, bom_key):
+    """DB-backed BOM recipe (v34) -- components/profit/waste, admin-editable
+    via the Strap Costing page. Falls back to an all-zero recipe if the row
+    is somehow missing (should not happen once seeded) rather than raising,
+    so a calculate just prices to $0 instead of crashing."""
+    row = conn.execute(
+        "SELECT profit_pct, waste_pct, components_json FROM strap_bom WHERE line_key=? AND bom_key=?",
+        (line_key, bom_key),
+    ).fetchone()
+    if not row:
+        return {"components": {}, "profit": 0.0, "waste": 0.0}
+    return {
+        "components": json.loads(row["components_json"]),
+        "profit": row["profit_pct"],
+        "waste": row["waste_pct"],
+    }
+
+
+def _get_line_config(conn, line_key):
+    """DB-backed electricity/fixed-cost/direct-labor figures (v34),
+    admin-editable via the Strap Costing page."""
+    row = conn.execute(
+        """SELECT electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd
+           FROM strap_line_config WHERE line_key=?""",
+        (line_key,),
+    ).fetchone()
+    if not row:
+        return {"electricity_per_ton_egp": 0.0, "fixed_cost_per_kg_usd": 0.0, "direct_labor_per_kg_usd": 0.0}
+    return dict(row)
 
 
 def meter_weight_g_per_m(line_key, product, bom_components):
@@ -252,6 +268,37 @@ def _packaging_addons(conn, line_key, dollar_rate, core_weight_kg, has_box, has_
     return jwan + stretch + box + cardboard + pallet
 
 
+def suggest_rolls_per_pallet(core_weight_kg, has_box):
+    """The rolls/pallet figure implicit in each sheet's own container-share
+    formula (the "72"/"66"/"52" divisors), surfaced as its own value so a
+    rep can see -- and override -- it directly instead of it staying
+    buried inside the FOB/CFR math. Purely a quantity-conversion default
+    (Qty (pallets) x Rolls/pallet -> total coils); overriding it does not
+    change the container-freight math itself, which keeps using the
+    verified per-sheet formula in _container_share below."""
+    small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
+    if small:
+        return 72 if has_box else 66
+    return 52
+
+
+def suggest_pallets_per_container(core_weight_kg, has_box, ctr20, ctr40):
+    """Companion to suggest_rolls_per_pallet -- the pallets/container figure
+    implicit in the same formula, shown read-only for reference."""
+    small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
+    if small:
+        if ctr20:
+            return 11
+        if ctr40:
+            return 22 if has_box else 24
+    else:
+        if ctr20:
+            return 10
+        if ctr40:
+            return 20
+    return 0
+
+
 def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
     if core_weight_kg <= 0 or not (ctr20 or ctr40):
         return 0.0
@@ -278,7 +325,8 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     surcharge is already included), plus gross_weight_kg (for converting
     a quantity of coils into total_kg elsewhere)."""
     cfg = LINE_CONFIG[line_key]
-    bom = BOM_DEFS[line_key][product["bom_key"]]
+    line_numbers = _get_line_config(conn, line_key)
+    bom = _get_bom(conn, line_key, product["bom_key"])
     components = bom["components"]
     dollar_rate = _dollar_rate(conn)
 
@@ -297,9 +345,10 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
         material_cost += cost
     material_cost = _roundup2(material_cost * (1 + bom["waste"]))
 
-    electricity_cost = roll_net_kg * cfg["electricity_per_ton_egp"] / 1000.0 / dollar_rate if dollar_rate else 0.0
-    direct_labor_cost = roll_net_kg * cfg["direct_labor_per_kg_usd"]
-    fixed_cost = roll_net_kg * cfg["fixed_cost_per_kg_usd"]
+    electricity_cost = (roll_net_kg * line_numbers["electricity_per_ton_egp"] / 1000.0 / dollar_rate
+                         if dollar_rate else 0.0)
+    direct_labor_cost = roll_net_kg * line_numbers["direct_labor_per_kg_usd"]
+    fixed_cost = roll_net_kg * line_numbers["fixed_cost_per_kg_usd"]
     ex_work_roll = material_cost + electricity_cost + direct_labor_cost + fixed_cost
 
     core_rate = _material_rate(conn, line_key, "core") / dollar_rate if dollar_rate else 0.0

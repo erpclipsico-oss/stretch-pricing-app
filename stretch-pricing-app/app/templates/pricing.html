@@ -83,7 +83,6 @@
         <th>Core kg</th>
         <th>Rolls/pallet</th>
         <th>Discount %</th>
-        <th>EXW $/kg</th>
         <th>FOB $/kg</th>
         <th>CIF $/kg</th>
         <th>Total KG</th>
@@ -105,9 +104,10 @@
       <tr>
         <th>#</th>
         <th>Product</th>
-        <th>Qty (coils)</th>
+        <th>Rolls/pallet</th>
+        <th>Qty (pallets)</th>
+        <th>Pallets/container</th>
         <th>Discount %</th>
-        <th>EXW $/kg</th>
         <th>FOB $/kg</th>
         <th>CFR $/kg</th>
         <th>Total KG</th>
@@ -122,10 +122,11 @@
     Strap lines price by coil (Ex-Work → +profit/core → +packaging → +per-container FOB/shipping share),
     using the quotation's own Payment Term above (Cash vs Credit surcharge). CFR $/kg already includes
     freight, so it feeds straight into the totals below the same way Stretch Film's CIF $/kg does.
+    Rolls/pallet pre-fills from the line's own core-size/box spec (editable); Pallets/container is
+    read-only, for reference.
   </p>
 
   <div class="totals-box">
-    <div><span>Subtotal (EX-Work)</span><strong id="subtotalCell">$0.00</strong></div>
     <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
     <div class="grand"><span>FOB Total</span><strong id="fobTotalCell">$0.00</strong></div>
     <div class="grand"><span>CIF Total</span><strong id="cifTotalCell">$0.00</strong></div>
@@ -209,7 +210,6 @@ function addLine(prefill) {
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
-    <td class="f-exw num">0.000</td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
     <td class="f-kg num">0</td>
@@ -305,7 +305,11 @@ function addStrapLine() {
   const tr = document.createElement('tr');
   tr.className = 'strap-line-row';
   tr.id = id;
-  const options = CUSTOM_OPTIONS.concat(STRAP_PRODUCTS.map(p => ({value: String(p.id), line_key: p.line_key, label: p.label})));
+  // v33 -- the fixed catalog codes ("PET 12 x 0.531" etc.) are no longer
+  // offered here; every strap line is now built via width x thickness
+  // (see CUSTOM_OPTIONS). The strap_product catalog/table itself is left
+  // alone -- only the dropdown no longer lists it.
+  const options = CUSTOM_OPTIONS;
   tr.innerHTML = `
     <td>${strapLineSeq}</td>
     <td>
@@ -313,9 +317,10 @@ function addStrapLine() {
         ${options.map(o => `<option value="${o.value}" data-line="${o.line_key}">${o.label}</option>`).join('')}
       </select>
     </td>
-    <td><input type="number" class="f-strap-qty compact-input" value="1" min="0" step="1"></td>
+    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable"></td>
+    <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5"></td>
+    <td class="f-strap-ppc num" title="Pallets per container -- read-only, for reference">-</td>
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
-    <td class="f-strap-exw num">0.00</td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
     <td class="f-strap-kg num">0</td>
@@ -393,9 +398,12 @@ function isStrapCustom(sel) {
 function readStrapLines() {
   return [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')].map(tr => {
     const sel = tr.querySelector('.f-strap-product');
+    const rollsPerPallet = parseFloat(tr.querySelector('.f-strap-rpp').value || 0);
+    const qtyPallets = parseFloat(tr.querySelector('.f-strap-qty-pallets').value || 0);
     const base = {
       product_line: sel.selectedOptions[0].dataset.line,
-      quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
+      quantity_pallets: qtyPallets,
+      quantity_coils: qtyPallets * rollsPerPallet,
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
     };
     if (isStrapCustom(sel)) {
@@ -457,8 +465,9 @@ async function calculateAll() {
   // v27: Discount % (per-line + Global Discount %) now comes off the
   // margin factor server-side (see pricing._discounted_factor()) instead
   // of being applied afterwards here -- so it has to be sent with every
-  // line's own /api/calculate-line call, and the EXW $/kg column the
-  // server returns is already the final, discounted price.
+  // line's own /api/calculate-line call, and the unit price the server
+  // returns is already the final, discounted price (v35: no longer shown
+  // as its own EX-Work column -- see FOB/CIF instead).
   const globalDiscountPct = parseFloat(document.getElementById('global_discount_pct').value || 0);
   let subtotal = 0;      // net of discount (what's actually charged)
   let subtotalFull = 0;  // reference total with no discount, for the Discount $ row
@@ -514,7 +523,6 @@ async function calculateAll() {
       }
     }
     tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
-    tr.querySelector('.f-exw').textContent = data.unit_price_usd_kg.toFixed(2);
     tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     subtotal += data.line_gross;
     subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
@@ -533,9 +541,16 @@ async function calculateAll() {
   for (const tr of strapRows) {
     const sel = tr.querySelector('.f-strap-product');
     const custom = isStrapCustom(sel);
+    // Quantity is Qty (pallets) x Rolls/pallet (like Stretch Film), not a
+    // coil count typed directly -- Rolls/pallet itself is a display
+    // default (pre-filled from the line's own core-size/box spec after
+    // the first calculate) that the rep can override.
+    const rollsPerPalletField = tr.querySelector('.f-strap-rpp');
+    const qtyPallets = parseFloat(tr.querySelector('.f-strap-qty-pallets').value || 0);
+    const rollsPerPallet = parseFloat(rollsPerPalletField.value || 0);
     const payload = {
       product_line: sel.selectedOptions[0].dataset.line,
-      quantity_coils: parseFloat(tr.querySelector('.f-strap-qty').value || 0),
+      quantity_coils: qtyPallets * rollsPerPallet,
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
@@ -564,11 +579,24 @@ async function calculateAll() {
     });
     const data = await resp.json();
     if (data.error) continue;
-    tr.querySelector('.f-strap-exw').textContent = data.ex_work_price_kg.toFixed(2);
+    // Rolls/pallet is pre-filled from the server's suggestion on the row's
+    // very first calculate -- when that happens, quantity_coils above was
+    // sent as 0 (the field was still empty), so total_kg/line_gross in
+    // this response are 0 too. Recompute them here from the now-known
+    // rolls/pallet instead of firing a second round trip.
+    let effectiveRolls = rollsPerPalletField.value ? parseFloat(rollsPerPalletField.value) : 0;
+    if (!effectiveRolls) {
+      effectiveRolls = data.suggested_rolls_per_pallet;
+      rollsPerPalletField.value = effectiveRolls;
+    }
+    const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
+    const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
+    const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
     tr.querySelector('.f-strap-fob').textContent = data.fob_price_kg.toFixed(2);
     tr.querySelector('.f-strap-cfr').textContent = data.cfr_price_kg.toFixed(2);
-    tr.querySelector('.f-strap-kg').textContent = data.total_kg.toLocaleString();
-    tr.querySelector('.f-strap-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    tr.querySelector('.f-strap-kg').textContent = effectiveTotalKg.toLocaleString();
+    tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    tr.querySelector('.f-strap-ppc').textContent = data.suggested_pallets_per_container;
     if (custom && cr) {
       // Reflect the server-computed g/m and the meters/coil it actually
       // used (auto-suggested when the field was left blank/0) back into
@@ -581,9 +609,9 @@ async function calculateAll() {
       cr.querySelector('.f-strap-preview').textContent =
         `Gross/roll: ${data.gross_weight_kg.toFixed(2)}kg`;
     }
-    subtotal += data.line_gross;
-    subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
-    totalKgAll += data.total_kg;
+    subtotal += effectiveGross;
+    subtotalFull += effectiveGrossFull;
+    totalKgAll += effectiveTotalKg;
   }
 
   const discount = subtotalFull - subtotal;
@@ -617,7 +645,6 @@ async function calculateAll() {
   }
 
   const money = (v) => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('subtotalCell').textContent = money(subtotalFull);
   document.getElementById('discountCell').textContent = '-' + money(discount);
   document.getElementById('fobTotalCell').textContent = money(fobTotal);
   document.getElementById('cifTotalCell').textContent = money(cifTotal);

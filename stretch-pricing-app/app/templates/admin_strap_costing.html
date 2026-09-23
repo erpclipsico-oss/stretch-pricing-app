@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}PET/PP Strap Costing · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>PET / PP Strap — Costing</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Everything that prices the PET Strap and PP Strap lines, in one place: dollar rate, material
+    prices, BOM recipes (composition/profit/waste), per-line fixed cost/electricity/direct labor,
+    and freight (FOB/shipping per container) + credit-term surcharge. Stretch Film pricing is
+    unaffected by anything on this page except the Dollar Rate, which both product lines share.
+  </p>
+  <form method="post">
+
+    <div class="panel-header" style="margin-top:8px;"><h2>Dollar Rate</h2></div>
+    <p class="hint" style="margin-bottom:10px;">
+      Shared with Stretch Film (same setting as on the Global Settings page) — used to convert
+      every EGP-priced material/electricity figure below into $.
+    </p>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Dollar Rate (EGP per $1)</span>
+        <input type="number" step="any" name="dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
+      </div>
+    </div>
+
+    {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
+    <div class="panel-header" style="margin-top:28px;"><h2>{{ line_label }}</h2></div>
+
+    <h3 style="margin:14px 0 6px;">Material pricing — resin</h3>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">Rate</span></div>
+      {% for m in material_rates[line_key ~ '_resin'] %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <span style="width:80px;">{{ m.unit }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 style="margin:14px 0 6px;">Material pricing — packaging (EGP/unit)</h3>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+      {% for m in material_rates[line_key ~ '_packaging'] %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <span style="width:80px;">{{ m.unit }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 style="margin:14px 0 6px;">BOM recipes</h3>
+    <p class="hint" style="margin-bottom:10px;">
+      Composition %, profit % and waste % per material class. Component % values should add up
+      to 100% within each recipe.
+    </p>
+    {% for bom in boms[line_key] %}
+    <div class="edit-grid" style="margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #eee;">
+      <div class="edit-row header-row"><span style="width:220px;">{{ bom.label }}</span></div>
+      {% for comp_key, comp_pct in bom.components %}
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">— {{ comp_key }} %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_comp_{{ comp_key }}" value="{{ '%.3f'|format(comp_pct) }}" style="width:100px;">
+      </div>
+      {% endfor %}
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">Profit %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_profit" value="{{ '%.3f'|format(bom.profit_pct) }}" style="width:100px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">Waste %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_waste" value="{{ '%.3f'|format(bom.waste_pct) }}" style="width:100px;">
+      </div>
+    </div>
+    {% endfor %}
+
+    <h3 style="margin:14px 0 6px;">Fixed inputs</h3>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Electricity (EGP/ton)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_electricity"
+               value="{{ line_configs[line_key].electricity_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px;">Fixed cost ($/kg)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_fixed_cost"
+               value="{{ line_configs[line_key].fixed_cost_per_kg_usd if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px;">Direct labor ($/kg)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_direct_labor"
+               value="{{ line_configs[line_key].direct_labor_per_kg_usd if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="panel-header" style="margin-top:28px;"><h2>Freight &amp; credit terms</h2></div>
+    <p class="hint" style="margin-bottom:10px;">
+      Shared by PET Strap and PP Strap (per-container cost, split across whatever fits in the
+      container). Independent of Stretch Film's own Freight/Loading-Port settings.
+    </p>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:340px;">Setting</span><span style="width:100px;">Value</span></div>
+      {% for s in freight %}
+      <div class="edit-row">
+        <span style="width:340px;">{{ s.label }}</span>
+        <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin-top:20px;"><button type="submit" class="btn btn-primary">Save all</button></div>
+  </form>
+</div>
+{% endblock %}

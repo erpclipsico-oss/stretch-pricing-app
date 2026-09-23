@@ -142,6 +142,31 @@ CREATE TABLE IF NOT EXISTS strap_product (
     ctr40 INTEGER NOT NULL DEFAULT 0
 );
 
+-- v34 -- PET/PP Strap BOM recipes (composition %, profit %, waste %), now
+-- admin-editable instead of frozen as Python constants in strap_pricing.py.
+-- components_json holds {component_key: fraction} -- the component keys
+-- themselves (which material_rate suffix each maps to) stay structural/code
+-- (LINE_CONFIG["components"] in strap_pricing.py), only the numbers here
+-- are editable.
+CREATE TABLE IF NOT EXISTS strap_bom (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_key TEXT NOT NULL,
+    bom_key TEXT NOT NULL,
+    profit_pct REAL NOT NULL DEFAULT 0,
+    waste_pct REAL NOT NULL DEFAULT 0,
+    components_json TEXT NOT NULL,
+    UNIQUE(line_key, bom_key)
+);
+
+-- v34 -- PET/PP Strap per-line fixed inputs (electricity, fixed cost,
+-- direct labor), also now admin-editable instead of frozen constants.
+CREATE TABLE IF NOT EXISTS strap_line_config (
+    line_key TEXT PRIMARY KEY,
+    electricity_per_ton_egp REAL NOT NULL DEFAULT 0,
+    fixed_cost_per_kg_usd REAL NOT NULL DEFAULT 0,
+    direct_labor_per_kg_usd REAL NOT NULL DEFAULT 0
+);
+
 -- ============== Cost engine: raw, editable inputs behind EX-Work cost =====
 
 CREATE TABLE IF NOT EXISTS global_setting (
@@ -1578,6 +1603,31 @@ STRAP_GLOBAL_SETTINGS = [
      "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is not Cash."),
 ]
 
+# v34 -- BOM recipes, seeded from the exact figures verified against the
+# owner's own PET/PP Export Excel sheets (see strap_pricing.py's old BOM_DEFS,
+# now moved here so they're admin-editable). Component keys are structural
+# (map to a material_rate suffix + unit/currency in strap_pricing.LINE_CONFIG)
+# and are not part of what's editable here -- only their fractions, plus each
+# recipe's profit % and waste %, are.
+# line_key, bom_key, profit_pct, waste_pct, components{component_key: fraction}
+STRAP_BOM_SEED = [
+    ("pet", "pet_green", 0.16, 0.01, {"resin": 0.96, "c4": 0.02, "color": 0.02}),
+    ("pet", "pet_colors", 0.16, 0.01, {"resin": 0.935, "c4": 0.02, "color": 0.045}),
+    ("pp", "pure_white", 0.12, 0.04, {"5032": 0.97, "coco3": 0.03}),
+    ("pp", "pure_color", 0.12, 0.08, {"5032": 0.955, "color": 0.045}),
+    ("pp", "recycled_pure_white", 0.16, 0.04, {"5032": 0.5, "recycled_pure": 0.45, "coco3": 0.05}),
+    ("pp", "recycled_color", 0.20, 0.08, {"recycled_colored": 0.99, "color": 0.01}),
+    ("pp", "recycled_pure_colors", 0.16, 0.08, {"5032": 0.5, "recycled_pure": 0.45, "color": 0.05}),
+]
+
+# v34 -- per-line electricity/fixed-cost/direct-labor figures, moved here
+# from strap_pricing.LINE_CONFIG for the same reason (admin-editable).
+# line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd
+STRAP_LINE_CONFIG_SEED = [
+    ("pet", 3233.8378874999994, 0.15238135851623189, 0.0),
+    ("pp", 4937.625783806608, 0.12505020582355653, 0.023584587962962967),
+]
+
 # line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg, has_box, has_pallet, ctr20, ctr40
 STRAP_PRODUCTS = [
     # -- PET (BOM: pet_green for all current catalog rows) --
@@ -1629,6 +1679,37 @@ def _seed_strap_data(conn):
         conn.execute(
             "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
             (key, label, value, help_text),
+        )
+    conn.commit()
+
+    # v34 -- BOM recipes (profit/waste/composition %) and per-line fixed
+    # inputs (electricity/fixed cost/direct labor), per-row idempotent like
+    # everything else here so an owner's own edits on an already-seeded live
+    # DB are never overwritten by a later boot.
+    for line_key, bom_key, profit_pct, waste_pct, components in STRAP_BOM_SEED:
+        exists = conn.execute(
+            "SELECT id FROM strap_bom WHERE line_key=? AND bom_key=?", (line_key, bom_key)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO strap_bom (line_key, bom_key, profit_pct, waste_pct, components_json)
+               VALUES (?,?,?,?,?)""",
+            (line_key, bom_key, profit_pct, waste_pct, json.dumps(components)),
+        )
+    conn.commit()
+
+    for line_key, electricity, fixed_cost, direct_labor in STRAP_LINE_CONFIG_SEED:
+        exists = conn.execute(
+            "SELECT line_key FROM strap_line_config WHERE line_key=?", (line_key,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO strap_line_config
+               (line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd)
+               VALUES (?,?,?,?)""",
+            (line_key, electricity, fixed_cost, direct_labor),
         )
     conn.commit()
 

@@ -257,7 +257,7 @@ def create_app():
         weight at the top of the line's target window without exceeding
         it (strap_pricing.suggest_meters_per_coil)."""
         bom_key = data.get("strap_bom_key")
-        if bom_key not in strap_pricing.BOM_DEFS.get(product_line, {}):
+        if bom_key not in strap_pricing.BOM_KEYS.get(product_line, []):
             return None, jsonify({"error": "Unknown material class"}), 400
         width_mm = float(data.get("strap_width_mm") or 0)
         thickness_mm = float(data.get("strap_thickness_mm") or 0)
@@ -273,7 +273,7 @@ def create_app():
 
         gm_per_m = strap_pricing.meter_weight_g_per_m(
             product_line, {"width_mm": width_mm, "thickness_mm": thickness_mm},
-            strap_pricing.BOM_DEFS[product_line][bom_key]["components"],
+            strap_pricing._get_bom(g.db, product_line, bom_key)["components"],
         )
         meters_per_coil = float(data.get("strap_meters_per_coil") or 0)
         if meters_per_coil <= 0:
@@ -330,6 +330,11 @@ def create_app():
             "meter_weight_g_per_m": calc["meter_weight_g_per_m"],
             "meters_per_coil": product["meters_per_coil"],
             "core_weight_kg": product["core_weight_kg"],
+            "suggested_rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
+                product["core_weight_kg"], bool(product["has_box"])),
+            "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
+                product["core_weight_kg"], bool(product["has_box"]),
+                bool(product["ctr20"]), bool(product["ctr40"])),
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
@@ -399,7 +404,15 @@ def create_app():
                     if not strap_product:
                         continue
                     strap_product_id = strap_product["id"]
+                # v33 -- quantity is now entered as Qty (pallets) x an
+                # editable Rolls/pallet (like Stretch Film), not typed
+                # directly as a coil count. The client computes the coil
+                # count (quantity_coils = pallets x rolls/pallet) for the
+                # pricing math; the pallets count itself is what's stored
+                # in quantity_pallets for display, same column Stretch
+                # Film lines already use for their own pallet count.
                 qty_coils = float(l.get("quantity_coils") or 0)
+                qty_pallets_display = float(l.get("quantity_pallets") or 0)
                 line_discount_pct = float(l.get("line_discount_pct") or 0)
                 discount_pct = line_discount_pct + global_discount_pct
                 credit_term = _strap_credit_term(data)
@@ -421,7 +434,7 @@ def create_app():
                             strap_custom_ctr40)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, None, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
+                         qty_pallets_display, unit_price, unit_price_full, total_kg, line_discount_pct,
                          "per_coil", line_product_line, strap_product["bom_key"], strap_product["width_mm"],
                          strap_product["thickness_mm"], strap_product["meters_per_coil"],
                          strap_product["core_weight_kg"], int(strap_product["has_box"]),
@@ -435,7 +448,7 @@ def create_app():
                             pricing_basis, product_line)
                            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_coils, unit_price, unit_price_full, total_kg, line_discount_pct,
+                         qty_pallets_display, unit_price, unit_price_full, total_kg, line_discount_pct,
                          "per_coil", line_product_line),
                     )
                 continue
@@ -917,8 +930,11 @@ def create_app():
     @admin_required
     def admin_global_settings():
         db = g.db
+        # v34 -- the 3 strap_-prefixed freight/credit settings now live on
+        # the dedicated Strap Costing page instead (dollar_rate stays here
+        # too since it's shared by Stretch Film and Strap alike).
         if request.method == "POST":
-            for row in db.execute("SELECT key FROM global_setting").fetchall():
+            for row in db.execute("SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%'").fetchall():
                 key = row["key"]
                 val = request.form.get(f"value_{key}")
                 if val is not None and val != "":
@@ -926,7 +942,9 @@ def create_app():
             db.commit()
             flash("Global cost settings updated.", "success")
             return redirect(url_for("admin_global_settings"))
-        settings = db.execute("SELECT * FROM global_setting ORDER BY label").fetchall()
+        settings = db.execute(
+            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' ORDER BY label"
+        ).fetchall()
         last_upload = table_sync.get_last_upload(db, "global_setting")
         return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
 
@@ -934,19 +952,154 @@ def create_app():
     @admin_required
     def admin_material_rates():
         db = g.db
+        # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on
+        # the dedicated Strap Costing page instead, so they're excluded here.
         if request.method == "POST":
-            for row in db.execute("SELECT id FROM material_rate").fetchall():
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%'"
+            ).fetchall():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
                     db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
             db.commit()
             flash("Material rates updated.", "success")
             return redirect(url_for("admin_material_rates"))
-        resin = db.execute("SELECT * FROM material_rate WHERE category='resin' ORDER BY label").fetchall()
-        packaging = db.execute("SELECT * FROM material_rate WHERE category='packaging' ORDER BY label").fetchall()
+        resin = db.execute(
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key NOT LIKE 'pet_%' "
+            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+        ).fetchall()
+        packaging = db.execute(
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key NOT LIKE 'pet_%' "
+            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+        ).fetchall()
         last_upload = table_sync.get_last_upload(db, "material_rate")
         return render_template("admin_material_rates.html", resin=resin, packaging=packaging,
                                 last_upload=last_upload)
+
+    @app.route("/admin/strap-costing", methods=["GET", "POST"])
+    @admin_required
+    def admin_strap_costing():
+        """v34 -- single consolidated page for everything that prices the
+        PET Strap / PP Strap lines: dollar rate (shared with Stretch Film),
+        their own material prices, BOM recipes (composition/profit/waste),
+        per-line fixed cost/electricity/direct labor, and the freight (FOB/
+        shipping per container) + credit-term surcharge settings."""
+        db = g.db
+        if request.method == "POST":
+            # Dollar rate (shared global_setting -- also editable from
+            # Global Settings; same underlying row, so either page's edit
+            # takes effect for both Stretch Film and Strap).
+            val = request.form.get("dollar_rate")
+            if val is not None and val != "":
+                db.execute("UPDATE global_setting SET value=? WHERE key='dollar_rate'", (float(val),))
+
+            # Material prices (pet_*/pp_* rows only).
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key LIKE 'pet_%' OR material_key LIKE 'pp_%'"
+            ).fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+
+            # BOM recipes: profit %, waste %, and each component's fraction.
+            for row in db.execute("SELECT id, components_json FROM strap_bom").fetchall():
+                profit_val = request.form.get(f"bom_{row['id']}_profit")
+                waste_val = request.form.get(f"bom_{row['id']}_waste")
+                if profit_val is not None and profit_val != "":
+                    db.execute("UPDATE strap_bom SET profit_pct=? WHERE id=?",
+                               (float(profit_val) / 100.0, row["id"]))
+                if waste_val is not None and waste_val != "":
+                    db.execute("UPDATE strap_bom SET waste_pct=? WHERE id=?",
+                               (float(waste_val) / 100.0, row["id"]))
+                components = json.loads(row["components_json"])
+                changed = False
+                for comp_key in list(components.keys()):
+                    comp_val = request.form.get(f"bom_{row['id']}_comp_{comp_key}")
+                    if comp_val is not None and comp_val != "":
+                        components[comp_key] = float(comp_val) / 100.0
+                        changed = True
+                if changed:
+                    db.execute("UPDATE strap_bom SET components_json=? WHERE id=?",
+                               (json.dumps(components), row["id"]))
+
+            # Per-line electricity / fixed cost / direct labor.
+            for line_key in ("pet", "pp"):
+                elec_val = request.form.get(f"linecfg_{line_key}_electricity")
+                fixed_val = request.form.get(f"linecfg_{line_key}_fixed_cost")
+                labor_val = request.form.get(f"linecfg_{line_key}_direct_labor")
+                if elec_val is not None and elec_val != "":
+                    db.execute("UPDATE strap_line_config SET electricity_per_ton_egp=? WHERE line_key=?",
+                               (float(elec_val), line_key))
+                if fixed_val is not None and fixed_val != "":
+                    db.execute("UPDATE strap_line_config SET fixed_cost_per_kg_usd=? WHERE line_key=?",
+                               (float(fixed_val), line_key))
+                if labor_val is not None and labor_val != "":
+                    db.execute("UPDATE strap_line_config SET direct_labor_per_kg_usd=? WHERE line_key=?",
+                               (float(labor_val), line_key))
+
+            # Freight / credit-term settings (strap_-prefixed global_setting rows).
+            for row in db.execute("SELECT key FROM global_setting WHERE key LIKE 'strap_%'").fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+
+            db.commit()
+            flash("PET/PP Strap costing updated.", "success")
+            return redirect(url_for("admin_strap_costing"))
+
+        dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='dollar_rate'").fetchone()
+        material_rates = {
+            "pet_resin": db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'pet_%' AND category='resin' ORDER BY label"
+            ).fetchall(),
+            "pet_packaging": db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'pet_%' AND category='packaging' ORDER BY label"
+            ).fetchall(),
+            "pp_resin": db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'pp_%' AND category='resin' ORDER BY label"
+            ).fetchall(),
+            "pp_packaging": db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'pp_%' AND category='packaging' ORDER BY label"
+            ).fetchall(),
+        }
+        boms = {}
+        for line_key in ("pet", "pp"):
+            rows = db.execute(
+                "SELECT * FROM strap_bom WHERE line_key=?", (line_key,)
+            ).fetchall()
+            label_map = dict(strap_pricing.BOM_LABELS.get(line_key, []))
+            entries = []
+            for r in rows:
+                entries.append({
+                    "id": r["id"],
+                    "bom_key": r["bom_key"],
+                    "label": label_map.get(r["bom_key"], r["bom_key"]),
+                    "profit_pct": r["profit_pct"] * 100.0,
+                    "waste_pct": r["waste_pct"] * 100.0,
+                    "components": [
+                        (k, v * 100.0) for k, v in json.loads(r["components_json"]).items()
+                    ],
+                })
+            # keep the same display order as BOM_LABELS
+            order = [k for k, _ in strap_pricing.BOM_LABELS.get(line_key, [])]
+            entries.sort(key=lambda e: order.index(e["bom_key"]) if e["bom_key"] in order else 99)
+            boms[line_key] = entries
+        line_configs = {
+            r["line_key"]: r
+            for r in db.execute("SELECT * FROM strap_line_config").fetchall()
+        }
+        freight = db.execute(
+            "SELECT * FROM global_setting WHERE key LIKE 'strap_%' ORDER BY label"
+        ).fetchall()
+        return render_template(
+            "admin_strap_costing.html",
+            dollar_rate=dollar_rate["value"] if dollar_rate else 45,
+            material_rates=material_rates,
+            boms=boms,
+            line_configs=line_configs,
+            freight=freight,
+        )
 
     @app.route("/admin/cost/labor", methods=["GET", "POST"])
     @admin_required
