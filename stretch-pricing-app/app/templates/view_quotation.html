@@ -15,9 +15,17 @@
     <div class="field"><label>Payment Term</label><div>{{ q.payment_term or '-' }}</div></div>
     <div class="field"><label>Discount</label><div>{{ q.global_discount_pct or 0 }}%</div></div>
   </div>
-  <table class="lines-table">
+  {# v69 -- headers reworded so each column reads unambiguously as a
+     quantity ("Qty (Pallets)", "Total Qty (KG)") or a money amount in USD,
+     on the owner's request, and wrapped onto 2 lines with a bit more
+     column padding so the longer labels stay readable. #}
+  <table class="lines-table lines-table-wide">
     <thead>
-      <tr><th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th><th>Qty</th><th>Total KG</th><th>Unit $/KG</th><th>FOB $/KG</th><th>CIF $/KG</th><th>Line total</th></tr>
+      <tr>
+        <th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th>
+        <th>Qty<br>(Pallets)</th><th>Total Qty<br>(KG)</th><th>Unit Price<br>($/KG)</th>
+        <th>FOB Price<br>($/KG)</th><th>CIF Price<br>($/KG)</th><th>Line Total<br>(USD)</th>
+      </tr>
     </thead>
     <tbody>
       {% for l in lines %}

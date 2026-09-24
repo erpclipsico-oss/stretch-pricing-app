@@ -133,6 +133,13 @@ input[type=number] {
 .lines-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lines-table .empty { text-align: center; color: var(--muted); padding: 24px; }
 
+/* v69 -- saved-quotation view page's line-items table: a bit more
+   breathing room per column now that headers are 2 lines (Qty (Pallets),
+   Total Qty (KG), etc) instead of one bare word, per the owner's request
+   to make clear which columns are a quantity vs a $ amount. */
+.lines-table-wide th { padding: 10px 12px; line-height: 1.35; white-space: normal; }
+.lines-table-wide td { padding: 8px 12px; }
+
 /* Compact per-line input fields (roll/core weight, width, qty, discount %,
    etc.) -- narrow number-spinner boxes so a wide row of them stays
    scannable, matching the dense one-row-per-line layout the owner asked

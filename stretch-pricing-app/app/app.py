@@ -1903,7 +1903,13 @@ def build_pdf(q, lines, totals):
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm)
+    # v69 -- explicit left/right margins (previously reportlab's 1in/72pt
+    # default on each side, tighter than it looked -- the line-items table
+    # was already drawing slightly past that default frame). 15mm matches
+    # the letterhead/divider's own 180mm content width on an A4 (210mm)
+    # page, and frees up real room for the wider columns below.
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm,
+                             leftMargin=15 * mm, rightMargin=15 * mm)
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1a1a1a"))
     company_name_style = ParagraphStyle("CoName", parent=styles["Normal"], fontSize=15, fontName="Helvetica-Bold",
@@ -1980,17 +1986,23 @@ def build_pdf(q, lines, totals):
 
     # v67 -- FOB $/KG / CIF $/KG columns added (previously only the plain
     # "Unit $/KG" -- see load_quotation()'s comment on fob_unit_usd_kg/
-    # cif_unit_usd_kg for how each is computed). The header row used to be
-    # plain strings, which reportlab does NOT wrap -- at this column width
-    # "FOB $/KG"/"CIF $/KG" overflowed into the neighbouring header cell
-    # (same overlap bug the v41 comment above describes for line data).
-    # Wrapping the header in a Paragraph lets long labels wrap onto a
-    # second line within their own column instead.
+    # cif_unit_usd_kg for how each is computed).
+    # v69 -- every header now wrapped in a Paragraph (previously only the
+    # $/KG columns were, since reportlab does NOT wrap a plain string --
+    # it draws it past the column edge and overlaps the neighbouring
+    # header, the same overlap bug the v41 comment above describes for
+    # line data). Labels also reworded, on the owner's request, so each
+    # column reads unambiguously as a quantity ("Qty (Pallets)", "Total
+    # Qty (KG)") or a money amount in USD ("Unit Price ($/KG)" etc) rather
+    # than a bare, easy-to-misread number -- "Total KG" in particular used
+    # to read like it might be a second total/amount column next to "Line
+    # Total $", when it's really just this line's own quantity in KG.
     header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
                                    textColor=colors.white, alignment=1)  # 1 = TA_CENTER
-    header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty", "Total KG",
-               *[Paragraph(t, header_style) for t in
-                 ["Unit $/KG", "FOB $/KG", "CIF $/KG", "Line Total $"]]]
+    header = [Paragraph(t, header_style) for t in
+              ["#", "Product", "Pallet", "Packing", "Basis", "Qty<br/>(Pallets)",
+               "Total Qty<br/>(KG)", "Unit Price<br/>($/KG)", "FOB Price<br/>($/KG)",
+               "CIF Price<br/>($/KG)", "Line Total<br/>(USD)"]]
     rows = [header]
     span_commands = []
     stuffing_row_indexes = []
@@ -2044,10 +2056,16 @@ def build_pdf(q, lines, totals):
             rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", "", "", ""])
             span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
             stuffing_row_indexes.append(row_idx)
-    table = Table(rows, colWidths=[14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48])
+    # v69 -- widened (was [14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48], sum
+    # 458pt) now that the 15mm margins above free up the room -- sums to
+    # 508pt, just inside the 510pt usable width on an A4 page with those
+    # margins.
+    table = Table(rows, colWidths=[14, 90, 44, 44, 46, 40, 44, 44, 44, 44, 54])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
         ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
@@ -2125,13 +2143,21 @@ def build_xlsx(q, lines, totals):
     header_row = row
     # v67 -- FOB $/KG / CIF $/KG columns added (see the matching comment in
     # build_pdf() and load_quotation()'s fob_unit_usd_kg/cif_unit_usd_kg).
-    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG",
-               "FOB $/KG", "CIF $/KG", "Line Total $"]
+    # v69 -- labels reworded (matching build_pdf()'s own v69 comment) so
+    # each column reads unambiguously as a quantity ("Qty (Pallets)",
+    # "Total Qty (KG)") or a money amount in USD, and wrapped onto 2 lines
+    # (wrap_text + a taller header row) rather than one long string, with
+    # wider columns to match.
+    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty\n(Pallets)", "Total Qty\n(KG)",
+               "Unit Price\n($/KG)", "FOB Price\n($/KG)", "CIF Price\n($/KG)", "Line Total\n(USD)"]
+    header_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for col, h in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=h)
         cell.fill = header_fill
         cell.font = header_font
         cell.border = border
+        cell.alignment = header_wrap
+    ws.row_dimensions[header_row].height = 28
     row += 1
 
     stuffing_font = Font(italic=True, size=8, color="666666")
@@ -2195,7 +2221,9 @@ def build_xlsx(q, lines, totals):
         cell.number_format = "$#,##0.00"
         row += 1
 
-    widths = [4, 30, 12, 12, 12, 12, 10, 10, 10, 10, 12]
+    # v69 -- widened a bit (was [4, 30, 12, 12, 12, 12, 10, 10, 10, 10, 12])
+    # to give the now-2-line headers room to breathe.
+    widths = [5, 32, 13, 13, 14, 13, 12, 13, 13, 13, 14]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
