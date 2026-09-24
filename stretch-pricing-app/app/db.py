@@ -395,6 +395,7 @@ def init_db():
     _fix_uvi_margin_v53(conn)
     _dedupe_stale_jumbo_products_v63(conn)
     _seed_confirmed_micron_gaps_v64(conn)
+    _seed_regular_rigid_missing_microns_v66(conn)
     conn.close()
 
 
@@ -2037,6 +2038,85 @@ def _seed_confirmed_micron_gaps_v64(conn):
          "(Power plus) micron 15 has run -- see db._seed_confirmed_micron_gaps_v64()'s docstring. Do "
          "not delete this row -- it stops the fill from running again and overwriting a manual admin "
          "edit made after this boot. Inserted: " + str(inserted)),
+    )
+    conn.commit()
+
+
+# v66 -- REGID Film ("Regular" Rigid grade), microns 15/17/20/23: same
+# reasoning as STANDARD_150_MISSING_MICRONS above and confirmed the same
+# way -- cost_engine.bom_stretch_multiplier() finds no "%" in "REGID Film"
+# and falls back to 1.5, i.e. Regular Rigid's material composition is
+# already priced off the exact same multiplier=1.5 BOM rows as 150%
+# Standard, which exist for every one of these microns (8 through 40) --
+# so, again, only the physical roll-spec catalog row was missing, not the
+# pricing data behind it. The two microns already in the catalog for this
+# grade (10/12) share one identical real roll spec (16kg roll, 46
+# rolls/pallet, 1.8kg core, Standard pallet, Automatic, Transparent --
+# reverse-engineered from the H1.24 workbook, per _seed_super_rigid_
+# products_v46()'s comment above), so the missing microns reuse that same
+# confirmed-real geometry, exactly as was done for 150% Standard.
+#
+# Deliberately NOT done here: "Super REGID Film" ("Super"/"Premium")
+# microns 8/17/20/23. Unlike Regular Rigid (one uniform roll spec across
+# every micron) or 150% Standard, Super REGID Film's own 3 known microns
+# (10/12/15) each have a DIFFERENT real roll weight (2.8kg/1.8kg/2.17kg --
+# small Manual hand-wound rolls, wound to whatever weight the operator
+# used, not a formula) with no consistent pattern to extrapolate a 4th/
+# 5th/6th/7th value from safely -- so these still need the owner's own
+# roll-weight numbers, same as before.
+REGULAR_RIGID_MISSING_MICRONS = ["15", "17", "20", "23"]
+REGULAR_RIGID_GEOMETRY = dict(pallet_size="Standard", auto_manual="Automatic", color="Transparent",
+                               rolls_per_pallet=46, roll_weight_kg=16, core_weight_kg=1.8, width_mm=None)
+
+
+def _seed_regular_rigid_missing_microns_v66(conn):
+    """One-time fill for the REGID Film ("Regular" Rigid) micron gap
+    described above -- see REGULAR_RIGID_MISSING_MICRONS's comment.
+    Idempotent/per-row and gated behind a global_setting marker, same
+    pattern as every other one-time fill in this file."""
+    from . import cost_engine
+
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='regular_rigid_missing_microns_v66_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    inserted = []
+    for micron in REGULAR_RIGID_MISSING_MICRONS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability='REGID Film' AND micron=?", (micron,)
+        ).fetchone()
+        if exists:
+            continue
+        g = REGULAR_RIGID_GEOMETRY
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('REGID Film', ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (micron, g["pallet_size"], g["auto_manual"], g["color"], g["rolls_per_pallet"],
+             g["roll_weight_kg"], g["core_weight_kg"], g["width_mm"]),
+        )
+        inserted.append(("REGID Film", micron))
+    conn.commit()
+
+    for stretch_ability, micron in inserted:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=?", (stretch_ability, micron)
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("regular_rigid_missing_microns_v66_seeded", "Regular Rigid micron-gap fill v66 (internal marker)", 1,
+         "Internal marker: the one-time fill of REGID Film (Regular Rigid) microns 15/17/20/23 has "
+         "run -- see db._seed_regular_rigid_missing_microns_v66()'s docstring. Do not delete this row "
+         "-- it stops the fill from running again and overwriting a manual admin edit made after this "
+         "boot. Inserted: " + str(inserted)),
     )
     conn.commit()
 
