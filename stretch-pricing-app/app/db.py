@@ -393,6 +393,8 @@ def init_db():
     _seed_strap_data(conn)
     _seed_max_discount_setting(conn)
     _fix_uvi_margin_v53(conn)
+    _dedupe_stale_jumbo_products_v63(conn)
+    _seed_confirmed_micron_gaps_v64(conn)
     conn.close()
 
 
@@ -1833,6 +1835,208 @@ def _fix_uvi_margin_v53(conn):
          "margin vs. the same product without UV) -- see db._fix_uvi_margin_v53()'s docstring. Do not "
          "delete this row -- it stops the one-time fix from running again and overwriting a manual "
          "admin edit made after this boot."),
+    )
+    conn.commit()
+
+
+# v63 -- (stretch_ability, micron) pairs where the catalog ended up with
+# TWO product rows for the same spec: an older "standard" roll (16kg,
+# width_mm blank) seeded from the original catalog, and a newer "jumbo"
+# roll (50kg, width_mm=500) added later by _seed_full_import_v4() when it
+# imported the H1.36 workbook -- that import matched existing rows by
+# stretch_ability+micron+roll_weight_kg, so a jumbo row with no matching
+# roll_weight_kg on file was inserted as a brand-new row instead of
+# replacing the stale one. The owner confirmed (after the H1.36 workbook
+# shows EVERY 200/250/300/350% Power micron as jumbo-only, with no lighter
+# variant left) that the jumbo row is the current, correct one and the
+# older "standard" row for these same specs is simply stale -- and that
+# going forward there should be ONE catalog row per spec, with the actual
+# roll weight for a given order typed into the quotation line's own Roll
+# kg field (already supported -- see readLines()'s custom_roll_weight_kg
+# in pricing.html and cost_engine.get_bom_row()'s roll_tier lookup, which
+# already picks the "jumbo" vs "standard" BOM bracket from whatever roll
+# weight is actually in effect for that line, catalog-selection or
+# override, so nothing else has to change for this to keep working).
+DEDUPE_STALE_JUMBO_PRODUCTS_V63 = [
+    ("200% Power", "17"), ("200% Power", "20"), ("200% Power", "23"),
+    ("250% Power", "17"), ("250% Power", "20"), ("250% Power", "23"),
+    ("300% (Power plus)", "17"), ("300% (Power plus)", "20"), ("300% (Power plus)", "23"),
+    ("350% (Power plus)", "12"), ("350% (Power plus)", "15"),
+    ("350% (Power plus)", "17"), ("350% (Power plus)", "23"),
+]
+
+
+def _dedupe_stale_jumbo_products_v63(conn):
+    """One-time cleanup for the stale-duplicate-product issue the owner
+    reported (two catalog rows for the same micron+stretch_ability, priced
+    differently) -- see DEDUPE_STALE_JUMBO_PRODUCTS_V63's comment above for
+    the root cause and the owner's confirmed resolution. For each listed
+    pair, if BOTH a <=25kg row and a >25kg (jumbo) row still exist, the
+    <=25kg row is deleted -- but ONLY if nothing still points at it: no
+    saved quotation_line references it (a past quote must keep showing
+    exactly what it showed when it was quoted) and no Pre-Stretch product
+    uses it as its prestretch_source_product_id (Pre-Stretch pricing is
+    sourced from the jumbo rows specifically -- see
+    JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS/PRESTRETCH_PRODUCTS above -- so
+    those were never at risk here, this check is just a defensive
+    safety net). A pair with anything other than exactly one <=25kg row
+    and one >25kg row (already cleaned up, or hand-edited into some other
+    shape by an admin since) is left alone rather than guessed at.
+    Gated behind a global_setting marker like every other one-time fix in
+    this file, so it runs exactly once against an already-deployed, already-
+    seeded live DB and never re-touches a row an admin has since added or
+    edited by hand."""
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='dedupe_stale_jumbo_products_v63'"
+    ).fetchone()
+    if already_run:
+        return
+
+    deleted = []
+    kept_both = []
+    for stretch_ability, micron in DEDUPE_STALE_JUMBO_PRODUCTS_V63:
+        rows = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=?",
+            (stretch_ability, micron),
+        ).fetchall()
+        standard_rows = [r for r in rows if (r["roll_weight_kg"] or 0) <= 25]
+        jumbo_rows = [r for r in rows if (r["roll_weight_kg"] or 0) > 25]
+        if len(standard_rows) != 1 or len(jumbo_rows) != 1:
+            continue
+        old_row = standard_rows[0]
+        still_used = conn.execute(
+            "SELECT COUNT(*) c FROM quotation_line WHERE product_id=?", (old_row["id"],)
+        ).fetchone()["c"]
+        still_sourced = conn.execute(
+            "SELECT COUNT(*) c FROM product WHERE prestretch_source_product_id=?", (old_row["id"],)
+        ).fetchone()["c"]
+        if still_used or still_sourced:
+            kept_both.append((stretch_ability, micron, old_row["id"]))
+            continue
+        conn.execute("DELETE FROM product WHERE id=?", (old_row["id"],))
+        deleted.append((stretch_ability, micron, old_row["id"]))
+    conn.commit()
+
+    note = f"Deleted stale rows: {deleted}. Kept both (still referenced): {kept_both}."
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("dedupe_stale_jumbo_products_v63", "Stale jumbo-duplicate product cleanup v63 (internal marker)", 1,
+         "Internal marker: the one-time stale-standard-vs-jumbo product row cleanup has run -- see "
+         "db._dedupe_stale_jumbo_products_v63()'s docstring. Do not delete this row -- it stops the "
+         "cleanup from running again. " + note),
+    )
+    conn.commit()
+
+
+# v64 -- fills real micron gaps in the catalog, confirmed against the
+# owner's own H1.36 workbook data ALREADY imported into this app (bom_row's
+# C4/material-composition figures exist for every one of these microns --
+# see full_import_h136.json -- it was only the PRODUCT catalog's physical
+# roll-spec row that was missing, not the pricing data behind it), never
+# guessed numbers:
+#
+# 150% Standard, microns 8/9/10/15/25/30/40: the workbook's own roll-spec
+# columns (Width/Rolls-per-pallet/Roll weight/Core weight) are blank for
+# every one of these EXCEPT micron 23 -- but the 4 microns already in this
+# app's catalog for this exact grade (12/17/20/23) all share the IDENTICAL
+# real roll spec (16kg roll, 46 rolls/pallet, 1.8kg core, Standard pallet,
+# Automatic, Transparent -- see seed_data.json), confirming this whole
+# grade uses one uniform physical roll regardless of micron (only the
+# material composition/C4, i.e. the price, varies by micron -- exactly
+# what bom_row already has for every one of these). So the missing
+# microns get that same confirmed-real geometry, not an invented one.
+STANDARD_150_MISSING_MICRONS = ["8", "9", "10", "15", "25", "30", "40"]
+STANDARD_150_GEOMETRY = dict(pallet_size="Standard", auto_manual="Automatic", color="Transparent",
+                              rolls_per_pallet=46, roll_weight_kg=16, core_weight_kg=1.8, width_mm=None)
+
+# 300% (Power plus), micron 15: the workbook's roll-spec columns are blank
+# for this ONE row, but its bom_row/C4 figure IS present. Every other
+# micron in this same grade from 17 up (17/20/23/25/30/40) uses the jumbo
+# roll spec (50kg roll, 500mm width, 16 rolls/pallet, 1.8kg core); only
+# micron 12 is the odd one out at the old standard spec. 15 sits between
+# them, so it's seeded as jumbo, matching the grade's dominant pattern --
+# flagged to the owner as the one genuine judgment call in this batch (vs.
+# the 150% Standard microns above, which reuse an already-100%-consistent
+# spec) in case her actual roll for this micron is the older standard size
+# instead.
+POWER_PLUS_300_MICRON_15_GEOMETRY = dict(stretch_ability="300% (Power plus)", micron="15",
+                                          pallet_size="Standard", auto_manual="Automatic", color="Transparent",
+                                          rolls_per_pallet=16, roll_weight_kg=50, core_weight_kg=1.8, width_mm=500)
+
+
+def _seed_confirmed_micron_gaps_v64(conn):
+    """One-time fill for the two confirmed-real micron gaps described above
+    -- see STANDARD_150_MISSING_MICRONS/POWER_PLUS_300_MICRON_15_GEOMETRY's
+    comments. Deliberately does NOT touch the 'Special (Power Plus)' grade
+    (Stretch!55-62 in the H1.36 workbook) or the remaining Rigid gaps
+    (Regular 15/17/20/23, Super/Premium 8/17/20/23) -- neither has ANY real
+    roll-spec or usable material-composition data anywhere in either
+    workbook on file (the 'Special (Power Plus)' rows' own C4 is a flat 1
+    for every micron -- a blank template value, not a real composition),
+    so there is nothing on file to seed them from; those still need the
+    owner's own numbers. Idempotent/per-row like every other seeding
+    function in this file, and gated behind a global_setting marker so it
+    runs its live-recompute step exactly once."""
+    from . import cost_engine
+
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='confirmed_micron_gaps_v64_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    inserted = []
+    for micron in STANDARD_150_MISSING_MICRONS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability='150% Standard' AND micron=?", (micron,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('150% Standard', ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (micron, STANDARD_150_GEOMETRY["pallet_size"], STANDARD_150_GEOMETRY["auto_manual"],
+             STANDARD_150_GEOMETRY["color"], STANDARD_150_GEOMETRY["rolls_per_pallet"],
+             STANDARD_150_GEOMETRY["roll_weight_kg"], STANDARD_150_GEOMETRY["core_weight_kg"],
+             STANDARD_150_GEOMETRY["width_mm"]),
+        )
+        inserted.append(("150% Standard", micron))
+
+    g = POWER_PLUS_300_MICRON_15_GEOMETRY
+    exists = conn.execute(
+        "SELECT id FROM product WHERE stretch_ability=? AND micron=?", (g["stretch_ability"], g["micron"])
+    ).fetchone()
+    if not exists:
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (g["stretch_ability"], g["micron"], g["pallet_size"], g["auto_manual"], g["color"],
+             g["rolls_per_pallet"], g["roll_weight_kg"], g["core_weight_kg"], g["width_mm"]),
+        )
+        inserted.append((g["stretch_ability"], g["micron"]))
+    conn.commit()
+
+    # Cache each newly-seeded row's live-computed EX-Work rate.
+    for stretch_ability, micron in inserted:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=?", (stretch_ability, micron)
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("confirmed_micron_gaps_v64_seeded", "Confirmed micron-gap catalog fill v64 (internal marker)", 1,
+         "Internal marker: the one-time fill of 150% Standard microns 8/9/10/15/25/30/40 and 300% "
+         "(Power plus) micron 15 has run -- see db._seed_confirmed_micron_gaps_v64()'s docstring. Do "
+         "not delete this row -- it stops the fill from running again and overwriting a manual admin "
+         "edit made after this boot. Inserted: " + str(inserted)),
     )
     conn.commit()
 
