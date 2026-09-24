@@ -30,18 +30,25 @@
      Rolls/Pallet, Pallets/Container, then FOB/CIF price. Stretch Film lines
      have no single per-line container choice, so Pallets/Container shows
      both the 40ft and 20ft capacities (see load_quotation()'s comment).
-     v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request. #}
+     v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request.
+     v81 -- Strap is always quoted $/Roll, Stretch Film always $/KG (see the
+     matching comment in build_pdf()), so the two can't share one FOB/CIF
+     header -- rendered as its own macro instead, called once per product
+     family. A single-family quotation still gets exactly one table (no
+     heading); a mixed one gets two, each with its own heading, sitting
+     above the same combined FOB/CIF totals box below. #}
+  {% macro render_lines_table(table_lines, dollar_unit) %}
   <table class="lines-table lines-table-wide">
     <thead>
       <tr>
         <th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th>
         <th>Roll Weight<br>(kg)</th><th>Core Weight<br>(kg)</th>
         <th>Rolls/<br>Pallet</th><th>Pallets/Container<br>(40'/20')</th>
-        <th>FOB Price<br>($/KG)</th><th>CIF Price<br>($/KG)</th>
+        <th>FOB Price<br>({{ dollar_unit }})</th><th>CIF Price<br>({{ dollar_unit }})</th>
       </tr>
     </thead>
     <tbody>
-      {% for l in lines %}
+      {% for l in table_lines %}
       <tr>
         <td>{{ l.label }}</td>
         <td>{{ l.strap_pallet_display if l.product_line in ('pet', 'pp') else l.pallet_type }}</td>
@@ -62,6 +69,19 @@
       {% endfor %}
     </tbody>
   </table>
+  {% endmacro %}
+  {% set strap_lines = lines | selectattr('product_line', 'in', ['pet', 'pp']) | list %}
+  {% set stretch_lines = lines | rejectattr('product_line', 'in', ['pet', 'pp']) | list %}
+  {% if stretch_lines and strap_lines %}
+    <h3 style="margin:1rem 0 0.5rem;">Stretch Film</h3>
+    {{ render_lines_table(stretch_lines, '$/KG') }}
+    <h3 style="margin:1.5rem 0 0.5rem;">PET / PP Strap</h3>
+    {{ render_lines_table(strap_lines, '$/Roll') }}
+  {% elif strap_lines %}
+    {{ render_lines_table(strap_lines, '$/Roll') }}
+  {% else %}
+    {{ render_lines_table(stretch_lines, '$/KG') }}
+  {% endif %}
   <div class="totals-box">
     <div><span>Discount</span><strong>-${{ '%.2f'|format(totals.subtotal - totals.total) }}</strong></div>
     <div class="grand"><span>FOB Total ({{ q.loading_port or '-' }})</span><strong>${{ '%.2f'|format(totals.fob_total) }}</strong></div>

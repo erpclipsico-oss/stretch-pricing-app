@@ -397,6 +397,7 @@ def init_db():
     _seed_confirmed_micron_gaps_v64(conn)
     _seed_regular_rigid_missing_microns_v66(conn)
     _fix_missing_bom_rows_v70(conn)
+    _fix_packing_tier_stuffing_v80(conn)
     conn.close()
 
 
@@ -905,6 +906,20 @@ EXTRAS_GLOBAL_SETTINGS = [
      "$/KG adjustment on the Users page -- for any rep whose account is "
      "marked 'Foreign' ('Extras > Foreign sellers extra', mode = Percent of "
      "selling price). Enter as a plain percentage, e.g. 1 = 1%."),
+    # v79 -- owner-confirmed: Stretch Film/Pre-Stretch now get the SAME
+    # flat credit-term surcharge PET/PP Strap has had since v30
+    # (strap_credit_surcharge_usd_kg), applied the same way -- added to the
+    # final $/KG price whenever the quotation's Payment Term isn't Cash
+    # (see pricing.py's unit_price_for()/prestretch_unit_price_for() and
+    # app.py's _is_credit_term()). A separate, independently-editable
+    # setting rather than reusing the Strap one, matching how every other
+    # Extras surcharge is its own admin-editable row.
+    ("extra_credit_term_usd_kg", "Extras - Credit payment terms extra ($/KG)", 0.03,
+     "Added to the unit price of every Stretch Film / Pre-Stretch line "
+     "when the quotation's Payment Term is anything other than Cash "
+     "('Extras > Credit payment terms extra'). Mirrors the PET/PP Strap "
+     "credit-term surcharge (Admin > PET/PP Strap Costing), kept as its "
+     "own separately-editable setting."),
 ]
 
 
@@ -1246,17 +1261,34 @@ DEFAULT_USERS = [
 PACKING_TIERS = [
     # tier_key, category, weight_label, pallet_type, match_weight_kg,
     # rolls_per_box, box_per_pallet, rolls_per_pallet, pallets/container40, pallets/container20
+    # v80 -- pallets/container40 AND pallets/container20 for every Manual
+    # (hand-wrap) tier filled in from the owner's own clean "ALEX
+    # INTERNATIONAL" packing table (20/10 for a Standard pallet, 24/10 for
+    # a Euro pallet -- a floor-space figure that doesn't vary by roll
+    # weight within a pallet type, confirmed against the 5kg tier's own
+    # already-seeded 20/10 and 24/10 below). See
+    # _fix_packing_tier_stuffing_v80() for the matching one-time patch to
+    # an already-seeded live DB.
     ("manual_5kg_standard", "Manual", "Manual(5kg)", "Standard", 5, 4, 64, 256, 20, 10),
-    ("manual_2.3_3.5kg_standard", "Manual", "Manual(2.3~3.5kg)", "Standard", 2.9, 6, 60, 360, None, None),
-    ("manual_2.2kg_standard", "Manual", "Manual(2.2kg)", "Standard", 2.2, 6, 80, 480, None, None),
-    ("manual_1.5kg_standard", "Manual", "Manual(1.5kg)", "Standard", 1.5, 6, 112, 672, None, None),
+    ("manual_2.3_3.5kg_standard", "Manual", "Manual(2.3~3.5kg)", "Standard", 2.9, 6, 60, 360, 20, 10),
+    ("manual_2.2kg_standard", "Manual", "Manual(2.2kg)", "Standard", 2.2, 6, 80, 480, 20, 10),
+    ("manual_1.5kg_standard", "Manual", "Manual(1.5kg)", "Standard", 1.5, 6, 112, 672, 20, 10),
     ("manual_5kg_euro", "Manual", "Manual(5kg)", "Euro", 5, 4, 48, 192, 24, 10),
-    ("manual_2.3_3.5kg_euro", "Manual", "Manual(2.3~3.5kg)", "Euro", 2.9, 6, 36, 216, None, None),
-    ("manual_2.2kg_euro", "Manual", "Manual(2.2kg)", "Euro", 2.2, 6, 64, 384, None, None),
-    ("manual_1.5kg_euro", "Manual", "Manual(1.5kg)", "Euro", 1.5, 6, 84, 504, None, None),
+    ("manual_2.3_3.5kg_euro", "Manual", "Manual(2.3~3.5kg)", "Euro", 2.9, 6, 36, 216, 24, 10),
+    ("manual_2.2kg_euro", "Manual", "Manual(2.2kg)", "Euro", 2.2, 6, 64, 384, 24, 10),
+    ("manual_1.5kg_euro", "Manual", "Manual(1.5kg)", "Euro", 1.5, 6, 84, 504, 24, 10),
+    # v80 -- pallets/container20 for the Automatic (jumbo/standard-roll)
+    # Standard tiers filled in the same way: ONE shared figure (20) across
+    # all three Standard/Automatic rows, per the owner's own clean table --
+    # not a per-row half of pallets/container40 (that was this session's
+    # own guess before the owner sent the clearer table; the real figure
+    # is flat 20 for all three, same as Jumbo(50kg) Standard's own
+    # already-seeded 20). The Euro Jumbo(50/55kg) tiers are genuinely blank
+    # in the owner's own table too (no 40ft or 20ft figure at all) -- left
+    # as None rather than guessed.
     ("jumbo_50kg_standard", "Automatic", "Jumbo Roll (50 kg)", "Standard", 50, None, None, 16, 31, 20),
-    ("jumbo_55kg_standard", "Automatic", "Jumbo Roll (55 kg)", "Standard", 55, None, None, 16, 28, None),
-    ("standard_16kg_standard", "Automatic", "Standard Roll (16 kg)", "Standard", 16, None, None, 46, 34, None),
+    ("jumbo_55kg_standard", "Automatic", "Jumbo Roll (55 kg)", "Standard", 55, None, None, 16, 28, 20),
+    ("standard_16kg_standard", "Automatic", "Standard Roll (16 kg)", "Standard", 16, None, None, 46, 34, 20),
     ("jumbo_50kg_euro", "Automatic", "Jumbo Roll (50 kg)", "Euro", 50, None, None, 16, None, None),
     ("jumbo_55kg_euro", "Automatic", "Jumbo Roll (55 kg)", "Euro", 55, None, None, 16, None, None),
     # Details sheet lists two Euro/Standard-Roll(16kg) rows (45 and 30 rolls/pallet
@@ -1265,6 +1297,65 @@ PACKING_TIERS = [
     # open question for the team to confirm.
     ("standard_16kg_euro", "Automatic", "Standard Roll (16 kg)", "Euro", 16, None, None, 45, 24, 11),
 ]
+
+
+def _fix_packing_tier_stuffing_v80(conn):
+    """v80 -- owner-confirmed corrections/fills to the Manual (hand-wrap)
+    and Automatic (jumbo) packing_tier rows -- see PACKING_TIERS' own v80
+    comment above for the reasoning behind each number. One-time, gated
+    behind a global_setting marker like every other fix in this file, so it
+    patches an already-seeded live DB exactly once without touching any
+    OTHER tier's numbers an admin may have since edited by hand in
+    Admin > Global Cost Settings > Packing tiers."""
+    already_fixed = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='packing_tier_stuffing_v80_applied'"
+    ).fetchone()
+    if already_fixed:
+        return
+
+    # (tier_key, pallets_per_container40_fill_or_None,
+    #  pallets_per_container20_fill_or_None) -- these only ever FILL a
+    # currently-NULL container column, never overwrite a real number
+    # already there (whichever seed default or manual admin edit put it
+    # there), so this is safe to run against a live DB no matter what an
+    # admin has already changed by hand.
+    CONTAINER_FILLS = [
+        ("manual_2.3_3.5kg_standard", 20, 10),
+        ("manual_2.2kg_standard", 20, 10),
+        ("manual_1.5kg_standard", 20, 10),
+        ("manual_2.3_3.5kg_euro", 24, 10),
+        ("manual_2.2kg_euro", 24, 10),
+        ("manual_1.5kg_euro", 24, 10),
+        ("jumbo_55kg_standard", None, 20),
+        ("standard_16kg_standard", None, 20),
+    ]
+    for tier_key, p40, p20 in CONTAINER_FILLS:
+        if p40 is not None:
+            conn.execute(
+                "UPDATE packing_tier SET pallets_per_container40=? "
+                "WHERE tier_key=? AND pallets_per_container40 IS NULL",
+                (p40, tier_key),
+            )
+        if p20 is not None:
+            conn.execute(
+                "UPDATE packing_tier SET pallets_per_container20=? "
+                "WHERE tier_key=? AND pallets_per_container20 IS NULL",
+                (p20, tier_key),
+            )
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("packing_tier_stuffing_v80_applied", "Packing tier stuffing v80 applied (internal marker)", 1,
+         "Internal marker: the Manual(1.5/2.2/2.3~3.5kg) Standard+Euro tiers' pallets/container40 AND "
+         "pallets/container20 were filled in (20/10 Standard, 24/10 Euro), and the Jumbo(55kg)/"
+         "Standard-Roll(16kg) Standard tiers' pallets/container20 were filled in (20, same as "
+         "Jumbo(50kg) Standard's own figure) -- see db._fix_packing_tier_stuffing_v80(). Every value "
+         "came from the owner's own clean packing table (ALEX INTERNATIONAL), sent 2026-09-24. "
+         "Do not delete this row -- it stops the one-time fix from running again and overwriting a "
+         "manual admin edit made after this boot."),
+    )
+    conn.commit()
 
 
 def _seed_packing_tiers(conn):

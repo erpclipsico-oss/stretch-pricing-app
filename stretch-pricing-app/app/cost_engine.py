@@ -580,6 +580,7 @@ EXTRAS_SETTING_KEYS = {
     "color": "extra_color_usd_kg",
     "prestretch": "extra_prestretch_usd_kg",
     "foreign_seller_pct": "extra_foreign_seller_pct",
+    "credit_term": "extra_credit_term_usd_kg",
 }
 
 def extras_settings(conn):
@@ -588,6 +589,7 @@ def extras_settings(conn):
         "color_usd_kg": _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25),
         "prestretch_usd_kg": _get_setting(conn, EXTRAS_SETTING_KEYS["prestretch"], 0.12),
         "foreign_seller_pct": _get_setting(conn, EXTRAS_SETTING_KEYS["foreign_seller_pct"], 1.0),
+        "credit_term_usd_kg": _get_setting(conn, EXTRAS_SETTING_KEYS["credit_term"], 0.03),
     }
 
 
@@ -599,6 +601,16 @@ def color_extra_usd_kg(conn, colored):
     if not colored:
         return 0.0
     return _get_setting(conn, EXTRAS_SETTING_KEYS["color"], 0.25)
+
+
+def credit_term_extra_usd_kg(conn, credit_term):
+    """v79 -- 'Credit payment terms extra': the Stretch Film / Pre-Stretch
+    counterpart of strap_pricing.compute_strap_line()'s credit-term
+    surcharge. `credit_term` is the quotation's own flag (payment_term
+    isn't Cash), truthy/falsy -- see app.py's _is_credit_term()."""
+    if not credit_term:
+        return 0.0
+    return _get_setting(conn, EXTRAS_SETTING_KEYS["credit_term"], 0.03)
 
 
 def apply_hidden_markup(price, markup_mode, markup_value):

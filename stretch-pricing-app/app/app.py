@@ -215,6 +215,10 @@ def create_app():
         discount_pct, discount_capped = cost_engine.capped_discount_pct(
             g.db, line_discount_pct, global_discount_pct
         )
+        # v79 -- same flat credit-term $/kg surcharge Strap has always had,
+        # now applied here too (Extras > Credit payment terms extra) -- see
+        # _is_credit_term()/cost_engine.credit_term_extra_usd_kg().
+        credit_term = _is_credit_term(data)
 
         if is_prestretch(product):
             roll_weight_kg = float(data.get("prestretch_roll_weight_kg") or 0)
@@ -226,12 +230,14 @@ def create_app():
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                 seller_type=seller_type, colored=colored, discount_pct=discount_pct,
                 hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+                credit_term=credit_term,
             )
             unit_price_full, _ = compute_prestretch_line(
                 g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
                 rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                 seller_type=seller_type, colored=colored, discount_pct=0,
                 hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+                credit_term=credit_term,
             )
             gross = cost_engine.round_half_up(unit_price * total_kg, 2)
             gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
@@ -269,7 +275,8 @@ def create_app():
                                              auto_manual_override=auto_manual_override, colored=colored,
                                              discount_pct=discount_pct, uv_type=uv_type,
                                              hidden_markup_mode=hidden_markup_mode,
-                                             hidden_markup_value=hidden_markup_value)
+                                             hidden_markup_value=hidden_markup_value,
+                                             credit_term=credit_term)
         unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                            price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                            pricing_basis=pricing_basis,
@@ -281,7 +288,8 @@ def create_app():
                                            auto_manual_override=auto_manual_override, colored=colored,
                                            discount_pct=0, uv_type=uv_type,
                                            hidden_markup_mode=hidden_markup_mode,
-                                           hidden_markup_value=hidden_markup_value)
+                                           hidden_markup_value=hidden_markup_value,
+                                           credit_term=credit_term)
         # v70.2 -- raw, unrounded EX-Work price so the client can build FOB
         # the same way the sheet's Stretch!AO does (ROUNDUP on the unrounded
         # base), not on the already-2dp-rounded unit_price.
@@ -297,6 +305,7 @@ def create_app():
                                           discount_pct=discount_pct, uv_type=uv_type,
                                           hidden_markup_mode=hidden_markup_mode,
                                           hidden_markup_value=hidden_markup_value,
+                                          credit_term=credit_term,
                                           round_result=False)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
@@ -323,11 +332,14 @@ def create_app():
             "discount_capped": discount_capped,
         })
 
-    def _strap_credit_term(data):
-        """Reuses the quotation's own Payment Term selector: anything other
-        than 'Cash (...)' triggers the strap sheets' flat $/kg credit-term
-        surcharge, exactly like the payment_term field already does for the
-        rest of the quotation."""
+    def _is_credit_term(data):
+        """The quotation's own Payment Term selector: anything other than
+        'Cash (...)' triggers a flat $/kg credit-term surcharge -- PET/PP
+        Strap's own (strap_pricing.compute_strap_line()) since v30, and
+        (v79) Stretch Film/Pre-Stretch's (pricing.py's
+        unit_price_for()/prestretch_unit_price_for(), via
+        cost_engine.credit_term_extra_usd_kg()) -- both driven by this same
+        one field. Renamed from _strap_credit_term now that it's shared."""
         payment_term = (data.get("payment_term") or "").strip().lower()
         return bool(payment_term) and not payment_term.startswith("cash")
 
@@ -391,7 +403,7 @@ def create_app():
         discount_pct, discount_capped = cost_engine.capped_discount_pct(
             g.db, line_discount_pct, global_discount_pct
         )
-        credit_term = _strap_credit_term(data)
+        credit_term = _is_credit_term(data)
         # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
         # from Stretch Film's own -- see user.strap_markup_mode/
         # strap_markup_value and strap_pricing.compute_strap_line().
@@ -555,7 +567,7 @@ def create_app():
                 )
                 if line_capped:
                     any_discount_capped = True
-                credit_term = _strap_credit_term(data)
+                credit_term = _is_credit_term(data)
                 # v62 -- only the shipping (freight) leg is shared with
                 # Stretch Film's Catalog & Rates > Rates tables now, keyed
                 # by this quotation's own Destination; FOB stays Strap's
@@ -633,6 +645,10 @@ def create_app():
             )
             if line_capped:
                 any_discount_capped = True
+            # v79 -- same flat credit-term $/kg surcharge Strap lines get
+            # above (Extras > Credit payment terms extra) -- see
+            # _is_credit_term()/cost_engine.credit_term_extra_usd_kg().
+            credit_term = _is_credit_term(data)
 
             if is_prestretch(product):
                 roll_weight_kg = float(l.get("prestretch_roll_weight_kg") or 0)
@@ -645,6 +661,7 @@ def create_app():
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
                     hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                    credit_term=credit_term,
                 )
                 unit_price_full, _ = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -652,6 +669,7 @@ def create_app():
                     price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
                     seller_type=creator_seller_type, colored=colored, discount_pct=0,
                     hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                    credit_term=credit_term,
                 )
                 db.execute(
                     """INSERT INTO quotation_line
@@ -687,6 +705,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                credit_term=credit_term,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -696,6 +715,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=0, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                credit_term=credit_term,
             )
             # v70.2 -- raw unrounded price, stored so the saved quotation's
             # view/PDF/Excel FOB $/KG can match Stretch!AO exactly (see
@@ -708,6 +728,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                credit_term=credit_term,
                 round_result=False,
             )
             db.execute(
@@ -804,7 +825,7 @@ def create_app():
             (qid,),
         ).fetchall()
         basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG",
-                         "per_coil": "$/KG (CFR)"}
+                         "per_coil": "$/Roll (CFR)"}
         # v67 -- per-line FOB $/KG and CIF $/KG, shown on the saved-
         # quotation view page, PDF and Excel (previously only the plain
         # "Unit $/KG" -- EX-Work for Stretch, CFR for Strap -- and the
@@ -981,9 +1002,27 @@ def create_app():
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
 
             if line_pl in ("pet", "pp"):
-                fob_unit = (l["fob_price_usd_kg"] if ("fob_price_usd_kg" in l.keys()
-                                                        and l["fob_price_usd_kg"] is not None) else None)
-                cif_unit = l["unit_price_usd_kg"]  # already the frozen, freight-inclusive CFR $/kg
+                # v81 -- owner-confirmed: Strap is ALWAYS quoted $/Roll, never
+                # $/KG -- unlike Stretch Film, their customers' own buying
+                # convention doesn't work in $/KG at all. fob_price_usd_kg /
+                # unit_price_usd_kg are still what's stored (same frozen
+                # Cash/Credit FOB and CFR $/kg strap_pricing.compute_strap_line()
+                # produces -- the underlying cost math is untouched), so the
+                # $/Roll figure shown here is just that stored $/kg times
+                # this line's own gross roll weight (spec["roll_weight_kg"],
+                # net+core -- computed just above), the same multiplication
+                # compute_strap_line() itself does internally to go from
+                # fob_price_kg to fob_price_roll. See build_pdf()/build_xlsx()/
+                # view_quotation.html for the matching "always $/Roll for
+                # Strap, in its own table when mixed with Stretch" split.
+                roll_wt = spec["roll_weight_kg"] if spec else None
+                fob_kg = (l["fob_price_usd_kg"] if ("fob_price_usd_kg" in l.keys()
+                                                      and l["fob_price_usd_kg"] is not None) else None)
+                cif_kg = l["unit_price_usd_kg"]  # frozen, freight-inclusive CFR $/kg
+                fob_unit = (cost_engine.round_half_up(fob_kg * roll_wt, 2)
+                            if (fob_kg is not None and roll_wt) else None)
+                cif_unit = (cost_engine.round_half_up(cif_kg * roll_wt, 2)
+                            if roll_wt else cif_kg)
             else:
                 # v70.2 -- the sheet's Stretch!AO (FOB $/KG) applies Excel's
                 # ROUNDUP() (ceiling) to the UNROUNDED EX-Work price plus the
@@ -2115,58 +2154,70 @@ def build_pdf(q, lines, totals):
     # columns instead, so the note would just repeat them.
     header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
                                    textColor=colors.white, alignment=1)  # 1 = TA_CENTER
-    # v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request.
-    header = [Paragraph(t, header_style) for t in
-              ["#", "Product", "Pallet", "Packing", "Basis",
-               "Roll Weight<br/>(kg)", "Core Weight<br/>(kg)", "Rolls/<br/>Pallet",
-               "Pallets/<br/>Container<br/>(40'/20')", "FOB Price<br/>($/KG)", "CIF Price<br/>($/KG)"]]
-    rows = [header]
-    span_commands = []
-    stuffing_row_indexes = []
-    for i, line in enumerate(lines, start=1):
-        # v41 -- pallet_type/packing_type on a PET/PP Strap line don't hold
-        # a real pallet/packing choice: those two columns are reused
-        # internally to carry the line's payment-term surcharge state
-        # ("Cash"/"Credit" and a fixed "Per Coil" marker -- see
-        # api_save_quotation()'s strap branch). v42 -- load_quotation()
-        # now works out a real Pallet/Packing value for a strap line from
-        # its own saved Pallet/Box checkboxes (strap_pallet_display /
-        # strap_packing_display) instead of leaving the column blank.
-        is_strap_line = line.get("product_line") in ("pet", "pp")
-        # v41 -- Pallet/Packing/Basis are also wrapped in a Paragraph, not
-        # just Product: "Standard Pallet"/"Automatic" are plain strings
-        # too wide for their column at this font size, and a plain string
-        # overflows into the next column instead of wrapping, the same
-        # collision bug the Product column had.
-        fob_unit = line.get("fob_unit_usd_kg")
-        cif_unit = line.get("cif_unit_usd_kg")
-        spec = line.get("spec") or {}
-        roll_wt = spec.get("roll_weight_kg")
-        core_wt = spec.get("core_weight_kg")
-        rpp = line.get("rolls_per_pallet_display")
-        ppc = line.get("pallets_per_container_display")
-        rows.append([
-            str(i), Paragraph(line["label"], label_style),
-            Paragraph(line["strap_pallet_display"] if is_strap_line else line["pallet_type"], label_style),
-            Paragraph(line["strap_packing_display"] if is_strap_line else line["packing_type"], label_style),
-            Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
-            f"{roll_wt:g}" if roll_wt else "-",
-            f"{core_wt:g}" if core_wt else "-",
-            f"{rpp:g}" if rpp else "-",
-            Paragraph(ppc, basis_style) if ppc else "-",
-            f"{fob_unit:.2f}" if fob_unit is not None else "-",
-            f"{cif_unit:.2f}" if cif_unit is not None else "-",
-        ])
-        # v68 -- roll-spec sub-row (Width, plus Thickness/Meters-per-coil
-        # for Strap) right under every line that has one -- see
-        # load_quotation()'s spec_note comment. Roll weight/Core weight are
-        # their own columns now (v76), so no longer repeated here.
-        spec_note = line.get("spec_note")
-        if spec_note:
-            row_idx = len(rows)
-            rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", ""])
-            span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
-            stuffing_row_indexes.append(row_idx)
+
+    # v81 -- owner-confirmed: Strap is always quoted $/Roll, Stretch Film
+    # always $/KG -- the two can no longer share one FOB/CIF header label,
+    # so the line-items table is now built by this helper (one call per
+    # product family) instead of inline once over the whole `lines` list.
+    # When a quotation mixes both families, build_pdf() below calls this
+    # twice and renders two separate tables (own heading each) with the
+    # combined FOB/CIF grand totals unchanged underneath; a single-family
+    # quotation still gets exactly one table, just as before v81.
+    def _line_items_table(family_lines, dollar_unit, start_num):
+        # v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request.
+        header = [Paragraph(t, header_style) for t in
+                  ["#", "Product", "Pallet", "Packing", "Basis",
+                   "Roll Weight<br/>(kg)", "Core Weight<br/>(kg)", "Rolls/<br/>Pallet",
+                   "Pallets/<br/>Container<br/>(40'/20')", f"FOB Price<br/>({dollar_unit})",
+                   f"CIF Price<br/>({dollar_unit})"]]
+        rows = [header]
+        span_commands = []
+        num = start_num
+        for line in family_lines:
+            # v41 -- pallet_type/packing_type on a PET/PP Strap line don't hold
+            # a real pallet/packing choice: those two columns are reused
+            # internally to carry the line's payment-term surcharge state
+            # ("Cash"/"Credit" and a fixed "Per Coil" marker -- see
+            # api_save_quotation()'s strap branch). v42 -- load_quotation()
+            # now works out a real Pallet/Packing value for a strap line from
+            # its own saved Pallet/Box checkboxes (strap_pallet_display /
+            # strap_packing_display) instead of leaving the column blank.
+            is_strap_line = line.get("product_line") in ("pet", "pp")
+            # v41 -- Pallet/Packing/Basis are also wrapped in a Paragraph, not
+            # just Product: "Standard Pallet"/"Automatic" are plain strings
+            # too wide for their column at this font size, and a plain string
+            # overflows into the next column instead of wrapping, the same
+            # collision bug the Product column had.
+            fob_unit = line.get("fob_unit_usd_kg")
+            cif_unit = line.get("cif_unit_usd_kg")
+            spec = line.get("spec") or {}
+            roll_wt = spec.get("roll_weight_kg")
+            core_wt = spec.get("core_weight_kg")
+            rpp = line.get("rolls_per_pallet_display")
+            ppc = line.get("pallets_per_container_display")
+            rows.append([
+                str(num), Paragraph(line["label"], label_style),
+                Paragraph(line["strap_pallet_display"] if is_strap_line else line["pallet_type"], label_style),
+                Paragraph(line["strap_packing_display"] if is_strap_line else line["packing_type"], label_style),
+                Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
+                f"{roll_wt:g}" if roll_wt else "-",
+                f"{core_wt:g}" if core_wt else "-",
+                f"{rpp:g}" if rpp else "-",
+                Paragraph(ppc, basis_style) if ppc else "-",
+                f"{fob_unit:.2f}" if fob_unit is not None else "-",
+                f"{cif_unit:.2f}" if cif_unit is not None else "-",
+            ])
+            num += 1
+            # v68 -- roll-spec sub-row (Width, plus Thickness/Meters-per-coil
+            # for Strap) right under every line that has one -- see
+            # load_quotation()'s spec_note comment. Roll weight/Core weight are
+            # their own columns now (v76), so no longer repeated here.
+            spec_note = line.get("spec_note")
+            if spec_note:
+                row_idx = len(rows)
+                rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", ""])
+                span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
+        return rows, span_commands, num
     # v69 -- widened (was [14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48], sum
     # 458pt) now that the 15mm margins above free up the room -- sums to
     # 508pt, just inside the 510pt usable width on an A4 page with those
@@ -2200,31 +2251,61 @@ def build_pdf(q, lines, totals):
     # the v76.1 comment above about "(Green/Natural))"), the rest spread
     # across the new physical/packing columns for a touch more breathing
     # room.
-    table = Table(rows, colWidths=[14, 93, 63, 76, 58, 32, 30, 32, 46, 33, 33])
-    table.hAlign = "LEFT"
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("TOPPADDING", (0, 0), (-1, 0), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        # v75 -- LEFTPADDING/RIGHTPADDING reduced for EVERY row including
-        # the header (reportlab's own default is 6pt each side): applying
-        # this only to the body rows left the header row's own "#" column
-        # at its old default 12pt of padding against a narrower 12pt
-        # column, i.e. zero room for the header's own "#" -- reportlab
-        # doesn't wrap-fail gracefully in that case, it blows up the row
-        # height instead (a LayoutError on any quotation long enough to
-        # reach a second page). Same 4pt padding everywhere fixes both.
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
-        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
-        *span_commands,
-    ]))
-    elements.append(table)
-    elements.append(Spacer(1, 14))
+    def _make_table(rows, span_commands):
+        t = Table(rows, colWidths=[14, 93, 63, 76, 58, 32, 30, 32, 46, 33, 33])
+        t.hAlign = "LEFT"
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("TOPPADDING", (0, 0), (-1, 0), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+            # v75 -- LEFTPADDING/RIGHTPADDING reduced for EVERY row including
+            # the header (reportlab's own default is 6pt each side): applying
+            # this only to the body rows left the header row's own "#" column
+            # at its old default 12pt of padding against a narrower 12pt
+            # column, i.e. zero room for the header's own "#" -- reportlab
+            # doesn't wrap-fail gracefully in that case, it blows up the row
+            # height instead (a LayoutError on any quotation long enough to
+            # reach a second page). Same 4pt padding everywhere fixes both.
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+            ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+            *span_commands,
+        ]))
+        return t
+
+    # v81 -- Strap is always $/Roll, Stretch Film always $/KG, so the two
+    # can't share one table header. A mixed quotation gets two separate
+    # tables (own section heading, own "#" numbering continuing across
+    # both) instead of one; a single-family quotation still gets exactly
+    # one table, unheaded, as before -- only the strap-only case's own
+    # FOB/CIF header/values changed (from $/KG to $/Roll), which is the
+    # whole point of this change.
+    section_style = ParagraphStyle("SectionHeading", parent=styles["Normal"], fontSize=9,
+                                    fontName="Helvetica-Bold", textColor=colors.HexColor("#1f2937"),
+                                    spaceBefore=0, spaceAfter=4)
+    stretch_lines = [l for l in lines if l.get("product_line") not in ("pet", "pp")]
+    strap_lines = [l for l in lines if l.get("product_line") in ("pet", "pp")]
+    if stretch_lines and strap_lines:
+        rows1, spans1, next_num = _line_items_table(stretch_lines, "$/KG", 1)
+        elements.append(Paragraph("Stretch Film", section_style))
+        elements.append(_make_table(rows1, spans1))
+        elements.append(Spacer(1, 10))
+        rows2, spans2, _ = _line_items_table(strap_lines, "$/Roll", next_num)
+        elements.append(Paragraph("PET / PP Strap", section_style))
+        elements.append(_make_table(rows2, spans2))
+        elements.append(Spacer(1, 14))
+    elif strap_lines:
+        rows, spans, _ = _line_items_table(strap_lines, "$/Roll", 1)
+        elements.append(_make_table(rows, spans))
+        elements.append(Spacer(1, 14))
+    else:
+        rows, spans, _ = _line_items_table(stretch_lines, "$/KG", 1)
+        elements.append(_make_table(rows, spans))
+        elements.append(Spacer(1, 14))
 
     totals_rows = [
         [f"Global Discount ({q['global_discount_pct'] or 0}%)",
@@ -2294,7 +2375,6 @@ def build_xlsx(q, lines, totals):
         row += 1
     row += 1
 
-    header_row = row
     # v67 -- FOB $/KG / CIF $/KG columns added (see the matching comment in
     # build_pdf() and load_quotation()'s fob_unit_usd_kg/cif_unit_usd_kg).
     # v69 -- labels reworded (matching build_pdf()'s own v69 comment) so
@@ -2307,63 +2387,98 @@ def build_xlsx(q, lines, totals):
     # v76.1 -- Qty (Pallets) dropped, Rolls/Pallet + Pallets/Container added
     # (12 columns now) -- see the matching comment in build_pdf().
     # v76.2 -- Total Qty (KG) dropped too (11 columns now).
-    headers = ["#", "Product", "Pallet", "Packing", "Basis",
-               "Roll Weight\n(kg)", "Core Weight\n(kg)", "Rolls/Pallet",
-               "Pallets/Container\n(40'/20')", "FOB Price\n($/KG)", "CIF Price\n($/KG)"]
+    # v81 -- Strap is always $/Roll, Stretch Film always $/KG (see the
+    # matching comment in build_pdf()), so the header and line-writing are
+    # now their own helpers, called once per product family -- twice, with
+    # a section-heading row between them, when a quotation mixes both.
     header_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for col, h in enumerate(headers, start=1):
-        cell = ws.cell(row=header_row, column=col, value=h)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.border = border
-        cell.alignment = header_wrap
-    ws.row_dimensions[header_row].height = 28
-    row += 1
-
     stuffing_font = Font(italic=True, size=8, color="666666")
-    for i, line in enumerate(lines, start=1):
-        # v42 -- see the matching comment in build_pdf(): a PET/PP Strap
-        # line's pallet_type/packing_type columns hold an internal
-        # payment-term marker ("Cash"/"Credit", "Per Coil"), not a real
-        # Pallet/Packing choice -- these use the line's own saved Pallet/
-        # Box checkboxes instead (strap_pallet_display/strap_packing_display).
-        is_strap_line = line.get("product_line") in ("pet", "pp")
-        fob_unit = line.get("fob_unit_usd_kg")
-        cif_unit = line.get("cif_unit_usd_kg")
-        spec = line.get("spec") or {}
-        roll_wt = spec.get("roll_weight_kg")
-        core_wt = spec.get("core_weight_kg")
-        rpp = line.get("rolls_per_pallet_display")
-        ppc = line.get("pallets_per_container_display")
-        values = [
-            i, line["label"], line["strap_pallet_display"] if is_strap_line else line["pallet_type"],
-            line["strap_packing_display"] if is_strap_line else line["packing_type"],
-            line.get("pricing_basis_label", "$/KG"),
-            roll_wt if roll_wt else "-",
-            core_wt if core_wt else "-",
-            rpp if rpp else "-",
-            ppc if ppc else "-",
-            cost_engine.round_half_up(fob_unit, 2) if fob_unit is not None else "-",
-            cost_engine.round_half_up(cif_unit, 2) if cif_unit is not None else "-",
-        ]
-        for col, v in enumerate(values, start=1):
-            cell = ws.cell(row=row, column=col, value=v)
+    section_font = Font(bold=True, size=10, color="1F2937")
+
+    def _write_header_row(hdr_row, dollar_unit):
+        headers = ["#", "Product", "Pallet", "Packing", "Basis",
+                   "Roll Weight\n(kg)", "Core Weight\n(kg)", "Rolls/Pallet",
+                   "Pallets/Container\n(40'/20')", f"FOB Price\n({dollar_unit})",
+                   f"CIF Price\n({dollar_unit})"]
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=hdr_row, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
             cell.border = border
-            if col >= 6:
-                cell.alignment = right
+            cell.alignment = header_wrap
+        ws.row_dimensions[hdr_row].height = 28
+
+    def _write_line_rows(start_row, family_lines, start_num):
+        r = start_row
+        num = start_num
+        for line in family_lines:
+            # v42 -- see the matching comment in build_pdf(): a PET/PP Strap
+            # line's pallet_type/packing_type columns hold an internal
+            # payment-term marker ("Cash"/"Credit", "Per Coil"), not a real
+            # Pallet/Packing choice -- these use the line's own saved Pallet/
+            # Box checkboxes instead (strap_pallet_display/strap_packing_display).
+            is_strap_line = line.get("product_line") in ("pet", "pp")
+            fob_unit = line.get("fob_unit_usd_kg")
+            cif_unit = line.get("cif_unit_usd_kg")
+            spec = line.get("spec") or {}
+            roll_wt = spec.get("roll_weight_kg")
+            core_wt = spec.get("core_weight_kg")
+            rpp = line.get("rolls_per_pallet_display")
+            ppc = line.get("pallets_per_container_display")
+            values = [
+                num, line["label"], line["strap_pallet_display"] if is_strap_line else line["pallet_type"],
+                line["strap_packing_display"] if is_strap_line else line["packing_type"],
+                line.get("pricing_basis_label", "$/KG"),
+                roll_wt if roll_wt else "-",
+                core_wt if core_wt else "-",
+                rpp if rpp else "-",
+                ppc if ppc else "-",
+                cost_engine.round_half_up(fob_unit, 2) if fob_unit is not None else "-",
+                cost_engine.round_half_up(cif_unit, 2) if cif_unit is not None else "-",
+            ]
+            for col, v in enumerate(values, start=1):
+                cell = ws.cell(row=r, column=col, value=v)
+                cell.border = border
+                if col >= 6:
+                    cell.alignment = right
+            r += 1
+            num += 1
+            # v68 -- roll-spec note (Width, plus Thickness/Meters-per-coil for
+            # Strap) right under every line that has one -- see
+            # load_quotation()'s spec_note comment. Roll weight/Core weight are
+            # their own columns now (v76); Rolls/Pallet and Pallets/Container
+            # are too (v76.1), so the old "Stuffing —" note for Strap lines is
+            # gone -- it would just repeat these columns.
+            spec_note = line.get("spec_note")
+            if spec_note:
+                cell = ws.cell(row=r, column=2, value=spec_note)
+                cell.font = stuffing_font
+                ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=11)
+                r += 1
+        return r, num
+
+    stretch_lines = [l for l in lines if l.get("product_line") not in ("pet", "pp")]
+    strap_lines = [l for l in lines if l.get("product_line") in ("pet", "pp")]
+    if stretch_lines and strap_lines:
+        ws.cell(row=row, column=1, value="Stretch Film").font = section_font
         row += 1
-        # v68 -- roll-spec note (Width, plus Thickness/Meters-per-coil for
-        # Strap) right under every line that has one -- see
-        # load_quotation()'s spec_note comment. Roll weight/Core weight are
-        # their own columns now (v76); Rolls/Pallet and Pallets/Container
-        # are too (v76.1), so the old "Stuffing —" note for Strap lines is
-        # gone -- it would just repeat these columns.
-        spec_note = line.get("spec_note")
-        if spec_note:
-            cell = ws.cell(row=row, column=2, value=spec_note)
-            cell.font = stuffing_font
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=11)
-            row += 1
+        _write_header_row(row, "$/KG")
+        row += 1
+        row, next_num = _write_line_rows(row, stretch_lines, 1)
+        row += 1
+        ws.cell(row=row, column=1, value="PET / PP Strap").font = section_font
+        row += 1
+        _write_header_row(row, "$/Roll")
+        row += 1
+        row, _ = _write_line_rows(row, strap_lines, next_num)
+    elif strap_lines:
+        _write_header_row(row, "$/Roll")
+        row += 1
+        row, _ = _write_line_rows(row, strap_lines, 1)
+    else:
+        _write_header_row(row, "$/KG")
+        row += 1
+        row, _ = _write_line_rows(row, stretch_lines, 1)
 
     row += 1
     totals_rows = [

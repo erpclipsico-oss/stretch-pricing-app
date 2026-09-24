@@ -94,7 +94,7 @@ def _discounted_factor(factor, discount_pct):
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
                     colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0,
-                    round_result=True):
+                    round_result=True, credit_term=False):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -138,7 +138,18 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     cost_engine.round_up()'s docstring) before rounding up once at the
     end, instead of rounding EX-Work to 2dp first and only then adding the
     add-on, which is the extra rounding step that was making this app's
-    FOB $/KG land a cent below the workbook's for almost every SKU."""
+    FOB $/KG land a cent below the workbook's for almost every SKU.
+
+    credit_term (v79): the quotation's own Payment Term flag (not Cash) --
+    adds the admin-configured 'Extras > Credit payment terms extra' $/KG
+    surcharge, the Stretch Film counterpart of the credit-term surcharge
+    PET/PP Strap has always had (strap_pricing.compute_strap_line()).
+    Gated behind apply_extras like every other Extras surcharge, so it
+    isn't double-applied on an internal lookup (e.g. Pre-Stretch borrowing
+    its source SKU's own price) -- and because it flows into the raw,
+    unrounded price returned when round_result=False, it's already baked
+    into the EX-Work base that FOB/CIF get built from in app.py, so both
+    end up including it, the same as Strap's FOB/CFR both do."""
     factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
                                          rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
     factor = _discounted_factor(factor, discount_pct)
@@ -153,6 +164,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     if apply_extras:
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
         price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
+        price += cost_engine.credit_term_extra_usd_kg(db, credit_term)
     return cost_engine.round_half_up(price, 2) if round_result else price
 
 
@@ -160,7 +172,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
                   seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
-                  hidden_markup_mode=None, hidden_markup_value=0, round_result=True):
+                  hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis (v46 -- owner-confirmed): for every regular (non-Pre-
@@ -189,7 +201,8 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override,
                                  seller_type=seller_type, colored=colored, discount_pct=discount_pct,
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
-                                 hidden_markup_value=hidden_markup_value, round_result=round_result)
+                                 hidden_markup_value=hidden_markup_value, round_result=round_result,
+                                 credit_term=credit_term)
     # v46: always the full gross roll weight for every regular product --
     # see this function's docstring. (Pre-Stretch is the one place the
     # Net basis actually subtracts the core -- compute_prestretch_line().)
@@ -295,7 +308,8 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
 
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
                                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0, seller_type=None,
-                               colored=False, discount_pct=0, hidden_markup_mode=None, hidden_markup_value=0):
+                               colored=False, discount_pct=0, hidden_markup_mode=None, hidden_markup_value=0,
+                               credit_term=False):
     roll_weight = roll_weight_kg or 0
     if roll_weight <= 0:
         return 0.0
@@ -322,13 +336,16 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     # v44: hidden per-user markup, applied last -- see unit_price_for()'s
     # matching comment.
     price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
+    # v79: same 'Extras > Credit payment terms extra' surcharge Stretch
+    # Film's unit_price_for() gets, applied last like it is there.
+    price += cost_engine.credit_term_extra_usd_kg(db, credit_term)
     return cost_engine.round_half_up(price, 2)
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
                              core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
                              pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0,
-                             hidden_markup_mode=None, hidden_markup_value=0):
+                             hidden_markup_mode=None, hidden_markup_value=0, credit_term=False):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
     packaging type, instead of the product catalog's fixed values."""
@@ -341,6 +358,7 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
         db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
         rolls_per_pallet, packaging_type, price_adjustment_usd_kg, seller_type=seller_type, colored=colored,
         discount_pct=discount_pct, hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+        credit_term=credit_term,
     )
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
