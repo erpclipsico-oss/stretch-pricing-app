@@ -396,6 +396,7 @@ def init_db():
     _dedupe_stale_jumbo_products_v63(conn)
     _seed_confirmed_micron_gaps_v64(conn)
     _seed_regular_rigid_missing_microns_v66(conn)
+    _fix_missing_bom_rows_v70(conn)
     conn.close()
 
 
@@ -560,6 +561,23 @@ def _migrate(conn):
     # i.e. equal to unit_price_usd_kg, everywhere it's read.
     if "unit_price_full_usd_kg" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN unit_price_full_usd_kg REAL")
+        conn.commit()
+
+    # ---- v70.2 -- owner-confirmed: the saved-quotation view/PDF/Excel's
+    # per-line FOB/CIF $/KG must match the H1.36 workbook's own Stretch!AO/
+    # AP columns to the cent, which needs the UN-rounded EX-Work price as
+    # the base (the workbook's own AI/EX-Work column is never rounded --
+    # see cost_engine.round_up()'s docstring) -- but unit_price_usd_kg
+    # above is always the already-2dp-rounded display/billing price, on
+    # purpose (that's what's actually charged). This column freezes the
+    # SAME price pricing.compute_line() computed for the line, before that
+    # final round_half_up step, purely so the FOB/CIF add-on math has the
+    # full-precision base to work from; NULL on quotes saved before this
+    # column existed, where load_quotation() falls back to the rounded
+    # unit_price_usd_kg (matches the app's own pre-v70.2 behavior for
+    # those, never a guess).
+    if "unit_price_usd_kg_raw" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN unit_price_usd_kg_raw REAL")
         conn.commit()
 
     # ---- Multi product-line (v30): PET Strap / PP Strap alongside Stretch
@@ -1749,6 +1767,60 @@ def _fix_stale_material_rates_v8(conn):
         if row is not None and row["value"] != correct_value:
             conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (correct_value, key))
             changed = True
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
+
+
+# v70 -- the 350% (Power plus) block in full_import_h136.json's bom_rows
+# simply stops at micron 25 (both roll tiers): the source workbook's own BOM
+# sheet has two more rows for this stretch-ability -- micron 30 and 40,
+# standard AND jumbo -- that never made it into the JSON import. Every OTHER
+# stretch-multiplier's BOM block goes all the way to micron 40, so this was
+# an accidental one-block truncation, not a deliberate gap. Confirmed
+# directly against the owner's own H1.36 workbook: 'BOM' sheet rows 47-48
+# (stretch_multiplier=3.5, micron=30/40) -- both microns share the exact
+# same composition in the source sheet. Without this row,
+# cost_engine.get_bom_row() silently fell back to the nearest defined
+# micron (25), pricing every 350% (Power plus) 30-micron and 40-micron SKU
+# off the WRONG material recipe (25-micron's 28.8%/28.8% Exceed
+# 3518/3812 split instead of 30/40-micron's real 30%/20% split, plus a
+# spurious 2.4% LD258 that shouldn't be there at all) -- found while
+# auditing the app's prices against a full recalculation of the reference
+# sheet across several roll-weight/width scenarios. Not gated behind a
+# one-time marker (like _fix_stale_material_rates_v8 above) because
+# Render's free tier has no persistent disk: every boot re-runs
+# _seed_full_import_v4's full bom_row DELETE+reinsert from the still-
+# incomplete JSON, so this has to re-apply every boot too. INSERT OR IGNORE
+# is a no-op once the JSON itself is corrected.
+MISSING_BOM_ROWS_V70 = [
+    # (stretch_multiplier, micron, roll_tier, exceed3518, exceed3812, exceedxp, vista6000, enable, ld258, vista6202)
+    (3.5, 30, "standard", 0.3, 0.2, 0, 0, 0, 0, 0.007),
+    (3.5, 30, "jumbo", 0.5, 0, 0, 0, 0, 0, 0.007),
+    (3.5, 40, "standard", 0.3, 0.2, 0, 0, 0, 0, 0.007),
+    (3.5, 40, "jumbo", 0.5, 0, 0, 0, 0, 0, 0.007),
+]
+
+
+def _fix_missing_bom_rows_v70(conn):
+    from . import cost_engine
+
+    changed = False
+    for mult, micron, tier, exceed3518, exceed3812, exceedxp, vista6000, enable, ld258, vista6202 in MISSING_BOM_ROWS_V70:
+        exists = conn.execute(
+            "SELECT 1 FROM bom_row WHERE stretch_multiplier=? AND micron=? AND roll_tier=?",
+            (mult, micron, tier),
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO bom_row
+               (stretch_multiplier, micron, roll_tier, exceed3518, exceed3812, exceedxp,
+                vista6000, enable, ld258, vista6202)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (mult, micron, tier, exceed3518, exceed3812, exceedxp, vista6000, enable, ld258, vista6202),
+        )
+        changed = True
     conn.commit()
     if changed:
         cost_engine.recalculate_all_products(conn)

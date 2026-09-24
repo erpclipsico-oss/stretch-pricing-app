@@ -282,6 +282,22 @@ def create_app():
                                            discount_pct=0, uv_type=uv_type,
                                            hidden_markup_mode=hidden_markup_mode,
                                            hidden_markup_value=hidden_markup_value)
+        # v70.2 -- raw, unrounded EX-Work price so the client can build FOB
+        # the same way the sheet's Stretch!AO does (ROUNDUP on the unrounded
+        # base), not on the already-2dp-rounded unit_price.
+        unit_price_raw, _ = compute_line(g.db, product, country_class, customer_class, qty,
+                                          price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                          pricing_basis=pricing_basis,
+                                          roll_weight_kg=custom_roll_weight_kg,
+                                          core_weight_kg=custom_core_weight_kg,
+                                          width_mm=custom_width_mm,
+                                          rolls_per_pallet_override=custom_rolls_per_pallet,
+                                          seller_type=seller_type,
+                                          auto_manual_override=auto_manual_override, colored=colored,
+                                          discount_pct=discount_pct, uv_type=uv_type,
+                                          hidden_markup_mode=hidden_markup_mode,
+                                          hidden_markup_value=hidden_markup_value,
+                                          round_result=False)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -292,6 +308,7 @@ def create_app():
                                                 effective_product["roll_weight_kg"], pallet_type)
         return jsonify({
             "unit_price_usd_kg": unit_price,
+            "unit_price_usd_kg_raw": unit_price_raw,
             "unit_price_full_usd_kg": unit_price_full,
             "total_kg": total_kg,
             "line_gross": gross,
@@ -680,15 +697,30 @@ def create_app():
                 discount_pct=0, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
             )
+            # v70.2 -- raw unrounded price, stored so the saved quotation's
+            # view/PDF/Excel FOB $/KG can match Stretch!AO exactly (see
+            # load_quotation()'s fob_unit computation).
+            unit_price_raw, _ = compute_line(
+                db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
+                roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+                width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
+                seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
+                discount_pct=discount_pct, uv_type=uv_type,
+                hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                round_result=False,
+            )
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                    unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis, colored,
+                    unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg,
+                    line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
-                 unit_price, unit_price_full, total_kg, line_discount_pct, pricing_basis, int(colored),
+                 unit_price, unit_price_raw, unit_price_full, total_kg, line_discount_pct, pricing_basis,
+                 int(colored),
                  (float(custom_roll_weight_kg) if custom_roll_weight_kg not in (None, "") else None),
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
@@ -917,8 +949,15 @@ def create_app():
                                                         and l["fob_price_usd_kg"] is not None) else None)
                 cif_unit = l["unit_price_usd_kg"]  # already the frozen, freight-inclusive CFR $/kg
             else:
-                fob_unit = cost_engine.round_half_up(
-                    l["unit_price_usd_kg"] + (fob_addon / l["total_kg"] if l["total_kg"] else 0), 2)
+                # v70.2 -- the sheet's Stretch!AO (FOB $/KG) applies Excel's
+                # ROUNDUP() (ceiling) to the UNROUNDED EX-Work price plus the
+                # port addon, not to the already-2dp-rounded price. Use the
+                # raw price when we have it (rows saved after this fix);
+                # fall back to the rounded price for old rows.
+                raw_base = (l["unit_price_usd_kg_raw"] if ("unit_price_usd_kg_raw" in l.keys()
+                            and l["unit_price_usd_kg_raw"] is not None) else l["unit_price_usd_kg"])
+                fob_unit = cost_engine.round_up(
+                    raw_base + (fob_addon / l["total_kg"] if l["total_kg"] else 0), 2)
                 cif_unit = cost_engine.round_half_up(
                     fob_unit + (freight_amt / l["total_kg"] if l["total_kg"] else 0), 2)
 

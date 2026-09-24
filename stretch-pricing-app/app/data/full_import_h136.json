@@ -1,2211 +1,2259 @@
 {
- "material_rates": {
-  "c4": 1240,
-  "exceed3518": 1440,
-  "exceed3812": 1540,
-  "exceedxp": 1630,
-  "vista6000": 2550,
-  "enable": 1290,
-  "uvi": 5500,
-  "ld": 1500,
-  "vista": 2550,
-  "core": 30,
-  "stretch": 80,
-  "corrugated_sheets": 40,
-  "cardboard": 22,
-  "cap": 46,
-  "pallet": 540,
-  "box": 29,
-  "cartoon_angle": 28,
-  "scotch_tape": 25,
-  "core_prestretch": 35,
-  "air_bag": 200
- },
- "bom_rows": [
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 8,
-   "roll_tier": "standard",
-   "exceed3518": 0.35,
-   "exceed3812": 0.35,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 8,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.35,
-   "exceed3812": 0.35,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 9,
-   "roll_tier": "standard",
-   "exceed3518": 0.35,
-   "exceed3812": 0.35,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 9,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.35,
-   "exceed3812": 0.35,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 10,
-   "roll_tier": "standard",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 10,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 12,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 12,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 15,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 15,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 17,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 17,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 20,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 20,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 23,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 23,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 25,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 25,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 30,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 30,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 40,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 1.5,
-   "micron": 40,
-   "roll_tier": "jumbo",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 10,
-   "roll_tier": "standard",
-   "exceed3518": 0.486,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.014,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 10,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.486,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.014,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 12,
-   "roll_tier": "standard",
-   "exceed3518": 0.386,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.014,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 12,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.386,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.014,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 15,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 15,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 17,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 17,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 20,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 20,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 23,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 23,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 25,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 25,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 30,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 30,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 40,
-   "roll_tier": "standard",
-   "exceed3518": 0,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2,
-   "micron": 40,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 10,
-   "roll_tier": "standard",
-   "exceed3518": 0.441,
-   "exceed3812": 0.194,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.015,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 10,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.67,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.02,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 12,
-   "roll_tier": "standard",
-   "exceed3518": 0.441,
-   "exceed3812": 0.194,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.015,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 12,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.63,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.02,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 15,
-   "roll_tier": "standard",
-   "exceed3518": 0.485,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.015,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 15,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 17,
-   "roll_tier": "standard",
-   "exceed3518": 0.485,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.015,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 17,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 20,
-   "roll_tier": "standard",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 20,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 23,
-   "roll_tier": "standard",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 23,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 25,
-   "roll_tier": "standard",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 25,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 30,
-   "roll_tier": "standard",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 30,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 40,
-   "roll_tier": "standard",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 2.5,
-   "micron": 40,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.4,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 12,
-   "roll_tier": "standard",
-   "exceed3518": 0.288,
-   "exceed3812": 0.384,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 12,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.768,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.032,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 15,
-   "roll_tier": "standard",
-   "exceed3518": 0.15,
-   "exceed3812": 0.34,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.013,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 15,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.672,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 17,
-   "roll_tier": "standard",
-   "exceed3518": 0.15,
-   "exceed3812": 0.34,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.013,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 17,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.672,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 20,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0.192,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.008,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 20,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 23,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0.192,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.008,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 23,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 25,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0.192,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.008,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 25,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 30,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0.1,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 30,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 40,
-   "roll_tier": "standard",
-   "exceed3518": 0.3,
-   "exceed3812": 0.1,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3,
-   "micron": 40,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.5,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 12,
-   "roll_tier": "standard",
-   "exceed3518": 0.288,
-   "exceed3812": 0.384,
-   "exceedxp": 0.1,
-   "vista6000": 0.1,
-   "enable": 0,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 12,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.768,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.032,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 15,
-   "roll_tier": "standard",
-   "exceed3518": 0.236,
-   "exceed3812": 0.34,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 15,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.672,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 17,
-   "roll_tier": "standard",
-   "exceed3518": 0.236,
-   "exceed3812": 0.34,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 17,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.672,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.028,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 20,
-   "roll_tier": "standard",
-   "exceed3518": 0.288,
-   "exceed3812": 0.288,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 20,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 23,
-   "roll_tier": "standard",
-   "exceed3518": 0.288,
-   "exceed3812": 0.288,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 23,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 25,
-   "roll_tier": "standard",
-   "exceed3518": 0.288,
-   "exceed3812": 0.288,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0,
-   "ld258": 0.024,
-   "vista6202": 0.007
-  },
-  {
-   "stretch_multiplier": 3.5,
-   "micron": 25,
-   "roll_tier": "jumbo",
-   "exceed3518": 0.576,
-   "exceed3812": 0,
-   "exceedxp": 0,
-   "vista6000": 0,
-   "enable": 0.02,
-   "ld258": 0.024,
-   "vista6202": 0.007
+  "material_rates": {
+    "c4": 1240,
+    "exceed3518": 1440,
+    "exceed3812": 1540,
+    "exceedxp": 1630,
+    "vista6000": 2550,
+    "enable": 1290,
+    "uvi": 5500,
+    "ld": 1500,
+    "vista": 2550,
+    "core": 30,
+    "stretch": 80,
+    "corrugated_sheets": 40,
+    "cardboard": 22,
+    "cap": 46,
+    "pallet": 540,
+    "box": 29,
+    "cartoon_angle": 28,
+    "scotch_tape": 25,
+    "core_prestretch": 35,
+    "air_bag": 200
+  },
+  "bom_rows": [
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 8,
+      "roll_tier": "standard",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 8,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 9,
+      "roll_tier": "standard",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 9,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.35,
+      "exceed3812": 0.35,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 1.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.486,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.486,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.386,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.386,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.014,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 10,
+      "roll_tier": "standard",
+      "exceed3518": 0.441,
+      "exceed3812": 0.194,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 10,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.67,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.02,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.441,
+      "exceed3812": 0.194,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.63,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.02,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.485,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.485,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.015,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 2.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.4,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.384,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.768,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.032,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.013,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.15,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.013,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.192,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.008,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.1,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 12,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.384,
+      "exceedxp": 0.1,
+      "vista6000": 0.1,
+      "enable": 0,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 12,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.768,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.032,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 15,
+      "roll_tier": "standard",
+      "exceed3518": 0.236,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 15,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 17,
+      "roll_tier": "standard",
+      "exceed3518": 0.236,
+      "exceed3812": 0.34,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 17,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.672,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.028,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 20,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.288,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 20,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 23,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.288,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 23,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 25,
+      "roll_tier": "standard",
+      "exceed3518": 0.288,
+      "exceed3812": 0.288,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 25,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.576,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0.02,
+      "ld258": 0.024,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 30,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.2,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 30,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 40,
+      "roll_tier": "standard",
+      "exceed3518": 0.3,
+      "exceed3812": 0.2,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    },
+    {
+      "stretch_multiplier": 3.5,
+      "micron": 40,
+      "roll_tier": "jumbo",
+      "exceed3518": 0.5,
+      "exceed3812": 0,
+      "exceedxp": 0,
+      "vista6000": 0,
+      "enable": 0,
+      "ld258": 0,
+      "vista6202": 0.007
+    }
+  ],
+  "stretch_products": [
+    {
+      "stretch_ability": "150% Standard",
+      "micron": 23,
+      "roll_weight_kg": 16,
+      "rolls_per_pallet": 46,
+      "fob_usd_kg": 1.54,
+      "cfr_usd_kg": 1.59
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 10,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.98,
+      "cfr_usd_kg": 2.03
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 12,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.91,
+      "cfr_usd_kg": 1.97
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 15,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.81,
+      "cfr_usd_kg": 1.87
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 17,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.8,
+      "cfr_usd_kg": 1.86
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 20,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.79,
+      "cfr_usd_kg": 1.84
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 23,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.83
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 25,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.83
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 30,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.82
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 40,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.82
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 10,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 2.03,
+      "cfr_usd_kg": 2.0799999999999996
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 12,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.97,
+      "cfr_usd_kg": 2.03
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 15,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.86,
+      "cfr_usd_kg": 1.92
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 17,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.85,
+      "cfr_usd_kg": 1.91
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 20,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.81,
+      "cfr_usd_kg": 1.86
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 23,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.8,
+      "cfr_usd_kg": 1.85
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 25,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.8,
+      "cfr_usd_kg": 1.85
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 30,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.82
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 40,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.77,
+      "cfr_usd_kg": 1.83
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 12,
+      "roll_weight_kg": 16,
+      "rolls_per_pallet": 46,
+      "fob_usd_kg": 2.1799999999999997,
+      "cfr_usd_kg": 2.23
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 17,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.8800000000000001,
+      "cfr_usd_kg": 1.93
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 20,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.84,
+      "cfr_usd_kg": 1.89
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 23,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.83,
+      "cfr_usd_kg": 1.8800000000000001
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 25,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.83,
+      "cfr_usd_kg": 1.8800000000000001
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 30,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.79,
+      "cfr_usd_kg": 1.85
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 40,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.79,
+      "cfr_usd_kg": 1.85
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 12,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 2.01,
+      "cfr_usd_kg": 2.07
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 15,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.89,
+      "cfr_usd_kg": 1.94
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 17,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.8800000000000001,
+      "cfr_usd_kg": 1.93
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 20,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.84,
+      "cfr_usd_kg": 1.89
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 23,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.83,
+      "cfr_usd_kg": 1.8800000000000001
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 25,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.83,
+      "cfr_usd_kg": 1.8800000000000001
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 30,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.79,
+      "cfr_usd_kg": 1.85
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 40,
+      "roll_weight_kg": 50,
+      "rolls_per_pallet": 16,
+      "fob_usd_kg": 1.79,
+      "cfr_usd_kg": 1.85
+    }
+  ],
+  "electricity_power": [
+    [
+      8,
+      "St",
+      0
+    ],
+    [
+      8,
+      "P",
+      0
+    ],
+    [
+      8,
+      "P_plus",
+      2007
+    ],
+    [
+      8,
+      "RIGID",
+      2019
+    ],
+    [
+      9,
+      "St",
+      0
+    ],
+    [
+      9,
+      "P",
+      0
+    ],
+    [
+      9,
+      "P_plus",
+      1784
+    ],
+    [
+      10,
+      "RIGID",
+      1690
+    ],
+    [
+      10,
+      "St",
+      1606
+    ],
+    [
+      10,
+      "P",
+      1606
+    ],
+    [
+      10,
+      "P_plus",
+      1606
+    ],
+    [
+      12,
+      "RIGID",
+      1471
+    ],
+    [
+      12,
+      "St",
+      1363
+    ],
+    [
+      12,
+      "P",
+      1363
+    ],
+    [
+      12,
+      "P_plus",
+      1363
+    ],
+    [
+      15,
+      "RIGID",
+      1216
+    ],
+    [
+      17,
+      "St",
+      1178
+    ],
+    [
+      17,
+      "P",
+      1178
+    ],
+    [
+      17,
+      "P_plus",
+      1178
+    ],
+    [
+      17,
+      "RIGID",
+      1117
+    ],
+    [
+      20,
+      "St",
+      1077
+    ],
+    [
+      20,
+      "P",
+      1077
+    ],
+    [
+      20,
+      "P_plus",
+      1077
+    ],
+    [
+      20,
+      "RIGID",
+      950
+    ],
+    [
+      23,
+      "St",
+      986
+    ],
+    [
+      23,
+      "P",
+      986
+    ],
+    [
+      23,
+      "P_plus",
+      986
+    ],
+    [
+      23,
+      "RIGID",
+      826
+    ],
+    [
+      30,
+      "St",
+      990
+    ],
+    [
+      30,
+      "P",
+      990
+    ],
+    [
+      30,
+      "P_plus",
+      990
+    ]
+  ],
+  "production_capacity": [
+    [
+      8,
+      "St",
+      0
+    ],
+    [
+      8,
+      "P",
+      0
+    ],
+    [
+      8,
+      "P_plus",
+      16.2
+    ],
+    [
+      8,
+      "RIGID",
+      14.9
+    ],
+    [
+      9,
+      "St",
+      0
+    ],
+    [
+      9,
+      "P",
+      0
+    ],
+    [
+      9,
+      "P_plus",
+      18.2
+    ],
+    [
+      10,
+      "RIGID",
+      18.6
+    ],
+    [
+      10,
+      "St",
+      21.5
+    ],
+    [
+      10,
+      "P",
+      20.7
+    ],
+    [
+      10,
+      "P_plus",
+      20.2
+    ],
+    [
+      12,
+      "RIGID",
+      22.4
+    ],
+    [
+      12,
+      "St",
+      26
+    ],
+    [
+      12,
+      "P",
+      25.1
+    ],
+    [
+      12,
+      "P_plus",
+      24.8
+    ],
+    [
+      15,
+      "RIGID",
+      27.9
+    ],
+    [
+      17,
+      "St",
+      36
+    ],
+    [
+      17,
+      "P",
+      34.8
+    ],
+    [
+      17,
+      "P_plus",
+      33.1
+    ],
+    [
+      17,
+      "RIGID",
+      31.6
+    ],
+    [
+      20,
+      "St",
+      41.1
+    ],
+    [
+      20,
+      "P",
+      39.7
+    ],
+    [
+      20,
+      "P_plus",
+      37.7
+    ],
+    [
+      20,
+      "RIGID",
+      37.2
+    ],
+    [
+      23,
+      "St",
+      46.2
+    ],
+    [
+      23,
+      "P",
+      44
+    ],
+    [
+      23,
+      "P_plus",
+      41.7
+    ],
+    [
+      23,
+      "RIGID",
+      42.7
+    ],
+    [
+      30,
+      "St",
+      47
+    ],
+    [
+      30,
+      "P",
+      47
+    ],
+    [
+      30,
+      "P_plus",
+      47.4
+    ]
+  ],
+  "fixed_cost_items": [
+    [
+      "production",
+      "water",
+      4000
+    ],
+    [
+      "production",
+      "Direct Labor wages",
+      168096
+    ],
+    [
+      "production",
+      "Direct Labor overtime",
+      102749
+    ],
+    [
+      "production",
+      "In direct Labor salaries",
+      414257.305
+    ],
+    [
+      "production",
+      "In direct Labor overtime",
+      142569.745
+    ],
+    [
+      "production",
+      "Social Insurance",
+      28111.155
+    ],
+    [
+      "production",
+      "Travel and Transportation",
+      63408.5
+    ],
+    [
+      "production",
+      "Medical Treatment",
+      1243.75
+    ],
+    [
+      "production",
+      "Bonuses and Incentives",
+      6193.75
+    ],
+    [
+      "production",
+      "Holidays and Occasions",
+      7000
+    ],
+    [
+      "production",
+      "Depreciation Expense \"General\"",
+      27906.586175000004
+    ],
+    [
+      "production",
+      "Depreciation \"Primo pack\"",
+      285118.71599999996
+    ],
+    [
+      "production",
+      "Depreciation \"Uni Tech\"",
+      30840.7001666667
+    ],
+    [
+      "production",
+      "Depreciation \"SML\"",
+      485939.9476583332
+    ],
+    [
+      "production",
+      "Warehouse Rent",
+      30000
+    ],
+    [
+      "production",
+      "Maintenance and Spare Parts",
+      114028.01339057111
+    ],
+    [
+      "production",
+      "Vehicle Expenses",
+      55900
+    ],
+    [
+      "production",
+      "Forklift Expenses",
+      38730
+    ],
+    [
+      "production",
+      "Industrial Security",
+      0
+    ],
+    [
+      "production",
+      "Other Expenses",
+      41309.33
+    ],
+    [
+      "selling",
+      "Commissions and Bank Charges",
+      0
+    ],
+    [
+      "selling",
+      "Fees and Licenses",
+      58378
+    ],
+    [
+      "selling",
+      "Exhibitions",
+      43827.130545565764
+    ],
+    [
+      "selling",
+      "Other Expenses \"Exports\"",
+      20717.02
+    ],
+    [
+      "selling",
+      "Sales Salaries",
+      66636
+    ],
+    [
+      "selling",
+      "Social Insurance",
+      3981
+    ],
+    [
+      "selling",
+      "Other Expenses \"General\"",
+      10385.46
+    ],
+    [
+      "admin",
+      "Administrative Salaries",
+      203545.9432445
+    ],
+    [
+      "admin",
+      "Administrative overtime",
+      6452.045
+    ],
+    [
+      "admin",
+      "Social Insurance",
+      9845.619375
+    ],
+    [
+      "admin",
+      "Travel and Official Assignments",
+      7140.875
+    ],
+    [
+      "admin",
+      "Holidays and Occasions",
+      3000
+    ],
+    [
+      "admin",
+      "Bonuses and Incentives",
+      21468
+    ],
+    [
+      "admin",
+      "Fees and Licenses",
+      98939.0325
+    ],
+    [
+      "admin",
+      "Professional Fees and Consultations",
+      13250.75
+    ],
+    [
+      "admin",
+      "Senior Management",
+      213051.13
+    ],
+    [
+      "admin",
+      "Utilities",
+      9527.3
+    ],
+    [
+      "admin",
+      "Rent",
+      17460
+    ],
+    [
+      "admin",
+      "Other Expenses",
+      39937.56
+    ],
+    [
+      "admin",
+      "Administrative Depreciation",
+      21806.449999999997
+    ]
+  ],
+  "labor_employees": [
+    [
+      "\u0627\u0634\u0631\u0641 \u0639\u064a\u0633\u0649",
+      "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
+      4680,
+      0.4
+    ],
+    [
+      "\u0639\u0628\u062f \u0627\u0644\u0645\u0639\u0632",
+      "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
+      4680,
+      0.4
+    ],
+    [
+      "\u0645\u062d\u0645\u062f \u062d\u0633\u0646 \u0627\u062d\u0645\u062f \u0645\u0631\u0633\u064a",
+      "\u0631\u0626\u064a\u0633 \u0648\u0631\u062f\u064a\u0629",
+      4680,
+      0.4
+    ],
+    [
+      "\u0645\u062d\u0645\u0648\u062f \u0645\u062d\u0645\u062f \u0627\u0628\u0648\u0646\u064a\u0647",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3575,
+      0.4
+    ],
+    [
+      "\u0633\u0639\u062f \u0627\u0644\u062d\u0627\u0645\u062f\u064a",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3120,
+      0.4
+    ],
+    [
+      "\u0635\u0627\u0628\u0631 \u0643\u0627\u0645\u0644 \u0639\u0637\u064a\u0629",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3250,
+      0.4
+    ],
+    [
+      "\u0627\u062d\u0645\u062f \u062d\u0633\u064a\u0646 \u0645\u062d\u0645\u062f",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2600,
+      0.4
+    ],
+    [
+      "\u0639\u064a\u0633\u0649 \u0627\u0634\u0631\u0641 \u0639\u064a\u0633\u0649",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2600,
+      0.4
+    ],
+    [
+      "\u062d\u0645\u0627\u062f\u0647 \u0643\u0627\u0645\u0644 \u0645\u062d\u0645\u062f \u0627\u0628\u0631\u0627\u0647\u064a\u0645",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2860,
+      0.4
+    ],
+    [
+      "\u0645\u062d\u0645\u062f \u0639\u0628\u062f \u0627\u0644\u062d\u0645\u064a\u062f \u0639\u0628\u062f \u0627\u0644\u0647\u0627\u062f\u064a",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2860,
+      0.4
+    ],
+    [
+      "\u0627\u062d\u0645\u062f \u0641\u0648\u0632\u0649 \u0631\u0645\u0636\u0627\u0646",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3250,
+      0.4
+    ],
+    [
+      "\u0635\u0628\u062d\u0649 \u0627\u062d\u0645\u062f \u062d\u0645\u0648\u062f\u0647",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3510,
+      0.4
+    ],
+    [
+      "\u0633\u0639\u064a\u062f \u0645\u062d\u0645\u062f \u0633\u0639\u064a\u062f",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2860,
+      0.4
+    ],
+    [
+      "\u0627\u062d\u0645\u062f \u0645\u062d\u0645\u0648\u062f \u0639\u0637\u064a\u0629 \u0627\u0644\u0634\u064a\u0634\u062a\u0627\u0648\u064a",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      3250,
+      0.4
+    ],
+    [
+      "\u0645\u062d\u0645\u062f \u062c\u0627\u0628\u0631",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      4550,
+      0.4
+    ],
+    [
+      "\u0627\u0628\u0631\u0627\u0647\u064a\u0645 \u0645\u062d\u0645\u062f \u0635\u0628\u0631\u064a \u0627\u0644\u0633\u064a\u062f",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2600,
+      0.4
+    ],
+    [
+      "\u0645\u062d\u0645\u062f \u062b\u0627\u0628\u062a \u0627\u0628\u0648\u0636\u064a\u0641",
+      "\u0639\u0627\u0645\u0644 \u0627\u0646\u062a\u0627\u062c",
+      2600,
+      0.4
+    ]
+  ],
+  "factors": [
+    [
+      "High",
+      "A",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "High",
+      "A",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "High",
+      "A",
+      "manual",
+      0.1,
+      0.14,
+      0.14,
+      0.1,
+      0.16,
+      0.16
+    ],
+    [
+      "High",
+      "B",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "High",
+      "B",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "High",
+      "B",
+      "manual",
+      0.1,
+      0.14,
+      0.14,
+      0.1,
+      0.16,
+      0.16
+    ],
+    [
+      "Moderate",
+      "A",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Moderate",
+      "A",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Moderate",
+      "A",
+      "manual",
+      0.1,
+      0.14,
+      0.14,
+      0.1,
+      0.16,
+      0.16
+    ],
+    [
+      "Moderate",
+      "B",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Moderate",
+      "B",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Moderate",
+      "B",
+      "manual",
+      0.1,
+      0.14,
+      0.14,
+      0.1,
+      0.16,
+      0.16
+    ],
+    [
+      "Low",
+      "A",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Low",
+      "A",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Low",
+      "A",
+      "manual",
+      0.1,
+      0.14,
+      0.14,
+      0.1,
+      0.16,
+      0.16
+    ],
+    [
+      "Low",
+      "B",
+      "standard",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Low",
+      "B",
+      "jumbo",
+      0.08,
+      0.13,
+      0.13,
+      0.08,
+      0.15,
+      0.15
+    ],
+    [
+      "Low",
+      "B",
+      "manual",
+      0.08,
+      0.13,
+      0.13,
+      0.1,
+      0.16,
+      0.16
+    ]
+  ],
+  "pallet_component_updates": {
+    "automatic_usd": {
+      "stretch_kg": 1.0
+    },
+    "automatic_eur": {
+      "corrugated_kg": 3.97,
+      "stretch_kg": 0.8
+    }
+  },
+  "pallet_component_inserts": [
+    [
+      "box_12m350_usd",
+      "12m 350% (16kg) - Boxed (USD Pallet)",
+      "120cm x 100cm",
+      2,
+      1,
+      0,
+      0.5,
+      16,
+      0.8
+    ],
+    [
+      "box_12m350_eur",
+      "12m 350% (16kg) - Boxed (EUR Pallet)",
+      "120cm x 80cm",
+      4,
+      0,
+      0,
+      0.65,
+      16,
+      0.8
+    ],
+    [
+      "box_1517_35m_usd",
+      "(15m&17m 350% / 35m 250%)(16kg) - Boxed (USD Pallet)",
+      "120cm x 100cm",
+      2,
+      1,
+      3.6,
+      0.5,
+      0,
+      0
+    ],
+    [
+      "box_1517_35m_eur",
+      "(15m&17m 350% / 35m 250%)(16kg) - Boxed (EUR Pallet)",
+      "120cm x 80cm",
+      4,
+      0,
+      3.6,
+      0.65,
+      0,
+      0
+    ]
+  ],
+  "global_setting_updates": {
+    "prestretch_packaging_noboxes_usd": 16.6667,
+    "prestretch_packaging_boxes_usd": 16.9778
   }
- ],
- "stretch_products": [
-  {
-   "stretch_ability": "150% Standard",
-   "micron": 23,
-   "roll_weight_kg": 16,
-   "rolls_per_pallet": 46,
-   "fob_usd_kg": 1.54,
-   "cfr_usd_kg": 1.59
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 10,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.98,
-   "cfr_usd_kg": 2.03
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 12,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.91,
-   "cfr_usd_kg": 1.97
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 15,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.81,
-   "cfr_usd_kg": 1.87
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 17,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.8,
-   "cfr_usd_kg": 1.86
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 20,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.79,
-   "cfr_usd_kg": 1.84
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 23,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.83
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 25,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.83
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 30,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.82
-  },
-  {
-   "stretch_ability": "200% Power",
-   "micron": 40,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.82
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 10,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 2.03,
-   "cfr_usd_kg": 2.0799999999999996
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 12,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.97,
-   "cfr_usd_kg": 2.03
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 15,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.86,
-   "cfr_usd_kg": 1.92
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 17,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.85,
-   "cfr_usd_kg": 1.91
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 20,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.81,
-   "cfr_usd_kg": 1.86
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 23,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.8,
-   "cfr_usd_kg": 1.85
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 25,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.8,
-   "cfr_usd_kg": 1.85
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 30,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.82
-  },
-  {
-   "stretch_ability": "250% Power",
-   "micron": 40,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.77,
-   "cfr_usd_kg": 1.83
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 12,
-   "roll_weight_kg": 16,
-   "rolls_per_pallet": 46,
-   "fob_usd_kg": 2.1799999999999997,
-   "cfr_usd_kg": 2.23
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 17,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.8800000000000001,
-   "cfr_usd_kg": 1.93
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 20,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.84,
-   "cfr_usd_kg": 1.89
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 23,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.83,
-   "cfr_usd_kg": 1.8800000000000001
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 25,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.83,
-   "cfr_usd_kg": 1.8800000000000001
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 30,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.79,
-   "cfr_usd_kg": 1.85
-  },
-  {
-   "stretch_ability": "300% (Power plus)",
-   "micron": 40,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.79,
-   "cfr_usd_kg": 1.85
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 12,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 2.01,
-   "cfr_usd_kg": 2.07
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 15,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.89,
-   "cfr_usd_kg": 1.94
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 17,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.8800000000000001,
-   "cfr_usd_kg": 1.93
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 20,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.84,
-   "cfr_usd_kg": 1.89
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 23,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.83,
-   "cfr_usd_kg": 1.8800000000000001
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 25,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.83,
-   "cfr_usd_kg": 1.8800000000000001
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 30,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.79,
-   "cfr_usd_kg": 1.85
-  },
-  {
-   "stretch_ability": "350% (Power plus)",
-   "micron": 40,
-   "roll_weight_kg": 50,
-   "rolls_per_pallet": 16,
-   "fob_usd_kg": 1.79,
-   "cfr_usd_kg": 1.85
-  }
- ],
- "electricity_power": [
-  [
-   8,
-   "St",
-   0
-  ],
-  [
-   8,
-   "P",
-   0
-  ],
-  [
-   8,
-   "P_plus",
-   2007
-  ],
-  [
-   8,
-   "RIGID",
-   2019
-  ],
-  [
-   9,
-   "St",
-   0
-  ],
-  [
-   9,
-   "P",
-   0
-  ],
-  [
-   9,
-   "P_plus",
-   1784
-  ],
-  [
-   10,
-   "RIGID",
-   1690
-  ],
-  [
-   10,
-   "St",
-   1606
-  ],
-  [
-   10,
-   "P",
-   1606
-  ],
-  [
-   10,
-   "P_plus",
-   1606
-  ],
-  [
-   12,
-   "RIGID",
-   1471
-  ],
-  [
-   12,
-   "St",
-   1363
-  ],
-  [
-   12,
-   "P",
-   1363
-  ],
-  [
-   12,
-   "P_plus",
-   1363
-  ],
-  [
-   15,
-   "RIGID",
-   1216
-  ],
-  [
-   17,
-   "St",
-   1178
-  ],
-  [
-   17,
-   "P",
-   1178
-  ],
-  [
-   17,
-   "P_plus",
-   1178
-  ],
-  [
-   17,
-   "RIGID",
-   1117
-  ],
-  [
-   20,
-   "St",
-   1077
-  ],
-  [
-   20,
-   "P",
-   1077
-  ],
-  [
-   20,
-   "P_plus",
-   1077
-  ],
-  [
-   20,
-   "RIGID",
-   950
-  ],
-  [
-   23,
-   "St",
-   986
-  ],
-  [
-   23,
-   "P",
-   986
-  ],
-  [
-   23,
-   "P_plus",
-   986
-  ],
-  [
-   23,
-   "RIGID",
-   826
-  ],
-  [
-   30,
-   "St",
-   990
-  ],
-  [
-   30,
-   "P",
-   990
-  ],
-  [
-   30,
-   "P_plus",
-   990
-  ]
- ],
- "production_capacity": [
-  [
-   8,
-   "St",
-   0
-  ],
-  [
-   8,
-   "P",
-   0
-  ],
-  [
-   8,
-   "P_plus",
-   16.2
-  ],
-  [
-   8,
-   "RIGID",
-   14.9
-  ],
-  [
-   9,
-   "St",
-   0
-  ],
-  [
-   9,
-   "P",
-   0
-  ],
-  [
-   9,
-   "P_plus",
-   18.2
-  ],
-  [
-   10,
-   "RIGID",
-   18.6
-  ],
-  [
-   10,
-   "St",
-   21.5
-  ],
-  [
-   10,
-   "P",
-   20.7
-  ],
-  [
-   10,
-   "P_plus",
-   20.2
-  ],
-  [
-   12,
-   "RIGID",
-   22.4
-  ],
-  [
-   12,
-   "St",
-   26
-  ],
-  [
-   12,
-   "P",
-   25.1
-  ],
-  [
-   12,
-   "P_plus",
-   24.8
-  ],
-  [
-   15,
-   "RIGID",
-   27.9
-  ],
-  [
-   17,
-   "St",
-   36
-  ],
-  [
-   17,
-   "P",
-   34.8
-  ],
-  [
-   17,
-   "P_plus",
-   33.1
-  ],
-  [
-   17,
-   "RIGID",
-   31.6
-  ],
-  [
-   20,
-   "St",
-   41.1
-  ],
-  [
-   20,
-   "P",
-   39.7
-  ],
-  [
-   20,
-   "P_plus",
-   37.7
-  ],
-  [
-   20,
-   "RIGID",
-   37.2
-  ],
-  [
-   23,
-   "St",
-   46.2
-  ],
-  [
-   23,
-   "P",
-   44
-  ],
-  [
-   23,
-   "P_plus",
-   41.7
-  ],
-  [
-   23,
-   "RIGID",
-   42.7
-  ],
-  [
-   30,
-   "St",
-   47
-  ],
-  [
-   30,
-   "P",
-   47
-  ],
-  [
-   30,
-   "P_plus",
-   47.4
-  ]
- ],
- "fixed_cost_items": [
-  [
-   "production",
-   "water",
-   4000
-  ],
-  [
-   "production",
-   "Direct Labor wages",
-   168096
-  ],
-  [
-   "production",
-   "Direct Labor overtime",
-   102749
-  ],
-  [
-   "production",
-   "In direct Labor salaries",
-   414257.305
-  ],
-  [
-   "production",
-   "In direct Labor overtime",
-   142569.745
-  ],
-  [
-   "production",
-   "Social Insurance",
-   28111.155
-  ],
-  [
-   "production",
-   "Travel and Transportation",
-   63408.5
-  ],
-  [
-   "production",
-   "Medical Treatment",
-   1243.75
-  ],
-  [
-   "production",
-   "Bonuses and Incentives",
-   6193.75
-  ],
-  [
-   "production",
-   "Holidays and Occasions",
-   7000
-  ],
-  [
-   "production",
-   "Depreciation Expense \"General\"",
-   27906.586175000004
-  ],
-  [
-   "production",
-   "Depreciation \"Primo pack\"",
-   285118.71599999996
-  ],
-  [
-   "production",
-   "Depreciation \"Uni Tech\"",
-   30840.7001666667
-  ],
-  [
-   "production",
-   "Depreciation \"SML\"",
-   485939.9476583332
-  ],
-  [
-   "production",
-   "Warehouse Rent",
-   30000
-  ],
-  [
-   "production",
-   "Maintenance and Spare Parts",
-   114028.01339057111
-  ],
-  [
-   "production",
-   "Vehicle Expenses",
-   55900
-  ],
-  [
-   "production",
-   "Forklift Expenses",
-   38730
-  ],
-  [
-   "production",
-   "Industrial Security",
-   0
-  ],
-  [
-   "production",
-   "Other Expenses",
-   41309.33
-  ],
-  [
-   "selling",
-   "Commissions and Bank Charges",
-   0
-  ],
-  [
-   "selling",
-   "Fees and Licenses",
-   58378
-  ],
-  [
-   "selling",
-   "Exhibitions",
-   43827.130545565764
-  ],
-  [
-   "selling",
-   "Other Expenses \"Exports\"",
-   20717.02
-  ],
-  [
-   "selling",
-   "Sales Salaries",
-   66636
-  ],
-  [
-   "selling",
-   "Social Insurance",
-   3981
-  ],
-  [
-   "selling",
-   "Other Expenses \"General\"",
-   10385.46
-  ],
-  [
-   "admin",
-   "Administrative Salaries",
-   203545.9432445
-  ],
-  [
-   "admin",
-   "Administrative overtime",
-   6452.045
-  ],
-  [
-   "admin",
-   "Social Insurance",
-   9845.619375
-  ],
-  [
-   "admin",
-   "Travel and Official Assignments",
-   7140.875
-  ],
-  [
-   "admin",
-   "Holidays and Occasions",
-   3000
-  ],
-  [
-   "admin",
-   "Bonuses and Incentives",
-   21468
-  ],
-  [
-   "admin",
-   "Fees and Licenses",
-   98939.0325
-  ],
-  [
-   "admin",
-   "Professional Fees and Consultations",
-   13250.75
-  ],
-  [
-   "admin",
-   "Senior Management",
-   213051.13
-  ],
-  [
-   "admin",
-   "Utilities",
-   9527.3
-  ],
-  [
-   "admin",
-   "Rent",
-   17460
-  ],
-  [
-   "admin",
-   "Other Expenses",
-   39937.56
-  ],
-  [
-   "admin",
-   "Administrative Depreciation",
-   21806.449999999997
-  ]
- ],
- "labor_employees": [
-  [
-   "اشرف عيسى",
-   "رئيس وردية",
-   4680,
-   0.4
-  ],
-  [
-   "عبد المعز",
-   "رئيس وردية",
-   4680,
-   0.4
-  ],
-  [
-   "محمد حسن احمد مرسي",
-   "رئيس وردية",
-   4680,
-   0.4
-  ],
-  [
-   "محمود محمد ابونيه",
-   "عامل انتاج",
-   3575,
-   0.4
-  ],
-  [
-   "سعد الحامدي",
-   "عامل انتاج",
-   3120,
-   0.4
-  ],
-  [
-   "صابر كامل عطية",
-   "عامل انتاج",
-   3250,
-   0.4
-  ],
-  [
-   "احمد حسين محمد",
-   "عامل انتاج",
-   2600,
-   0.4
-  ],
-  [
-   "عيسى اشرف عيسى",
-   "عامل انتاج",
-   2600,
-   0.4
-  ],
-  [
-   "حماده كامل محمد ابراهيم",
-   "عامل انتاج",
-   2860,
-   0.4
-  ],
-  [
-   "محمد عبد الحميد عبد الهادي",
-   "عامل انتاج",
-   2860,
-   0.4
-  ],
-  [
-   "احمد فوزى رمضان",
-   "عامل انتاج",
-   3250,
-   0.4
-  ],
-  [
-   "صبحى احمد حموده",
-   "عامل انتاج",
-   3510,
-   0.4
-  ],
-  [
-   "سعيد محمد سعيد",
-   "عامل انتاج",
-   2860,
-   0.4
-  ],
-  [
-   "احمد محمود عطية الشيشتاوي",
-   "عامل انتاج",
-   3250,
-   0.4
-  ],
-  [
-   "محمد جابر",
-   "عامل انتاج",
-   4550,
-   0.4
-  ],
-  [
-   "ابراهيم محمد صبري السيد",
-   "عامل انتاج",
-   2600,
-   0.4
-  ],
-  [
-   "محمد ثابت ابوضيف",
-   "عامل انتاج",
-   2600,
-   0.4
-  ]
- ],
- "factors": [
-  [
-   "High",
-   "A",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "High",
-   "A",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "High",
-   "A",
-   "manual",
-   0.1,
-   0.14,
-   0.14,
-   0.1,
-   0.16,
-   0.16
-  ],
-  [
-   "High",
-   "B",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "High",
-   "B",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "High",
-   "B",
-   "manual",
-   0.1,
-   0.14,
-   0.14,
-   0.1,
-   0.16,
-   0.16
-  ],
-  [
-   "Moderate",
-   "A",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Moderate",
-   "A",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Moderate",
-   "A",
-   "manual",
-   0.1,
-   0.14,
-   0.14,
-   0.1,
-   0.16,
-   0.16
-  ],
-  [
-   "Moderate",
-   "B",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Moderate",
-   "B",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Moderate",
-   "B",
-   "manual",
-   0.1,
-   0.14,
-   0.14,
-   0.1,
-   0.16,
-   0.16
-  ],
-  [
-   "Low",
-   "A",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Low",
-   "A",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Low",
-   "A",
-   "manual",
-   0.1,
-   0.14,
-   0.14,
-   0.1,
-   0.16,
-   0.16
-  ],
-  [
-   "Low",
-   "B",
-   "standard",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Low",
-   "B",
-   "jumbo",
-   0.08,
-   0.13,
-   0.13,
-   0.08,
-   0.15,
-   0.15
-  ],
-  [
-   "Low",
-   "B",
-   "manual",
-   0.08,
-   0.13,
-   0.13,
-   0.1,
-   0.16,
-   0.16
-  ]
- ],
- "pallet_component_updates": {
-  "automatic_usd": {
-   "stretch_kg": 1.0
-  },
-  "automatic_eur": {
-   "corrugated_kg": 3.97,
-   "stretch_kg": 0.8
-  }
- },
- "pallet_component_inserts": [
-  [
-   "box_12m350_usd",
-   "12m 350% (16kg) - Boxed (USD Pallet)",
-   "120cm x 100cm",
-   2,
-   1,
-   0,
-   0.5,
-   16,
-   0.8
-  ],
-  [
-   "box_12m350_eur",
-   "12m 350% (16kg) - Boxed (EUR Pallet)",
-   "120cm x 80cm",
-   4,
-   0,
-   0,
-   0.65,
-   16,
-   0.8
-  ],
-  [
-   "box_1517_35m_usd",
-   "(15m&17m 350% / 35m 250%)(16kg) - Boxed (USD Pallet)",
-   "120cm x 100cm",
-   2,
-   1,
-   3.6,
-   0.5,
-   0,
-   0
-  ],
-  [
-   "box_1517_35m_eur",
-   "(15m&17m 350% / 35m 250%)(16kg) - Boxed (EUR Pallet)",
-   "120cm x 80cm",
-   4,
-   0,
-   3.6,
-   0.65,
-   0,
-   0
-  ]
- ],
- "global_setting_updates": {
-  "prestretch_packaging_noboxes_usd": 16.6667,
-  "prestretch_packaging_boxes_usd": 16.9778
- }
 }

@@ -19,6 +19,7 @@ immediately (no caching/staleness within a request).
 """
 
 import decimal
+import math
 import re
 
 
@@ -36,6 +37,22 @@ def round_half_up(value, decimals=2):
         return 0.0
     quant = decimal.Decimal(1).scaleb(-decimals)
     return float(decimal.Decimal(repr(value)).quantize(quant, rounding=decimal.ROUND_HALF_UP))
+
+
+def round_up(value, decimals=2):
+    """v70.2 -- owner-confirmed: FOB/CIF $/KG must match the H1.36
+    workbook's own Stretch!AO/AP columns to the cent, and those use Excel's
+    ROUNDUP() -- always away from zero, never to nearest -- not ordinary
+    rounding (confirmed directly against the workbook's formula text:
+    =ROUNDUP(AM10/(AK10*G10*H10),2)). round_half_up() above stays the rule
+    for every plain EX-Work/line-total figure (which the sheet's own AI
+    column never rounds at all -- its displayed 2dp is just Excel's cell
+    format, equivalent to round_half_up for that purpose); this is only for
+    the FOB/CIF add-on step, which the sheet deliberately rounds up."""
+    if value is None:
+        return 0.0
+    quant = decimal.Decimal(1).scaleb(-decimals)
+    return float(decimal.Decimal(repr(value)).quantize(quant, rounding=decimal.ROUND_CEILING))
 
 
 # ---------------------------------------------------------------- helpers
@@ -264,6 +281,24 @@ def total_fixed_cost_egp(conn):
     return row["t"] or 0
 
 
+# v71 -- owner's own H1.36 sheet has NO Electricity-tab row at all for
+# 15-micron (its kW/ton and Tons/day tables jump straight from 12 to 17),
+# confirmed directly in the sheet: the "Conversion cost" tab's 15-micron
+# row is its own hand-added row that borrows 17-micron's Variable cost
+# unchanged (=B21 etc.) but divides 17-micron's Fixed cost by a flat 0.9
+# capacity-derate factor (=C21/0.9 etc.) -- for St, P AND P_plus alike.
+# The app's own nearest-micron fallback (_lookup_kw_per_ton/_lookup_tons_per_day)
+# already reproduces the "borrow 17-micron" half automatically (17 is the
+# nearest seeded micron to 15); this derate map reproduces the /0.9 half,
+# by shrinking the monthly-tons figure the fixed cost is divided by (a
+# smaller monthly_tons raises fixed_cost_per_ton by the same 1/0.9 factor
+# ROUNDUP() in the sheet would). Verified against the sheet: reproduces its
+# 15-micron Total conversion cost (USD) to the cent for St/P/P+ alike.
+CONVERSION_COST_FIXED_DERATE_V71 = {
+    15: 0.9,
+}
+
+
 def conversion_cost_usd_per_ton(conn, micron, roll_type):
     """Replicates: Electricity (kW/ton x EGP/kWh) + small variable-cost
     overhead items -> variable cost/ton (EGP); total fixed cost / monthly
@@ -278,8 +313,17 @@ def conversion_cost_usd_per_ton(conn, micron, roll_type):
     kw_per_ton = _lookup_kw_per_ton(conn, micron, roll_type)
     tons_per_day = _lookup_tons_per_day(conn, micron, roll_type)
     monthly_tons = tons_per_day * capacity_pct * 30
+    derate = CONVERSION_COST_FIXED_DERATE_V71.get(int(micron)) if float(micron).is_integer() else None
+    if derate:
+        monthly_tons *= derate
 
-    variable_electricity_egp_per_ton = round(kw_per_ton * variable_tariff)  # ROUNDUP in sheet; round is close enough
+    # v71 -- the sheet's own Electricity!C7:C14 etc. use Excel ROUNDUP()
+    # (always rounds UP to the next whole EGP/ton), not nearest -- confirmed
+    # the gap directly (17-micron/P+: sheet's kw=1178 x tariff=2.8=3298.4,
+    # sheet ROUNDUP->3299, this used to `round()` to 3298, a 1 EGP/ton --
+    # ~$0.02/ton -- gap that showed up as a stray 1-cent EX-Work/FOB
+    # mismatch on some SKUs in the owner's full-matrix parity check).
+    variable_electricity_egp_per_ton = math.ceil(kw_per_ton * variable_tariff - 1e-9)
     extra_items = conn.execute("SELECT COALESCE(SUM(value_egp_per_ton),0) t FROM variable_cost_item").fetchone()["t"] or 0
     variable_cost_per_ton_egp = variable_electricity_egp_per_ton + extra_items
 
@@ -321,17 +365,30 @@ def pallet_component_total_usd(conn, packing_key):
     return total
 
 
-def _pallet_key_for(auto_manual, pallet_size, packaging_group=None):
+def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None):
     """auto_manual: 'Automatic' | 'Manual(5kg)' | 'Manual(2.3~3.5kg)' |
     'Manual(2.2kg)' | 'Manual(1.5kg)'. pallet_size: 'Standard' (USD/120x100)
     or 'Euro' (EUR/120x80). packaging_group: a product-level override (see
     product.packaging_group / db.py's _seed_box_packaging_v3) that bypasses
     the normal Automatic/Manual lookup entirely -- e.g. 12-micron 300%
     film, which is boxed (roll -> PE bag -> box) rather than packed the
-    standard Automatic way, regardless of its auto_manual value."""
+    standard Automatic way, regardless of its auto_manual value.
+
+    v72 -- owner-confirmed + verified directly against the H1.36 sheet's own
+    Stretch!AD formula: the box (PE-bag + carton) packaging ONLY applies to
+    12-micron/300%'s STANDARD (<25kg) rolls -- =...'Pallet component'!$Q$22/G
+    when H<25. For a JUMBO (>=25kg) roll of that same product the sheet's
+    formula switches to the exact same plain 'Pallet component'!$D$11/G every
+    other Automatic product uses (the boxed PE-bag/carton pallet_component
+    variant is never referenced at all for a jumbo roll of this SKU) -- so
+    the packaging_group override is skipped for roll_weight_kg>=25, falling
+    through to the normal Automatic/Manual lookup below. Verified against
+    the recalculated sheet: this closed a consistent ~$0.017-0.018/kg
+    EX-Work gap that showed up ONLY at 50/55/60kg roll weights for 12m/300%,
+    never at 16kg."""
     is_eur = "euro" in (pallet_size or "").lower()
     suffix = "eur" if is_eur else "usd"
-    if packaging_group:
+    if packaging_group and (roll_weight_kg or 0) < 25:
         return f"{packaging_group}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
@@ -414,7 +471,8 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
     if rolls_per_pallet <= 0:
         return 0.0
     packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
-    key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group)
+    key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group,
+                           product["roll_weight_kg"])
     total = pallet_component_total_usd(conn, key)
     return total / rolls_per_pallet
 
@@ -608,6 +666,32 @@ def foreign_seller_extra_multiplier(conn, seller_type):
     return 1 + (pct / 100.0)
 
 
+# v70.1 -- owner-confirmed: match the H1.36 workbook's own Stretch!AF3/AF4
+# formulas EXACTLY, bugs and all, for 150% Standard at 8 and 9 micron. Those
+# two rows' conversion-cost formula reads 'Conversion cost'!J17/J18 (the P+
+# / Power Plus column) instead of D17/D18 (the St / Standard column it uses
+# for every other 150% Standard micron, e.g. row 4 = 10 micron reads D19) --
+# confirmed directly against the workbook's own formula text, not a guess.
+# Every other product's conversion-cost lookup is unaffected -- only these
+# two (stretch_ability, micron) pairs get the swapped bucket, and only for
+# THIS lookup (the margin_factor lookup in margin_pct_for() below stays on
+# the normal "St" film_type for these rows -- confirmed the workbook's own
+# margin % for these rows matches the plain St-bucket margin table, not a
+# Power-Plus one, so only the conversion-cost column reference is swapped
+# in the source sheet, nothing else).
+CONVERSION_COST_ROLL_TYPE_OVERRIDE_V70 = {
+    ("150% Standard", "8"): "P_plus",
+    ("150% Standard", "9"): "P_plus",
+}
+
+
+def conversion_roll_type_for(stretch_ability, micron):
+    key = (stretch_ability, str(micron))
+    if key in CONVERSION_COST_ROLL_TYPE_OVERRIDE_V70:
+        return CONVERSION_COST_ROLL_TYPE_OVERRIDE_V70[key]
+    return roll_type_bucket(stretch_ability)
+
+
 # ---------------------------------------------------------------- Main EX-Work computation
 
 def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0):
@@ -654,7 +738,7 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate
 
-    roll_type = roll_type_bucket(product["stretch_ability"])
+    roll_type = conversion_roll_type_for(product["stretch_ability"], product["micron"])
     micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
     conv_usd_per_ton = conversion_cost_usd_per_ton(conn, micron, roll_type)
     width_mm = product["width_mm"] if "width_mm" in product.keys() else None
@@ -689,7 +773,7 @@ def breakdown(conn, product):
     packaging_cost = packaging_cost_per_roll_usd(conn, product)
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate
-    roll_type = roll_type_bucket(product["stretch_ability"])
+    roll_type = conversion_roll_type_for(product["stretch_ability"], product["micron"])
     micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
     conv_usd_per_ton = conversion_cost_usd_per_ton(conn, micron, roll_type)
     width_mm = product["width_mm"] if "width_mm" in product.keys() else None

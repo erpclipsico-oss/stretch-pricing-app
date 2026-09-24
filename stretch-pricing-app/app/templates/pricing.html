@@ -207,6 +207,16 @@ function roundHalfUp(num, decimals) {
   return Math.round((num + Number.EPSILON) * factor) / factor;
 }
 
+// v70.2 -- FOB $/KG must match the H1.36 sheet's Stretch!AO column, which
+// uses Excel's ROUNDUP() (always rounds away from zero / ceiling) on the
+// UNROUNDED EX-Work price + port addon, not roundHalfUp() on an already-
+// rounded base. Same Number.EPSILON correction as roundHalfUp() above so a
+// genuine .xx0 isn't nudged up an extra cent by floating-point noise.
+function roundUp(num, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.ceil((num - Number.EPSILON) * factor) / factor;
+}
+
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
@@ -660,7 +670,12 @@ async function calculateAll() {
     // $/Roll figure when "$/Roll (Gross)"/"$/Roll (Net)" is selected --
     // see the rowCalc loop below and PRICING_BASES' labels.
     rowCalc.push({
-      tr, exwUnit: data.unit_price_usd_kg, totalKg: data.total_kg,
+      tr, exwUnit: data.unit_price_usd_kg,
+      // v70.2 -- raw unrounded price for FOB/CIF (see roundUp() above);
+      // prestretch lines don't get one from the API yet, so fall back to
+      // the rounded price for those.
+      exwUnitRaw: (data.unit_price_usd_kg_raw != null ? data.unit_price_usd_kg_raw : data.unit_price_usd_kg),
+      totalKg: data.total_kg,
       pricingBasis: pricing_basis, rollWeightKg: data.roll_weight_kg || 0,
       coreWeightKg: data.core_weight_kg || 0, isPrestretchLine: isPrestretch(product_id),
     });
@@ -807,8 +822,12 @@ async function calculateAll() {
   for (const rc of rowCalc) {
     const lineFobAddonPerKg = rc.totalKg > 0 ? fobAddon / rc.totalKg : 0;
     const lineFreightPerKg = rc.totalKg > 0 ? freightAmt / rc.totalKg : 0;
-    const fobUnit = rc.exwUnit + lineFobAddonPerKg;
-    const cifUnit = fobUnit + lineFreightPerKg;
+    // v70.2 -- FOB $/KG built from the RAW unrounded EX-Work price with a
+    // single ceiling round at the end, matching Stretch!AO's ROUNDUP() in
+    // the sheet (see roundUp() above). CFR/CIF still rounds normally --
+    // the owner confirmed freight/CFR doesn't need to match the sheet.
+    const fobUnit = roundUp(rc.exwUnitRaw + lineFobAddonPerKg, 2);
+    const cifUnit = roundHalfUp(fobUnit + lineFreightPerKg, 2);
     // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown was
     // only ever changing a label -- the FOB/CIF cells always showed the
     // plain $/KG number no matter which basis this row had selected. Now

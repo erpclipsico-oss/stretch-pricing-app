@@ -93,7 +93,8 @@ def _discounted_factor(factor, discount_pct):
 
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
-                    colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0):
+                    colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0,
+                    round_result=True):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -127,7 +128,17 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     apply_extras same as the Foreign Seller multiplier, so it isn't
     silently double-applied when this is an internal lookup of another
     product's own price (e.g. Pre-Stretch borrowing its source SKU's sales
-    price) -- see cost_engine.apply_hidden_markup()."""
+    price) -- see cost_engine.apply_hidden_markup().
+
+    round_result (v70.2): False returns the raw, unrounded float instead of
+    the usual round_half_up(price, 2). Needed so the FOB/CIF $/KG add-on
+    step (cost_engine.round_up() in app.py) can add the port/freight
+    add-on to the SAME full-precision EX-Work price the H1.36 workbook's
+    own Stretch!AI column keeps (never rounded there either -- see
+    cost_engine.round_up()'s docstring) before rounding up once at the
+    end, instead of rounding EX-Work to 2dp first and only then adding the
+    add-on, which is the extra rounding step that was making this app's
+    FOB $/KG land a cent below the workbook's for almost every SKU."""
     factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
                                          rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
     factor = _discounted_factor(factor, discount_pct)
@@ -142,14 +153,14 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     if apply_extras:
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
         price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
-    return cost_engine.round_half_up(price, 2)
+    return cost_engine.round_half_up(price, 2) if round_result else price
 
 
 def compute_line(db, product, country_class, customer_class, quantity_pallets, roll_size="standard",
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
                   seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
-                  hidden_markup_mode=None, hidden_markup_value=0):
+                  hidden_markup_mode=None, hidden_markup_value=0, round_result=True):
     """Returns (unit_price_usd_kg, total_kg).
 
     pricing_basis (v46 -- owner-confirmed): for every regular (non-Pre-
@@ -178,7 +189,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  pallet_type=pallet_type, rolls_per_pallet_override=rolls_per_pallet_override,
                                  seller_type=seller_type, colored=colored, discount_pct=discount_pct,
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
-                                 hidden_markup_value=hidden_markup_value)
+                                 hidden_markup_value=hidden_markup_value, round_result=round_result)
     # v46: always the full gross roll weight for every regular product --
     # see this function's docstring. (Pre-Stretch is the one place the
     # Net basis actually subtracts the core -- compute_prestretch_line().)
