@@ -18,13 +18,26 @@
   {# v69 -- headers reworded so each column reads unambiguously as a
      quantity ("Qty (Pallets)", "Total Qty (KG)") or a money amount in USD,
      on the owner's request, and wrapped onto 2 lines with a bit more
-     column padding so the longer labels stay readable. #}
+     column padding so the longer labels stay readable.
+     v76 -- Unit Price ($/KG) [EX-Work] and Line Total (USD) swapped out for
+     Roll Weight (kg) / Core Weight (kg): the owner said she never needs the
+     EX-Work or per-line-total figures here (FOB Price/CIF Price and the
+     FOB/CIF Total box below already cover pricing for her), and wants the
+     roll's physical weights shown as real columns instead.
+     v76.1 -- Qty (Pallets) dropped too, Rolls/Pallet and Pallets/Container
+     added, in this exact order, per the owner's own follow-up correction:
+     Product/Pallet/Packing/Basis, Total Qty (KG), Roll Weight, Core Weight,
+     Rolls/Pallet, Pallets/Container, then FOB/CIF price. Stretch Film lines
+     have no single per-line container choice, so Pallets/Container shows
+     both the 40ft and 20ft capacities (see load_quotation()'s comment).
+     v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request. #}
   <table class="lines-table lines-table-wide">
     <thead>
       <tr>
         <th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th>
-        <th>Qty<br>(Pallets)</th><th>Total Qty<br>(KG)</th><th>Unit Price<br>($/KG)</th>
-        <th>FOB Price<br>($/KG)</th><th>CIF Price<br>($/KG)</th><th>Line Total<br>(USD)</th>
+        <th>Roll Weight<br>(kg)</th><th>Core Weight<br>(kg)</th>
+        <th>Rolls/<br>Pallet</th><th>Pallets/Container<br>(40'/20')</th>
+        <th>FOB Price<br>($/KG)</th><th>CIF Price<br>($/KG)</th>
       </tr>
     </thead>
     <tbody>
@@ -34,12 +47,12 @@
         <td>{{ l.strap_pallet_display if l.product_line in ('pet', 'pp') else l.pallet_type }}</td>
         <td>{{ l.strap_packing_display if l.product_line in ('pet', 'pp') else l.packing_type }}</td>
         <td>{{ l.pricing_basis_label }}</td>
-        <td class="num">{{ l.quantity_pallets }}</td>
-        <td class="num">{{ '%.1f'|format(l.total_kg) }}</td>
-        <td class="num">{{ '%.2f'|format(l.unit_price_usd_kg) }}</td>
+        <td class="num">{{ '%g'|format(l.spec.roll_weight_kg) if l.spec and l.spec.roll_weight_kg else '-' }}</td>
+        <td class="num">{{ '%g'|format(l.spec.core_weight_kg) if l.spec and l.spec.core_weight_kg else '-' }}</td>
+        <td class="num">{{ '%g'|format(l.rolls_per_pallet_display) if l.rolls_per_pallet_display else '-' }}</td>
+        <td class="num">{{ l.pallets_per_container_display or '-' }}</td>
         <td class="num">{{ '%.2f'|format(l.fob_unit_usd_kg) if l.fob_unit_usd_kg is not none else '-' }}</td>
         <td class="num">{{ '%.2f'|format(l.cif_unit_usd_kg) if l.cif_unit_usd_kg is not none else '-' }}</td>
-        <td class="num">${{ '%.2f'|format(l.line_total) }}</td>
       </tr>
       {% if l.spec_note %}
       <tr>

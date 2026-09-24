@@ -203,6 +203,22 @@ input[type=number] {
   min-width: 0;
   box-sizing: border-box;
 }
+/* v73 -- owner-reported: plain label spans ("Standard", "Automatic", etc.)
+   in a tight .edit-row would shrink below their own text's width (that's
+   what the min-width:0 above is for -- see the v54 note) and, with no
+   white-space rule, the text would WRAP mid-word ("Standar" / "d" on two
+   lines, "Automati" / "c" on two lines) instead of staying on one line.
+   min-width:0 must stay (it's what keeps columns aligned -- see v54/v55
+   above), so the fix is the opposite of shrinking: keep every label span
+   on one line and let it -- and so the whole flex row -- take the room it
+   actually needs, wrapping onto a new ROW (flex-wrap on .edit-row already
+   does that) rather than ever breaking a WORD across two lines. Scoped to
+   span only: inputs/selects don't show this failure (their text doesn't
+   wrap visibly the same way), so their min-width:0 sizing behavior for
+   column alignment is untouched. */
+.edit-row span {
+  white-space: nowrap;
+}
 .edit-row select {
   appearance: none;
   -webkit-appearance: none;

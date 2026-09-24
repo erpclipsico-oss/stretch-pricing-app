@@ -944,6 +944,42 @@ def create_app():
                     spec = {"width_mm": None, "roll_weight_kg": spec_roll, "core_weight_kg": spec_core}
             spec_note = _format_spec_note(spec) if spec else None
 
+            # v76.1 -- Rolls/Pallet and Pallets/Container as their own
+            # columns on the exported PDF/Excel/view page (previously only
+            # shown live in the quote builder, or buried in a Strap line's
+            # "Stuffing —" note), on the owner's explicit request. Strap
+            # reuses the "stuffing" figures above (a single resolved
+            # container choice, 20ft or 40ft, per the line's own Box/
+            # Container inputs). Stretch Film has no per-line container
+            # choice, so both the 40ft and 20ft capacities from the
+            # Details-sheet packing-tier lookup are shown side by side --
+            # see cost_engine.lookup_packing_tier()/effective_rolls_per_pallet().
+            # Pre-Stretch lines aren't stuffed into a container via the
+            # packing-tier table at all, so Pallets/Container is left blank
+            # for them; Rolls/Pallet is still the rep's own saved figure.
+            rolls_per_pallet_display = pallets_per_container_display = None
+            if line_pl in ("pet", "pp"):
+                if stuffing:
+                    rolls_per_pallet_display = stuffing["rolls_per_pallet"]
+                    container_short = "40'" if stuffing["container"] == "40ft" else "20'"
+                    pallets_per_container_display = f"{stuffing['pallets_per_container']} ({container_short})"
+            elif not (l["is_prestretch"] if "is_prestretch" in l.keys() else False):
+                eff_roll_weight = spec["roll_weight_kg"] if spec else l["p_roll_weight_kg"]
+                eff_auto_manual = l["packing_type"] if ("packing_type" in l.keys() and l["packing_type"]) else "Automatic"
+                custom_rpp = l["custom_rolls_per_pallet"] if "custom_rolls_per_pallet" in l.keys() else None
+                rolls_per_pallet_display = cost_engine.effective_rolls_per_pallet(
+                    db, {"auto_manual": eff_auto_manual, "roll_weight_kg": eff_roll_weight,
+                         "rolls_per_pallet": l["p_rolls_per_pallet"]},
+                    l["pallet_type"], custom_rpp)
+                tier = cost_engine.lookup_packing_tier(db, eff_auto_manual, eff_roll_weight, l["pallet_type"])
+                if tier and (tier["pallets_per_container40"] or tier["pallets_per_container20"]):
+                    c40 = tier["pallets_per_container40"]
+                    c20 = tier["pallets_per_container20"]
+                    pallets_per_container_display = (
+                        f"{c40:g}/{c20:g}" if c40 and c20 else f"{c40 or c20:g}")
+            else:
+                rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
+
             if line_pl in ("pet", "pp"):
                 fob_unit = (l["fob_price_usd_kg"] if ("fob_price_usd_kg" in l.keys()
                                                         and l["fob_price_usd_kg"] is not None) else None)
@@ -965,16 +1001,22 @@ def create_app():
                                pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,
                                spec=spec, spec_note=spec_note,
                                strap_pallet_display=strap_pallet_display, strap_packing_display=strap_packing_display,
-                               fob_unit_usd_kg=fob_unit, cif_unit_usd_kg=cif_unit))
+                               fob_unit_usd_kg=fob_unit, cif_unit_usd_kg=cif_unit,
+                               rolls_per_pallet_display=rolls_per_pallet_display,
+                               pallets_per_container_display=pallets_per_container_display))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
     def _format_spec_note(spec):
         """v68 -- renders a line's roll-spec dict (see load_quotation) into
-        the single 'Width: ... · Roll weight: ... · Core weight: ...' note
-        string shown under the line on the view page / PDF / Excel. Any
-        field that's genuinely unknown for that line is left out rather
-        than shown as 0."""
+        the single 'Width: ... · ...' note string shown under the line on
+        the view page / PDF / Excel. Any field that's genuinely unknown for
+        that line is left out rather than shown as 0.
+        v76 -- Roll weight / Core weight dropped from this note: they're now
+        their own dedicated columns in the line table (see build_pdf() /
+        build_xlsx() / view_quotation.html), replacing the Unit Price/Line
+        Total columns the owner said she never uses, so repeating them here
+        too would just be clutter."""
         parts = []
         if spec.get("width_mm"):
             parts.append(f"Width: {spec['width_mm']:g}mm")
@@ -982,10 +1024,6 @@ def create_app():
             parts.append(f"Thickness: {spec['thickness_mm']:g}mm")
         if spec.get("meters_per_coil"):
             parts.append(f"Meters/coil: {spec['meters_per_coil']:g}")
-        if spec.get("roll_weight_kg"):
-            parts.append(f"Roll weight: {spec['roll_weight_kg']:g}kg")
-        if spec.get("core_weight_kg"):
-            parts.append(f"Core weight: {spec['core_weight_kg']:g}kg")
         return "Spec — " + " · ".join(parts) if parts else None
 
     def _strap_gross_weight_kg(db, line_key, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg):
@@ -1949,6 +1987,20 @@ def build_pdf(q, lines, totals):
     # page, and frees up real room for the wider columns below.
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm,
                              leftMargin=15 * mm, rightMargin=15 * mm)
+    # v75 -- owner-reported letterhead layout pass: the page content area is
+    # 180mm wide (15mm margins each side on A4's 210mm) -- 180mm == 510.24pt
+    # == PAGE_CONTENT_WIDTH below, and EVERY top-level flowable (letterhead,
+    # divider, meta table, line-items table, totals table) is now sized to
+    # that exact width AND explicitly left-aligned (hAlign="LEFT"), so they
+    # all share one true left AND right edge down the page. Before this,
+    # meta_table/totals_table were narrower than the letterhead/line-items
+    # table (480pt/490pt vs 510pt) -- and reportlab's Table defaults to
+    # CENTER alignment in its frame when no hAlign is set, so those two
+    # narrower tables rendered visibly inset/off-center from everything
+    # else instead of flush-left with it, the "مافيش alignment" the owner
+    # flagged.
+    PAGE_CONTENT_WIDTH = 180 * mm
+
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1a1a1a"))
     company_name_style = ParagraphStyle("CoName", parent=styles["Normal"], fontSize=15, fontName="Helvetica-Bold",
@@ -1972,22 +2024,37 @@ def build_pdf(q, lines, totals):
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 1),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        # v75 -- breathing room between the bold company NAME and the
+        # Address line right under it (previously 1pt top padding on every
+        # row, including this one -- the name and "Address :" sat almost
+        # touching). Only the address row (index 1) gets the extra gap; the
+        # Tel/Tel2/Tel3/Fax/Email block underneath stays tight, as before.
+        ("TOPPADDING", (0, 1), (0, 1), 6),
     ]))
 
     if os.path.exists(logo_path):
-        logo = RLImage(logo_path, width=26 * mm, height=26 * mm * (246 / 209))
-        letterhead = Table([[logo, company_table]], colWidths=[32 * mm, 148 * mm])
+        # v75 -- logo made a bit larger (26mm -> 30mm) and vertically
+        # centered against the company-info block (was TOP-aligned, which
+        # left dead space under a short logo next to the taller 7-line
+        # address block) so the letterhead reads as one balanced unit
+        # spanning the full page width, not a small icon floating at the
+        # top of a wide empty column.
+        logo = RLImage(logo_path, width=30 * mm, height=30 * mm * (246 / 209))
+        letterhead = Table([[logo, company_table]], colWidths=[36 * mm, PAGE_CONTENT_WIDTH - 36 * mm])
         letterhead.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (0, 0), 0),
-            ("LEFTPADDING", (1, 0), (1, 0), 6),
+            ("LEFTPADDING", (1, 0), (1, 0), 8),
         ]))
     else:
         letterhead = company_table
+    letterhead.hAlign = "LEFT"
 
     elements = [letterhead, Spacer(1, 10)]
-    elements.append(Table([[""]], colWidths=[180 * mm], rowHeights=[0.75],
-                           style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#cccccc"))])))
+    divider = Table([[""]], colWidths=[PAGE_CONTENT_WIDTH], rowHeights=[0.75],
+                     style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#cccccc"))]))
+    divider.hAlign = "LEFT"
+    elements.append(divider)
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("Quotation", title_style))
     elements.append(Spacer(1, 6))
@@ -2000,7 +2067,10 @@ def build_pdf(q, lines, totals):
         ["Loading Port", q["loading_port"] or "-", "Destination", q["destination"] or "-"],
         ["Discount", f"{q['global_discount_pct'] or 0}%", "", ""],
     ]
-    meta_table = Table(meta, colWidths=[90, 150, 90, 150])
+    # v75 -- widened from [90,150,90,150] (480pt) to sum to the full
+    # PAGE_CONTENT_WIDTH (510pt) -- see the v75 note above build_pdf().
+    meta_table = Table(meta, colWidths=[95, 160, 95, PAGE_CONTENT_WIDTH - 95 - 160 - 95])
+    meta_table.hAlign = "LEFT"
     meta_table.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
@@ -2036,12 +2106,20 @@ def build_pdf(q, lines, totals):
     # than a bare, easy-to-misread number -- "Total KG" in particular used
     # to read like it might be a second total/amount column next to "Line
     # Total $", when it's really just this line's own quantity in KG.
+    # v76.1 -- Qty (Pallets) dropped, Rolls/Pallet and Pallets/Container
+    # added as their own columns (previously only shown live in the quote
+    # builder, or for Strap only, buried in a "Stuffing —" note row), on
+    # the owner's explicit, column-by-column instruction. The old
+    # "Stuffing —" note is gone too -- Rolls/Pallet, Pallets/Container and
+    # Box (via the Packing column's "Box"/"No Box") are now all real
+    # columns instead, so the note would just repeat them.
     header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
                                    textColor=colors.white, alignment=1)  # 1 = TA_CENTER
+    # v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request.
     header = [Paragraph(t, header_style) for t in
-              ["#", "Product", "Pallet", "Packing", "Basis", "Qty<br/>(Pallets)",
-               "Total Qty<br/>(KG)", "Unit Price<br/>($/KG)", "FOB Price<br/>($/KG)",
-               "CIF Price<br/>($/KG)", "Line Total<br/>(USD)"]]
+              ["#", "Product", "Pallet", "Packing", "Basis",
+               "Roll Weight<br/>(kg)", "Core Weight<br/>(kg)", "Rolls/<br/>Pallet",
+               "Pallets/<br/>Container<br/>(40'/20')", "FOB Price<br/>($/KG)", "CIF Price<br/>($/KG)"]]
     rows = [header]
     span_commands = []
     stuffing_row_indexes = []
@@ -2062,49 +2140,83 @@ def build_pdf(q, lines, totals):
         # collision bug the Product column had.
         fob_unit = line.get("fob_unit_usd_kg")
         cif_unit = line.get("cif_unit_usd_kg")
+        spec = line.get("spec") or {}
+        roll_wt = spec.get("roll_weight_kg")
+        core_wt = spec.get("core_weight_kg")
+        rpp = line.get("rolls_per_pallet_display")
+        ppc = line.get("pallets_per_container_display")
         rows.append([
             str(i), Paragraph(line["label"], label_style),
             Paragraph(line["strap_pallet_display"] if is_strap_line else line["pallet_type"], label_style),
             Paragraph(line["strap_packing_display"] if is_strap_line else line["packing_type"], label_style),
             Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
-            f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
-            f"{line['unit_price_usd_kg']:.2f}",
+            f"{roll_wt:g}" if roll_wt else "-",
+            f"{core_wt:g}" if core_wt else "-",
+            f"{rpp:g}" if rpp else "-",
+            Paragraph(ppc, basis_style) if ppc else "-",
             f"{fob_unit:.2f}" if fob_unit is not None else "-",
             f"{cif_unit:.2f}" if cif_unit is not None else "-",
-            f"{line['line_total']:,.2f}",
         ])
-        # v68 -- roll-spec sub-row (Width/Roll weight/Core weight, plus
-        # Thickness/Meters-per-coil for Strap) right under every line that
-        # has one -- see load_quotation()'s spec_note comment.
+        # v68 -- roll-spec sub-row (Width, plus Thickness/Meters-per-coil
+        # for Strap) right under every line that has one -- see
+        # load_quotation()'s spec_note comment. Roll weight/Core weight are
+        # their own columns now (v76), so no longer repeated here.
         spec_note = line.get("spec_note")
         if spec_note:
             row_idx = len(rows)
             rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", ""])
             span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
             stuffing_row_indexes.append(row_idx)
-        # v39 -- strap lines get a "stuffing" sub-row right under them:
-        # Rolls/Pallet and Pallets/Container, computed from the line's own
-        # core-weight/box/container inputs (see load_quotation), so the
-        # customer-facing export shows exactly how the order gets loaded.
-        stuffing = line.get("stuffing")
-        if stuffing:
-            note = (f"Stuffing — Rolls/Pallet: {stuffing['rolls_per_pallet']} · "
-                    f"Pallets/Container ({stuffing['container']}): {stuffing['pallets_per_container']} · "
-                    f"Box: {stuffing['box']}")
-            row_idx = len(rows)
-            rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", "", "", ""])
-            span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
-            stuffing_row_indexes.append(row_idx)
     # v69 -- widened (was [14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48], sum
     # 458pt) now that the 15mm margins above free up the room -- sums to
     # 508pt, just inside the 510pt usable width on an A4 page with those
     # margins.
-    table = Table(rows, colWidths=[14, 90, 44, 44, 46, 40, 44, 44, 44, 44, 54])
+    # v75 -- rebalanced (still sums to PAGE_CONTENT_WIDTH, 510pt): the old
+    # Pallet(44)/Packing(44)/Basis(46) columns were narrower than their own
+    # cell TEXT at this font size -- "Standard Pallet" (~55pt wide at 8pt
+    # Helvetica), "Manual(2.3~3.5kg)" (~67pt) and "$/Roll (Gross)" (~49pt)
+    # -- so reportlab's Paragraph wrapped them, and because none of those
+    # are multi-word phrases with a good break point, the wrap fell mid-
+    # word ("Standar"/"d Pallet", "Automati"/"c") -- the same failure class
+    # already fixed on the web admin pages' CSS, but this PDF table builds
+    # its own layout and needed its own fix. Pallet/Packing/Basis widened
+    # to comfortably clear their own longest real value; Product (still
+    # meant to wrap for long labels, unchanged in kind) and the narrow
+    # numeric columns gave up the room for it, plus tighter cell padding
+    # (6pt->4pt each side) below.
+    # v76.1 -- Qty(Pallets) column removed, Rolls/Pallet + Pallets/Container
+    # added (12 columns now, was 11). Pallet/Packing/Basis/Product kept wide
+    # enough to clear their own longest single-line value (measured with
+    # stringWidth(), same approach as v75) so nothing wraps mid-word or
+    # mid-phrase -- Product in particular needs to comfortably clear a long
+    # Strap custom label's last "word" (e.g. "(Green/Natural))", ~58pt --
+    # narrowing Product to 65pt in an earlier pass of this fix broke that
+    # one mid-word ("N"/"atural))"), caught by the 25-line stress test
+    # below. The new Rolls/Pallet and Pallets/Container headers use their
+    # own <br/> line breaks (like Rolls/<br/>Pallet) since their column is
+    # narrower than the plain header text.
+    # v76.2 -- Total Qty(KG) dropped (11 columns now), its 40pt redistributed:
+    # mostly back to Product (long Strap custom labels need the room -- see
+    # the v76.1 comment above about "(Green/Natural))"), the rest spread
+    # across the new physical/packing columns for a touch more breathing
+    # room.
+    table = Table(rows, colWidths=[14, 93, 63, 76, 58, 32, 30, 32, 46, 33, 33])
+    table.hAlign = "LEFT"
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("TOPPADDING", (0, 0), (-1, 0), 6),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        # v75 -- LEFTPADDING/RIGHTPADDING reduced for EVERY row including
+        # the header (reportlab's own default is 6pt each side): applying
+        # this only to the body rows left the header row's own "#" column
+        # at its old default 12pt of padding against a narrower 12pt
+        # column, i.e. zero room for the header's own "#" -- reportlab
+        # doesn't wrap-fail gracefully in that case, it blows up the row
+        # height instead (a LayoutError on any quotation long enough to
+        # reach a second page). Same 4pt padding everywhere fixes both.
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
         ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
@@ -2120,7 +2232,10 @@ def build_pdf(q, lines, totals):
         [f"FOB Total ({q['loading_port'] or '-'})", f"${totals['fob_total']:,.2f}"],
         [f"CIF Total ({q['destination'] or '-'})", f"${totals['cif_total']:,.2f}"],
     ]
-    totals_table = Table(totals_rows, colWidths=[400, 90])
+    # v75 -- widened from [400,90] (490pt) to sum to PAGE_CONTENT_WIDTH
+    # (510pt), same alignment pass as the letterhead/meta table above.
+    totals_table = Table(totals_rows, colWidths=[420, 90])
+    totals_table.hAlign = "LEFT"
     totals_table.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 10),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
@@ -2187,8 +2302,14 @@ def build_xlsx(q, lines, totals):
     # "Total Qty (KG)") or a money amount in USD, and wrapped onto 2 lines
     # (wrap_text + a taller header row) rather than one long string, with
     # wider columns to match.
-    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty\n(Pallets)", "Total Qty\n(KG)",
-               "Unit Price\n($/KG)", "FOB Price\n($/KG)", "CIF Price\n($/KG)", "Line Total\n(USD)"]
+    # v76 -- Unit Price ($/KG) / Line Total (USD) swapped for Roll Weight
+    # (kg) / Core Weight (kg) -- see the matching comment in build_pdf().
+    # v76.1 -- Qty (Pallets) dropped, Rolls/Pallet + Pallets/Container added
+    # (12 columns now) -- see the matching comment in build_pdf().
+    # v76.2 -- Total Qty (KG) dropped too (11 columns now).
+    headers = ["#", "Product", "Pallet", "Packing", "Basis",
+               "Roll Weight\n(kg)", "Core Weight\n(kg)", "Rolls/Pallet",
+               "Pallets/Container\n(40'/20')", "FOB Price\n($/KG)", "CIF Price\n($/KG)"]
     header_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for col, h in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=h)
@@ -2209,15 +2330,21 @@ def build_xlsx(q, lines, totals):
         is_strap_line = line.get("product_line") in ("pet", "pp")
         fob_unit = line.get("fob_unit_usd_kg")
         cif_unit = line.get("cif_unit_usd_kg")
+        spec = line.get("spec") or {}
+        roll_wt = spec.get("roll_weight_kg")
+        core_wt = spec.get("core_weight_kg")
+        rpp = line.get("rolls_per_pallet_display")
+        ppc = line.get("pallets_per_container_display")
         values = [
             i, line["label"], line["strap_pallet_display"] if is_strap_line else line["pallet_type"],
             line["strap_packing_display"] if is_strap_line else line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
-            line["quantity_pallets"], cost_engine.round_half_up(line["total_kg"], 1),
-            cost_engine.round_half_up(line["unit_price_usd_kg"], 2),
+            roll_wt if roll_wt else "-",
+            core_wt if core_wt else "-",
+            rpp if rpp else "-",
+            ppc if ppc else "-",
             cost_engine.round_half_up(fob_unit, 2) if fob_unit is not None else "-",
             cost_engine.round_half_up(cif_unit, 2) if cif_unit is not None else "-",
-            cost_engine.round_half_up(line["line_total"], 2),
         ]
         for col, v in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col, value=v)
@@ -2225,24 +2352,15 @@ def build_xlsx(q, lines, totals):
             if col >= 6:
                 cell.alignment = right
         row += 1
-        # v68 -- roll-spec note (Width/Roll weight/Core weight, plus
-        # Thickness/Meters-per-coil for Strap) right under every line that
-        # has one -- see load_quotation()'s spec_note comment.
+        # v68 -- roll-spec note (Width, plus Thickness/Meters-per-coil for
+        # Strap) right under every line that has one -- see
+        # load_quotation()'s spec_note comment. Roll weight/Core weight are
+        # their own columns now (v76); Rolls/Pallet and Pallets/Container
+        # are too (v76.1), so the old "Stuffing —" note for Strap lines is
+        # gone -- it would just repeat these columns.
         spec_note = line.get("spec_note")
         if spec_note:
             cell = ws.cell(row=row, column=2, value=spec_note)
-            cell.font = stuffing_font
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=11)
-            row += 1
-        # v39 -- strap lines get a "stuffing" note right under them:
-        # Rolls/Pallet and Pallets/Container, computed from the line's own
-        # core-weight/box/container inputs (see load_quotation).
-        stuffing = line.get("stuffing")
-        if stuffing:
-            note = (f"Stuffing — Rolls/Pallet: {stuffing['rolls_per_pallet']} · "
-                    f"Pallets/Container ({stuffing['container']}): {stuffing['pallets_per_container']} · "
-                    f"Box: {stuffing['box']}")
-            cell = ws.cell(row=row, column=2, value=note)
             cell.font = stuffing_font
             ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=11)
             row += 1
@@ -2262,7 +2380,10 @@ def build_xlsx(q, lines, totals):
 
     # v69 -- widened a bit (was [4, 30, 12, 12, 12, 12, 10, 10, 10, 10, 12])
     # to give the now-2-line headers room to breathe.
-    widths = [5, 32, 13, 13, 14, 13, 12, 13, 13, 13, 14]
+    # v76.1 -- 12 columns then (Qty(Pallets) dropped, Rolls/Pallet +
+    # Pallets/Container added). v76.2 -- 11 columns now (Total Qty (KG)
+    # dropped too).
+    widths = [5, 36, 15, 17, 14, 12, 12, 12, 16, 13, 13]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 
