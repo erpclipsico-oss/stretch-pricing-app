@@ -562,34 +562,39 @@ def create_app():
                 total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
+                # v67 -- freeze this line's own FOB $/kg alongside the CFR
+                # $/kg above, so the saved quotation's view/PDF/Excel can
+                # show a real per-line FOB column for strap lines -- see
+                # the fob_price_usd_kg column's comment in db._migrate().
+                fob_price_usd_kg = calc["fob_price_kg"]
                 if is_custom:
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                            unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
-                            pricing_basis, product_line, strap_custom_bom_key, strap_custom_width_mm,
-                            strap_custom_thickness_mm, strap_custom_meters_per_coil,
+                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg, total_kg,
+                            line_discount_pct, pricing_basis, product_line, strap_custom_bom_key,
+                            strap_custom_width_mm, strap_custom_thickness_mm, strap_custom_meters_per_coil,
                             strap_custom_core_weight_kg, strap_custom_has_box, strap_custom_ctr20,
                             strap_custom_ctr40, strap_custom_has_pallet)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, None, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_pallets_display, unit_price, unit_price_full, total_kg, line_discount_pct,
-                         "per_coil", line_product_line, strap_product["bom_key"], strap_product["width_mm"],
-                         strap_product["thickness_mm"], strap_product["meters_per_coil"],
-                         strap_product["core_weight_kg"], int(strap_product["has_box"]),
-                         int(strap_product["ctr20"]), int(strap_product["ctr40"]),
-                         int(strap_product["has_pallet"])),
+                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg, total_kg,
+                         line_discount_pct, "per_coil", line_product_line, strap_product["bom_key"],
+                         strap_product["width_mm"], strap_product["thickness_mm"],
+                         strap_product["meters_per_coil"], strap_product["core_weight_kg"],
+                         int(strap_product["has_box"]), int(strap_product["ctr20"]),
+                         int(strap_product["ctr40"]), int(strap_product["has_pallet"])),
                     )
                 else:
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                            unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct,
-                            pricing_basis, product_line)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg, total_kg,
+                            line_discount_pct, pricing_basis, product_line)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_pallets_display, unit_price, unit_price_full, total_kg, line_discount_pct,
-                         "per_coil", line_product_line),
+                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg, total_kg,
+                         line_discount_pct, "per_coil", line_product_line),
                     )
                 continue
 
@@ -752,7 +757,12 @@ def create_app():
         if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"]:
             abort(403)
         line_rows = db.execute(
-            """SELECT ql.*, p.stretch_ability, p.micron, sp.code AS strap_code
+            """SELECT ql.*, p.stretch_ability, p.micron, p.is_prestretch,
+                      p.roll_weight_kg AS p_roll_weight_kg, p.core_weight_kg AS p_core_weight_kg,
+                      p.width_mm AS p_width_mm, p.rolls_per_pallet AS p_rolls_per_pallet,
+                      sp.code AS strap_code, sp.bom_key AS sp_bom_key, sp.width_mm AS sp_width_mm,
+                      sp.thickness_mm AS sp_thickness_mm, sp.core_weight_kg AS sp_core_weight_kg,
+                      sp.meters_per_coil AS sp_meters_per_coil
                FROM quotation_line ql
                LEFT JOIN product p ON p.id = ql.product_id
                     AND (ql.product_line IS NULL OR ql.product_line = 'stretch_film')
@@ -763,6 +773,23 @@ def create_app():
         ).fetchall()
         basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG",
                          "per_coil": "$/KG (CFR)"}
+        # v67 -- per-line FOB $/KG and CIF $/KG, shown on the saved-
+        # quotation view page, PDF and Excel (previously only the plain
+        # "Unit $/KG" -- EX-Work for Stretch, CFR for Strap -- and the
+        # quotation-level FOB/CIF Total were shown there, unlike the live
+        # quote builder, which already shows a per-line FOB/CIF $/KG on
+        # screen -- see pricing.html's rowCalc loop / strap fob/cfr cells.
+        # For a Stretch Film line, computed live the exact same way the
+        # quote builder and compute_totals() do -- EX-Work (frozen
+        # unit_price_usd_kg) + the CURRENT loading port's addon spread
+        # over this line's own total_kg, never a proportional share of the
+        # whole quote -- looked up fresh from the Rates tables just like
+        # compute_totals()'s own FOB/CIF Total always has been (never
+        # frozen at save time). For a Strap line, the frozen
+        # fob_price_usd_kg saved alongside it at save time (None on a line
+        # saved before v67 -- shown as "-" rather than guessed).
+        fob_addon = _fob_addon_for_port(db, q["loading_port"] if "loading_port" in q.keys() else None)
+        freight_amt = _freight_for_destination(db, q["destination"] if "destination" in q.keys() else None)
         lines = []
         for l in line_rows:
             line_pl = l["product_line"] if "product_line" in l.keys() and l["product_line"] else "stretch_film"
@@ -837,11 +864,107 @@ def create_app():
                                 else False)
                 strap_pallet_display = "Pallet" if has_pallet_val else "No Pallet"
                 strap_packing_display = "Box" if has_box_val else "No Box"
+
+            # v68 -- physical roll-spec details (Width, Roll weight, Core
+            # weight -- Thickness and Meters/coil too for Strap) shown as a
+            # note row right under each line on the exported PDF/Excel and
+            # the saved-quotation view page, mirroring what the live quote
+            # builder (pricing.html) already shows next to every line while
+            # it's being built (f-width/f-rollwt/f-corewt for Stretch;
+            # f-strap-width/-thickness/-meters/-rollwt for Strap). A custom
+            # per-line override (custom_width_mm etc / strap_custom_*)
+            # wins when set; otherwise falls back to the catalog product's
+            # own spec. Left None when nothing is known either way (e.g. a
+            # Pre-Stretch line, which has no catalog Width at all).
+            spec = None
+            if line_pl in ("pet", "pp"):
+                if "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]:
+                    spec_width = l["strap_custom_width_mm"]
+                    spec_thickness = l["strap_custom_thickness_mm"]
+                    spec_meters = l["strap_custom_meters_per_coil"]
+                    spec_core = l["strap_custom_core_weight_kg"]
+                    spec_bom_key = l["strap_custom_bom_key"]
+                else:
+                    spec_width = l["sp_width_mm"]
+                    spec_thickness = l["sp_thickness_mm"]
+                    spec_meters = l["sp_meters_per_coil"]
+                    spec_core = l["sp_core_weight_kg"]
+                    spec_bom_key = l["sp_bom_key"]
+                spec_roll = _strap_gross_weight_kg(db, line_pl, spec_bom_key, spec_width,
+                                                    spec_thickness, spec_meters, spec_core)
+                if spec_width or spec_core or spec_roll:
+                    spec = {"width_mm": spec_width, "thickness_mm": spec_thickness,
+                            "meters_per_coil": spec_meters, "core_weight_kg": spec_core,
+                            "roll_weight_kg": spec_roll}
+            elif not (l["is_prestretch"] if "is_prestretch" in l.keys() else False):
+                spec_width = (l["custom_width_mm"] if ("custom_width_mm" in l.keys() and l["custom_width_mm"])
+                              else l["p_width_mm"])
+                spec_roll = (l["custom_roll_weight_kg"] if ("custom_roll_weight_kg" in l.keys() and l["custom_roll_weight_kg"])
+                             else l["p_roll_weight_kg"])
+                spec_core = (l["custom_core_weight_kg"] if ("custom_core_weight_kg" in l.keys() and l["custom_core_weight_kg"])
+                             else l["p_core_weight_kg"])
+                if spec_width or spec_roll or spec_core:
+                    spec = {"width_mm": spec_width, "roll_weight_kg": spec_roll, "core_weight_kg": spec_core}
+            else:
+                spec_roll = l["prestretch_roll_weight_kg"] if "prestretch_roll_weight_kg" in l.keys() else None
+                spec_core = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
+                if spec_roll or spec_core:
+                    spec = {"width_mm": None, "roll_weight_kg": spec_roll, "core_weight_kg": spec_core}
+            spec_note = _format_spec_note(spec) if spec else None
+
+            if line_pl in ("pet", "pp"):
+                fob_unit = (l["fob_price_usd_kg"] if ("fob_price_usd_kg" in l.keys()
+                                                        and l["fob_price_usd_kg"] is not None) else None)
+                cif_unit = l["unit_price_usd_kg"]  # already the frozen, freight-inclusive CFR $/kg
+            else:
+                fob_unit = cost_engine.round_half_up(
+                    l["unit_price_usd_kg"] + (fob_addon / l["total_kg"] if l["total_kg"] else 0), 2)
+                cif_unit = cost_engine.round_half_up(
+                    fob_unit + (freight_amt / l["total_kg"] if l["total_kg"] else 0), 2)
+
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
                                pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,
-                               strap_pallet_display=strap_pallet_display, strap_packing_display=strap_packing_display))
+                               spec=spec, spec_note=spec_note,
+                               strap_pallet_display=strap_pallet_display, strap_packing_display=strap_packing_display,
+                               fob_unit_usd_kg=fob_unit, cif_unit_usd_kg=cif_unit))
         totals = compute_totals(db, q, lines)
         return q, lines, totals
+
+    def _format_spec_note(spec):
+        """v68 -- renders a line's roll-spec dict (see load_quotation) into
+        the single 'Width: ... · Roll weight: ... · Core weight: ...' note
+        string shown under the line on the view page / PDF / Excel. Any
+        field that's genuinely unknown for that line is left out rather
+        than shown as 0."""
+        parts = []
+        if spec.get("width_mm"):
+            parts.append(f"Width: {spec['width_mm']:g}mm")
+        if spec.get("thickness_mm"):
+            parts.append(f"Thickness: {spec['thickness_mm']:g}mm")
+        if spec.get("meters_per_coil"):
+            parts.append(f"Meters/coil: {spec['meters_per_coil']:g}")
+        if spec.get("roll_weight_kg"):
+            parts.append(f"Roll weight: {spec['roll_weight_kg']:g}kg")
+        if spec.get("core_weight_kg"):
+            parts.append(f"Core weight: {spec['core_weight_kg']:g}kg")
+        return "Spec — " + " · ".join(parts) if parts else None
+
+    def _strap_gross_weight_kg(db, line_key, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg):
+        """v68 -- gross weight per coil for a strap line's report spec row,
+        computed the same way strap_pricing.compute_strap_line() derives it
+        internally (net weight from width/thickness/BOM density + core
+        weight) -- reused here purely for display, since quotation_line
+        only ever saved the line's TOTAL kg (net of quantity), not a
+        reusable per-roll figure."""
+        if not (width_mm and thickness_mm and meters_per_coil and bom_key):
+            return None
+        bom = strap_pricing._get_bom(db, line_key, bom_key)
+        product = {"width_mm": width_mm, "thickness_mm": thickness_mm}
+        g_per_m = strap_pricing.meter_weight_g_per_m(line_key, product, bom["components"])
+        if not g_per_m:
+            return None
+        roll_net_kg = meters_per_coil * g_per_m / 1000.0
+        return cost_engine.round_half_up(roll_net_kg + (core_weight_kg or 0), 2)
 
     def _fob_addon_for_port(db, port_name):
         row = db.execute("SELECT fob_addon_usd FROM loading_port WHERE port=?", (port_name,)).fetchone()
@@ -1855,7 +1978,19 @@ def build_pdf(q, lines, totals):
     label_style = ParagraphStyle("LineLabel", parent=styles["Normal"], fontSize=8, leading=10)
     basis_style = ParagraphStyle("LineBasis", parent=label_style, alignment=2)  # 2 = TA_RIGHT
 
-    header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
+    # v67 -- FOB $/KG / CIF $/KG columns added (previously only the plain
+    # "Unit $/KG" -- see load_quotation()'s comment on fob_unit_usd_kg/
+    # cif_unit_usd_kg for how each is computed). The header row used to be
+    # plain strings, which reportlab does NOT wrap -- at this column width
+    # "FOB $/KG"/"CIF $/KG" overflowed into the neighbouring header cell
+    # (same overlap bug the v41 comment above describes for line data).
+    # Wrapping the header in a Paragraph lets long labels wrap onto a
+    # second line within their own column instead.
+    header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
+                                   textColor=colors.white, alignment=1)  # 1 = TA_CENTER
+    header = ["#", "Product", "Pallet", "Packing", "Basis", "Qty", "Total KG",
+               *[Paragraph(t, header_style) for t in
+                 ["Unit $/KG", "FOB $/KG", "CIF $/KG", "Line Total $"]]]
     rows = [header]
     span_commands = []
     stuffing_row_indexes = []
@@ -1874,14 +2009,28 @@ def build_pdf(q, lines, totals):
         # too wide for their column at this font size, and a plain string
         # overflows into the next column instead of wrapping, the same
         # collision bug the Product column had.
+        fob_unit = line.get("fob_unit_usd_kg")
+        cif_unit = line.get("cif_unit_usd_kg")
         rows.append([
             str(i), Paragraph(line["label"], label_style),
             Paragraph(line["strap_pallet_display"] if is_strap_line else line["pallet_type"], label_style),
             Paragraph(line["strap_packing_display"] if is_strap_line else line["packing_type"], label_style),
             Paragraph(line.get("pricing_basis_label", "$/KG"), basis_style),
             f"{line['quantity_pallets']:g}", f"{line['total_kg']:,.1f}",
-            f"{line['unit_price_usd_kg']:.2f}", f"{line['line_total']:,.2f}",
+            f"{line['unit_price_usd_kg']:.2f}",
+            f"{fob_unit:.2f}" if fob_unit is not None else "-",
+            f"{cif_unit:.2f}" if cif_unit is not None else "-",
+            f"{line['line_total']:,.2f}",
         ])
+        # v68 -- roll-spec sub-row (Width/Roll weight/Core weight, plus
+        # Thickness/Meters-per-coil for Strap) right under every line that
+        # has one -- see load_quotation()'s spec_note comment.
+        spec_note = line.get("spec_note")
+        if spec_note:
+            row_idx = len(rows)
+            rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", ""])
+            span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
+            stuffing_row_indexes.append(row_idx)
         # v39 -- strap lines get a "stuffing" sub-row right under them:
         # Rolls/Pallet and Pallets/Container, computed from the line's own
         # core-weight/box/container inputs (see load_quotation), so the
@@ -1892,10 +2041,10 @@ def build_pdf(q, lines, totals):
                     f"Pallets/Container ({stuffing['container']}): {stuffing['pallets_per_container']} · "
                     f"Box: {stuffing['box']}")
             row_idx = len(rows)
-            rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", ""])
+            rows.append(["", Paragraph(note, stuffing_style), "", "", "", "", "", "", "", "", ""])
             span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
             stuffing_row_indexes.append(row_idx)
-    table = Table(rows, colWidths=[16, 122, 54, 54, 58, 44, 44, 44, 56])
+    table = Table(rows, colWidths=[14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -1974,7 +2123,10 @@ def build_xlsx(q, lines, totals):
     row += 1
 
     header_row = row
-    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG", "Line Total $"]
+    # v67 -- FOB $/KG / CIF $/KG columns added (see the matching comment in
+    # build_pdf() and load_quotation()'s fob_unit_usd_kg/cif_unit_usd_kg).
+    headers = ["#", "Product", "Pallet", "Packing", "Basis", "Qty (pallets)", "Total KG", "Unit $/KG",
+               "FOB $/KG", "CIF $/KG", "Line Total $"]
     for col, h in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=col, value=h)
         cell.fill = header_fill
@@ -1990,12 +2142,17 @@ def build_xlsx(q, lines, totals):
         # Pallet/Packing choice -- these use the line's own saved Pallet/
         # Box checkboxes instead (strap_pallet_display/strap_packing_display).
         is_strap_line = line.get("product_line") in ("pet", "pp")
+        fob_unit = line.get("fob_unit_usd_kg")
+        cif_unit = line.get("cif_unit_usd_kg")
         values = [
             i, line["label"], line["strap_pallet_display"] if is_strap_line else line["pallet_type"],
             line["strap_packing_display"] if is_strap_line else line["packing_type"],
             line.get("pricing_basis_label", "$/KG"),
             line["quantity_pallets"], cost_engine.round_half_up(line["total_kg"], 1),
-            cost_engine.round_half_up(line["unit_price_usd_kg"], 2), cost_engine.round_half_up(line["line_total"], 2),
+            cost_engine.round_half_up(line["unit_price_usd_kg"], 2),
+            cost_engine.round_half_up(fob_unit, 2) if fob_unit is not None else "-",
+            cost_engine.round_half_up(cif_unit, 2) if cif_unit is not None else "-",
+            cost_engine.round_half_up(line["line_total"], 2),
         ]
         for col, v in enumerate(values, start=1):
             cell = ws.cell(row=row, column=col, value=v)
@@ -2003,6 +2160,15 @@ def build_xlsx(q, lines, totals):
             if col >= 6:
                 cell.alignment = right
         row += 1
+        # v68 -- roll-spec note (Width/Roll weight/Core weight, plus
+        # Thickness/Meters-per-coil for Strap) right under every line that
+        # has one -- see load_quotation()'s spec_note comment.
+        spec_note = line.get("spec_note")
+        if spec_note:
+            cell = ws.cell(row=row, column=2, value=spec_note)
+            cell.font = stuffing_font
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=11)
+            row += 1
         # v39 -- strap lines get a "stuffing" note right under them:
         # Rolls/Pallet and Pallets/Container, computed from the line's own
         # core-weight/box/container inputs (see load_quotation).
@@ -2013,7 +2179,7 @@ def build_xlsx(q, lines, totals):
                     f"Box: {stuffing['box']}")
             cell = ws.cell(row=row, column=2, value=note)
             cell.font = stuffing_font
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=9)
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=11)
             row += 1
 
     row += 1
@@ -2024,12 +2190,12 @@ def build_xlsx(q, lines, totals):
     ]
     for label, val in totals_rows:
         ws.cell(row=row, column=1, value=label).font = bold
-        cell = ws.cell(row=row, column=9, value=val)
+        cell = ws.cell(row=row, column=11, value=val)
         cell.font = bold
         cell.number_format = "$#,##0.00"
         row += 1
 
-    widths = [4, 30, 12, 12, 12, 12, 10, 10, 12]
+    widths = [4, 30, 12, 12, 12, 12, 10, 10, 10, 10, 12]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 

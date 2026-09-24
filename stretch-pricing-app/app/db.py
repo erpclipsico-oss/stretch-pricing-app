@@ -591,6 +591,21 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation_line ADD COLUMN uv_type TEXT")
         conn.commit()
 
+    # v67 -- a strap (PET/PP) line's own frozen FOB $/kg (see
+    # strap_pricing.compute_strap_line()'s fob_price_kg), stored alongside
+    # the already-frozen CFR $/kg in unit_price_usd_kg, so the saved-
+    # quotation view/PDF/Excel can show a real FOB $/KG column for a strap
+    # line without recomputing it (and risking a different number if
+    # material rates/settings changed since the quote was saved). Left
+    # NULL for Stretch Film lines -- their FOB $/KG is computed live in
+    # load_quotation() instead, same rule the quotation-level FOB Total
+    # already uses (EX-Work + the CURRENT loading port's addon), because
+    # that's how this app has always treated Stretch's FOB/CIF numbers:
+    # live-looked-up from the Rates tables, never frozen at save time.
+    if "fob_price_usd_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN fob_price_usd_kg REAL")
+        conn.commit()
+
     # ---- Product-specific packaging override (v15): a handful of products
     # (e.g. 12-micron 300%/350% film) are packed roll-into-PE-bag-into-box
     # rather than the standard Automatic "straight on the pallet, wrapped in
