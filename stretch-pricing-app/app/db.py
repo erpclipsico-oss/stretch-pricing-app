@@ -398,6 +398,9 @@ def init_db():
     _seed_regular_rigid_missing_microns_v66(conn)
     _fix_missing_bom_rows_v70(conn)
     _fix_packing_tier_stuffing_v80(conn)
+    _seed_regular_rigid_micron8_v82(conn)
+    _seed_super_rigid_dynamic_microns_v83(conn)
+    _seed_super_rigid_dynamic_micron8_v84(conn)
     conn.close()
 
 
@@ -2295,6 +2298,217 @@ def _seed_regular_rigid_missing_microns_v66(conn):
          "run -- see db._seed_regular_rigid_missing_microns_v66()'s docstring. Do not delete this row "
          "-- it stops the fill from running again and overwriting a manual admin edit made after this "
          "boot. Inserted: " + str(inserted)),
+    )
+    conn.commit()
+
+
+# v82 -- REGID Film ("Regular" Rigid), micron 8: the owner asked to double-
+# check both reference workbooks for it. Confirmed in both:
+#   - H1.24: micron 8 sits in the same combined "REGID Film 'Super'..."
+#     block as 10/12/15/17/20/23, but -- like 15/17/20/23 -- its own row has
+#     NO real width/rolls/weight/core numbers (blank template row). Only
+#     10 and 12 carry real numbers there (500mm, 46 rolls/pallet, 16kg
+#     roll, 1.8kg core), which is exactly the spec REGULAR_RIGID_GEOMETRY
+#     already reuses for 15/17/20/23 above.
+#   - H1.36: micron 8 appears twice (Super"8" and Regular"8" rows) and BOTH
+#     are blank template rows too -- no real numbers for 8 in either grade
+#     in this sheet either (Regular's own 15/17/20/23 rows are just as
+#     blank here, which is why v66 above reused the H1.24-derived spec
+#     rather than anything from this sheet's own "Regular" rows).
+# So micron 8 has exactly the same status 15/17/20/23 had before v66: no
+# real roll-spec data anywhere, but the grade's one uniform real spec
+# (10/12, identical to each other) covers it under the same reasoning.
+# Filled here as its own one-time fix (not folded into
+# REGULAR_RIGID_MISSING_MICRONS/v66 above, since that migration already
+# shipped and ran -- its own marker must never re-fire and clobber a
+# manual admin edit made since).
+def _seed_regular_rigid_micron8_v82(conn):
+    """One-time fill for REGID Film ("Regular" Rigid) micron 8 -- see the
+    v82 comment above. Idempotent/per-row and gated behind its own
+    global_setting marker, same pattern as every other one-time fill in
+    this file."""
+    from . import cost_engine
+
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='regular_rigid_micron8_v82_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    inserted = False
+    exists = conn.execute(
+        "SELECT id FROM product WHERE stretch_ability='REGID Film' AND micron='8'"
+    ).fetchone()
+    if not exists:
+        g = REGULAR_RIGID_GEOMETRY
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('REGID Film', '8', ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (g["pallet_size"], g["auto_manual"], g["color"], g["rolls_per_pallet"],
+             g["roll_weight_kg"], g["core_weight_kg"], g["width_mm"]),
+        )
+        inserted = True
+    conn.commit()
+
+    if inserted:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability='REGID Film' AND micron='8'"
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+        conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("regular_rigid_micron8_v82_seeded", "Regular Rigid micron 8 fill v82 (internal marker)", 1,
+         "Internal marker: the one-time fill of REGID Film (Regular Rigid) micron 8 has run -- see "
+         "db._seed_regular_rigid_micron8_v82()'s docstring. Do not delete this row -- it stops the "
+         "fill from running again and overwriting a manual admin edit made after this boot. "
+         "Inserted: " + str(inserted)),
+    )
+    conn.commit()
+
+
+# v83 -- Super REGID Film ("Super" Rigid), microns 17/20/23: the owner
+# confirmed there is NO single confirmed roll weight for these -- unlike
+# 10/12/15 (each a fixed small Manual hand-wound roll, seeded in
+# SUPER_RIGID_PRODUCTS above), 17/20/23 are meant to take WHATEVER roll
+# weight the rep actually enters for that specific order (50kg, 16kg, a
+# Manual 2/3/5kg, etc), and the packing/stuffing (rolls/pallet, pallets/
+# container) should follow from THAT weight via the same live packing_tier
+# lookup every other product already uses -- see
+# cost_engine.lookup_packing_tier()/effective_rolls_per_pallet(): both
+# already key off product["roll_weight_kg"], which pricing.html's own
+# per-line Roll Weight field (.f-rollwt) already lets the rep override for
+# ANY selected product, and product["auto_manual"], which the line's own
+# Packing type dropdown already overrides too (see with_overrides()'s
+# docstring) -- so nothing in the pricing engine needs to change for this,
+# only the catalog gap: these 3 microns don't exist as selectable products
+# yet. Seeded with rolls_per_pallet left NULL (never a hardcoded per-
+# product number) so effective_rolls_per_pallet() always falls through to
+# the live tier lookup, and a nominal 16kg/Automatic/Standard default (the
+# owner's own first example: 16kg -> 46 rolls/pallet, 34 pallets/
+# container40, i.e. exactly today's standard_16kg_standard tier) that the
+# rep can freely change per quote, same as every other product's roll
+# weight field.
+SUPER_RIGID_DYNAMIC_MICRONS = ["17", "20", "23"]
+SUPER_RIGID_DYNAMIC_GEOMETRY = dict(pallet_size="Standard", auto_manual="Automatic", color="Transparent",
+                                     rolls_per_pallet=None, roll_weight_kg=16, core_weight_kg=1.8, width_mm=None)
+
+
+def _seed_super_rigid_dynamic_microns_v83(conn):
+    """One-time fill for Super REGID Film microns 17/20/23 -- see the v83
+    comment above. Idempotent/per-row and gated behind its own
+    global_setting marker, same pattern as every other one-time fill in
+    this file."""
+    from . import cost_engine
+
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='super_rigid_dynamic_microns_v83_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    inserted = []
+    g = SUPER_RIGID_DYNAMIC_GEOMETRY
+    for micron in SUPER_RIGID_DYNAMIC_MICRONS:
+        exists = conn.execute(
+            "SELECT id FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('Super REGID Film', ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (micron, g["pallet_size"], g["auto_manual"], g["color"], g["rolls_per_pallet"],
+             g["roll_weight_kg"], g["core_weight_kg"], g["width_mm"]),
+        )
+        inserted.append(("Super REGID Film", micron))
+    conn.commit()
+
+    for stretch_ability, micron in inserted:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=?", (stretch_ability, micron)
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("super_rigid_dynamic_microns_v83_seeded", "Super Rigid dynamic-weight microns fill v83 (internal marker)", 1,
+         "Internal marker: the one-time fill of Super REGID Film (Super Rigid) microns 17/20/23 has "
+         "run, seeded with rolls_per_pallet=NULL so their stuffing always comes from the live "
+         "packing_tier lookup by whatever roll weight the rep enters per quote -- see "
+         "db._seed_super_rigid_dynamic_microns_v83()'s docstring. Do not delete this row -- it stops "
+         "the fill from running again and overwriting a manual admin edit made after this boot. "
+         "Inserted: " + str(inserted)),
+    )
+    conn.commit()
+
+
+# v84 -- same as v83 above, for Super REGID Film micron 8 (owner's
+# follow-up: "طيب وال8 مايكرون؟"). Not folded into SUPER_RIGID_DYNAMIC_MICRONS/
+# v83 above since that migration already shipped and ran -- its own marker
+# must never re-fire and clobber a manual admin edit made since. Same
+# dynamic-stuffing reasoning applies unchanged: no single confirmed roll
+# weight for this micron either, so it's seeded selectable with
+# rolls_per_pallet=NULL (never hardcoded) and a nominal 16kg/Automatic
+# default, letting the rep's own per-line roll weight entry drive the
+# live packing_tier lookup exactly like every other product.
+def _seed_super_rigid_dynamic_micron8_v84(conn):
+    """One-time fill for Super REGID Film micron 8 -- see the v84 comment
+    above. Idempotent/per-row and gated behind its own global_setting
+    marker, same pattern as every other one-time fill in this file."""
+    from . import cost_engine
+
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='super_rigid_dynamic_micron8_v84_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    inserted = False
+    g = SUPER_RIGID_DYNAMIC_GEOMETRY
+    exists = conn.execute(
+        "SELECT id FROM product WHERE stretch_ability='Super REGID Film' AND micron='8'"
+    ).fetchone()
+    if not exists:
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
+               VALUES ('Super REGID Film', '8', ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (g["pallet_size"], g["auto_manual"], g["color"], g["rolls_per_pallet"],
+             g["roll_weight_kg"], g["core_weight_kg"], g["width_mm"]),
+        )
+        inserted = True
+    conn.commit()
+
+    if inserted:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability='Super REGID Film' AND micron='8'"
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+        conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("super_rigid_dynamic_micron8_v84_seeded", "Super Rigid dynamic-weight micron 8 fill v84 (internal marker)", 1,
+         "Internal marker: the one-time fill of Super REGID Film (Super Rigid) micron 8 has run, "
+         "seeded with rolls_per_pallet=NULL so its stuffing always comes from the live packing_tier "
+         "lookup by whatever roll weight the rep enters per quote -- see "
+         "db._seed_super_rigid_dynamic_micron8_v84()'s docstring. Do not delete this row -- it stops "
+         "the fill from running again and overwriting a manual admin edit made after this boot. "
+         "Inserted: " + str(inserted)),
     )
     conn.commit()
 
