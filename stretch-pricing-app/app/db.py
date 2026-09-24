@@ -401,6 +401,7 @@ def init_db():
     _seed_regular_rigid_micron8_v82(conn)
     _seed_super_rigid_dynamic_microns_v83(conn)
     _seed_super_rigid_dynamic_micron8_v84(conn)
+    _fix_super_rigid_auto_manual_v85(conn)
     conn.close()
 
 
@@ -1069,10 +1070,13 @@ def _seed_missing_products(conn):
 # is needed -- roll_type_bucket() already buckets any '...regid...' text
 # onto the same Rigid margin lookup regardless of Super vs Regular.
 SUPER_RIGID_PRODUCTS = [
-    # micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm
-    ("10", 360, 2.8, 0.3, 450),
-    ("12", 480, 1.8, 0.3, 450),
-    ("15", 480, 2.17, 0.3, 450),
+    # micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm, auto_manual
+    # v85 -- auto_manual is the SPECIFIC confirmed Packing type label (not bare
+    # 'Manual') so a brand-new fresh DB seeds these correctly from the start --
+    # see _fix_super_rigid_auto_manual_v85() for the matching live-DB patch.
+    ("10", 360, 2.8, 0.3, 450, "Manual(2.3~3.5kg)"),
+    ("12", 480, 1.8, 0.3, 450, "Manual(2.2kg)"),
+    ("15", 480, 2.17, 0.3, 450, "Manual(2.2kg)"),
 ]
 
 
@@ -1081,7 +1085,7 @@ def _seed_super_rigid_products_v46(conn):
     to an already-deployed, already-seeded live DB too."""
     from . import cost_engine
 
-    for micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm in SUPER_RIGID_PRODUCTS:
+    for micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm, auto_manual in SUPER_RIGID_PRODUCTS:
         exists = conn.execute(
             "SELECT id FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
         ).fetchone()
@@ -1091,8 +1095,8 @@ def _seed_super_rigid_products_v46(conn):
             """INSERT INTO product
                (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
                 roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg)
-               VALUES ('Super REGID Film', ?, 'Standard', 'Manual', 'Transparent', ?, ?, ?, ?, 0)""",
-            (micron, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm),
+               VALUES ('Super REGID Film', ?, 'Standard', ?, 'Transparent', ?, ?, ?, ?, 0)""",
+            (micron, auto_manual, rolls_per_pallet, roll_weight_kg, core_weight_kg, width_mm),
         )
     conn.commit()
 
@@ -1845,10 +1849,20 @@ def _fix_stale_global_settings_v7(conn):
 # (_seed_full_import_v4) already overwrote cost_seed.json's original values
 # with different-but-still-wrong ones, so cost_seed.json alone would not
 # fix the values the app actually serves.
+# v85 -- these 3 target values were flipped during the full Rigid/Super-Rigid
+# price-parity audit against the CURRENT online reference workbook (H1.36):
+# what v8 used to pin these to (core=35, enable=1490, cap=50) turns out to be
+# the workbook's OLDER/stale numbers, and the sheet's real current values are
+# core=30, enable=1290, cap=46 -- confirmed directly via LibreOffice against
+# H1.36's own "Material pricing" sheet. Since this function runs
+# unconditionally every boot (no one-time marker -- see its own note below),
+# simply updating the dict here re-applies the correct values on the very
+# next boot, for every existing deployment, without needing a separate
+# migration.
 STALE_MATERIAL_RATES_V8 = {
-    "core": 35,     # packaging, kilo -- was 30
-    "enable": 1490,  # resin, ton -- was 1290
-    "cap": 50,      # packaging, piece ("Cap 1100~1200") -- was 46
+    "core": 30,     # packaging, kilo -- H1.36 current value (was pinned to 35 pre-v85)
+    "enable": 1290,  # resin, ton -- H1.36 current value (was pinned to 1490 pre-v85)
+    "cap": 46,      # packaging, piece ("Cap 1100~1200") -- H1.36 current value (was pinned to 50 pre-v85)
 }
 
 
@@ -2509,6 +2523,70 @@ def _seed_super_rigid_dynamic_micron8_v84(conn):
          "db._seed_super_rigid_dynamic_micron8_v84()'s docstring. Do not delete this row -- it stops "
          "the fill from running again and overwriting a manual admin edit made after this boot. "
          "Inserted: " + str(inserted)),
+    )
+    conn.commit()
+
+
+# v85 -- the 3 existing Super REGID Film catalog rows (seeded by
+# _seed_super_rigid_products_v46 as bare auto_manual='Manual') need their
+# specific weight-labeled Packing type instead, so cost_engine.
+# lookup_packing_tier()'s new exact-match-first logic actually resolves them
+# to the CORRECT confirmed tier rather than falling through to a
+# nearest-match guess that can silently pick the wrong bucket (confirmed bug:
+# micron 12 at 1.8kg landing nearer "Manual(1.5kg)" than its own confirmed
+# "Manual(2.2kg)" tier). micron 10 -> 'Manual(2.3~3.5kg)' (its own 2.8kg roll
+# weight falls in that bucket); micron 12 and 15 -> 'Manual(2.2kg)'.
+SUPER_RIGID_AUTO_MANUAL_FIXES_V85 = [
+    ("10", "Manual(2.3~3.5kg)"),
+    ("12", "Manual(2.2kg)"),
+    ("15", "Manual(2.2kg)"),
+]
+
+
+def _fix_super_rigid_auto_manual_v85(conn):
+    """One-time correction of the 3 Super REGID Film rows' auto_manual field
+    -- gated behind a global_setting marker. Only UPDATEs a row if its
+    auto_manual is still exactly the bare 'Manual' default it was seeded
+    with, so a manual admin edit (to some other Packing type) is never
+    clobbered. Recomputes the row's cached ex_work_usd_kg afterward since
+    packing cost depends on this field."""
+    from . import cost_engine
+
+    already_fixed = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='super_rigid_auto_manual_v85_fixed'"
+    ).fetchone()
+    if already_fixed:
+        return
+
+    updated = []
+    for micron, new_label in SUPER_RIGID_AUTO_MANUAL_FIXES_V85:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
+        ).fetchone()
+        if row is not None and (row["auto_manual"] or "").strip().lower() == "manual":
+            conn.execute("UPDATE product SET auto_manual=? WHERE id=?", (new_label, row["id"]))
+            updated.append(micron)
+    conn.commit()
+
+    for micron in updated:
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability='Super REGID Film' AND micron=?", (micron,)
+        ).fetchone()
+        if row:
+            new_val = cost_engine.compute_ex_work_usd_kg(conn, row)
+            conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?", (new_val, row["id"]))
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("super_rigid_auto_manual_v85_fixed", "Super Rigid auto_manual label fix v85 (internal marker)", 1,
+         "Internal marker: the 3 existing Super REGID Film catalog rows (10/12/15 micron) had their "
+         "bare auto_manual='Manual' replaced with the specific confirmed Packing type label "
+         "(Manual(2.3~3.5kg) for 10, Manual(2.2kg) for 12/15), so lookup_packing_tier()'s exact-match "
+         "logic resolves them to the CORRECT tier instead of a nearest-weight guess -- see "
+         "db._fix_super_rigid_auto_manual_v85()'s docstring. Only rows still holding the bare "
+         "'Manual' default were touched, so a manual admin edit to a different Packing type is never "
+         "clobbered. Do not delete this row -- it stops the fix from running again. Updated: " + str(updated)),
     )
     conn.commit()
 

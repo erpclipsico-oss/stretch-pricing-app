@@ -120,7 +120,7 @@
       "label": "Enable",
       "category": "resin",
       "unit": "ton",
-      "value": 1490
+      "value": 1290
     },
     {
       "material_key": "uvi",
@@ -141,14 +141,14 @@
       "label": "Vista",
       "category": "resin",
       "unit": "ton",
-      "value": 3000
+      "value": 2550
     },
     {
       "material_key": "core",
       "label": "Core",
       "category": "packaging",
       "unit": "kilo",
-      "value": 35
+      "value": 30
     },
     {
       "material_key": "stretch",
@@ -176,7 +176,7 @@
       "label": "Cap 1100~1200",
       "category": "packaging",
       "unit": "piece",
-      "value": 50
+      "value": 46
     },
     {
       "material_key": "pallet",

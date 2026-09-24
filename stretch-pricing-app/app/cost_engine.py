@@ -184,8 +184,38 @@ def material_composition(conn, product, uv_fraction=0.0):
     breakdown), rather than being priced on top of a still-100%-full recipe."""
     roll_weight = product["roll_weight_kg"] or 0
     roll_tier = "jumbo" if roll_weight > 25 else "standard"
-    mult = bom_stretch_multiplier(product["stretch_ability"])
     micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
+
+    # v85 -- REGID Film / Super REGID Film (Regular & Super Rigid) don't have
+    # a dedicated row in the "BOM" sheet/table at all (confirmed via full-text
+    # search of the reference workbook), so the generic bom_stretch_multiplier()
+    # fallback (1.5, "150% Standard"-like) was silently substituting the wrong,
+    # Exceed3518-based recipe. The real composition is hardcoded per-row in the
+    # reference "Stretch" sheet's own L:S columns instead: Enable + a flat 0.7%
+    # Vista, rest C4 (i.e. the leftover after enable+vista+uvi), split by grade
+    # and a micron<=10 vs micron>=12 bucket -- confirmed exact match against
+    # H1.36 (Super Rigid micron 10/12/15 EX-Work now matches the sheet to the
+    # cent). Every other Exceed/Vista6000/LD/UVI6000-family fraction is 0 for
+    # these two grades.
+    stretch_ability = product["stretch_ability"] or ""
+    if stretch_ability in ("REGID Film", "Super REGID Film"):
+        if stretch_ability == "Super REGID Film":
+            enable = 0.5 if micron <= 10 else 0.4
+        else:
+            enable = 0.4 if micron <= 10 else 0.3
+        comp = {
+            "exceed3518": 0.0,
+            "exceed3812": 0.0,
+            "exceedxp": 0.0,
+            "vista6000": 0.0,
+            "enable": enable,
+            "ld": 0.0,
+            "vista": 0.007,
+        }
+        comp["uvi"] = uv_fraction or 0.0
+        return comp
+
+    mult = bom_stretch_multiplier(stretch_ability)
     bom = get_bom_row(conn, mult, micron, roll_tier)
     if bom is None:
         comp = {k: 0.0 for k in ["exceed3518", "exceed3812", "exceedxp", "vista6000", "enable", "ld", "vista"]}
@@ -294,9 +324,20 @@ def total_fixed_cost_egp(conn):
 # smaller monthly_tons raises fixed_cost_per_ton by the same 1/0.9 factor
 # ROUNDUP() in the sheet would). Verified against the sheet: reproduces its
 # 15-micron Total conversion cost (USD) to the cent for St/P/P+ alike.
+#
+# v85 -- RIGID does NOT get this derate: unlike St/P/P_plus, the sheet's
+# RIGID-specific conversion-cost table (the "Conversion cost" tab's third
+# (µm)/Variable/Fixed/Total block) has its own genuine, non-borrowed
+# 15-micron row (Total=173.32 USD/ton, distinct from its own 17-micron row's
+# 155.83 -- confirmed directly against H1.36), so applying the /0.9 borrow-
+# from-17 derate to RIGID double-penalized it and inflated every Rigid/
+# Super-Rigid 15-micron SKU's conversion cost (184.07 instead of 173.32,
+# a ~$0.02/kg overstatement on the EX-Work price). Scoped by roll_type
+# instead of a blanket micron match.
 CONVERSION_COST_FIXED_DERATE_V71 = {
     15: 0.9,
 }
+CONVERSION_COST_FIXED_DERATE_EXEMPT_ROLL_TYPES_V85 = {"RIGID"}
 
 
 def conversion_cost_usd_per_ton(conn, micron, roll_type):
@@ -313,7 +354,9 @@ def conversion_cost_usd_per_ton(conn, micron, roll_type):
     kw_per_ton = _lookup_kw_per_ton(conn, micron, roll_type)
     tons_per_day = _lookup_tons_per_day(conn, micron, roll_type)
     monthly_tons = tons_per_day * capacity_pct * 30
-    derate = CONVERSION_COST_FIXED_DERATE_V71.get(int(micron)) if float(micron).is_integer() else None
+    derate = None
+    if roll_type not in CONVERSION_COST_FIXED_DERATE_EXEMPT_ROLL_TYPES_V85 and float(micron).is_integer():
+        derate = CONVERSION_COST_FIXED_DERATE_V71.get(int(micron))
     if derate:
         monthly_tons *= derate
 
@@ -424,6 +467,19 @@ def lookup_packing_tier(conn, auto_manual, roll_weight_kg, pallet_type=None):
         rows = conn.execute("SELECT * FROM packing_tier WHERE category=?", (category,)).fetchall()
     if not rows:
         return None
+    # v85 -- prefer an exact match against the tier's own weight_label (e.g.
+    # a catalog auto_manual of "Manual(2.2kg)") over nearest-match_weight_kg.
+    # Needed because nearest-weight matching can silently pick the WRONG
+    # bucket when two tiers' match_weight_kg values happen to sit close to
+    # the product's actual roll weight (e.g. Super REGID Film micron 12 at
+    # 1.8kg landing nearer the "Manual(1.5kg)" tier than its own confirmed
+    # "Manual(2.2kg)" tier) -- confirmed against H1.36. Falls back to the
+    # existing nearest-weight search unchanged for the bare "Automatic"/
+    # "Manual" values every other product uses.
+    am_norm = (auto_manual or "").strip().lower()
+    for r in rows:
+        if (r["weight_label"] or "").strip().lower() == am_norm:
+            return r
     weight = roll_weight_kg or 0
     return min(rows, key=lambda r: abs((r["match_weight_kg"] or 0) - weight))
 
