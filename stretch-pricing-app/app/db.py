@@ -2863,6 +2863,29 @@ def _seed_strap_data(conn):
         )
     conn.commit()
 
+    # v94 -- owner-requested split: PET/PP Strap now has its OWN Max
+    # Discount cap, independent of Stretch Film's (they used to share the
+    # single "max_discount_pct" row -- see cost_engine.capped_discount_pct()).
+    # Same price-safe seeding pattern as strap_dollar_rate just above:
+    # seeded from whatever "max_discount_pct" is worth right now, so
+    # today's effective cap for Strap doesn't silently change the moment
+    # this ships -- it only diverges once someone edits one of the two
+    # independently from here on, on the PET/PP Strap Costing page.
+    exists = conn.execute("SELECT key FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
+    if not exists:
+        current_shared = conn.execute(
+            "SELECT value FROM global_setting WHERE key='max_discount_pct'"
+        ).fetchone()
+        seed_value = current_shared["value"] if current_shared and current_shared["value"] is not None else 2.0
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            ("strap_max_discount_pct", "PET/PP Strap: Max Discount allowed (% points off margin)", seed_value,
+             "Independent of Stretch Film's own Max Discount (Global Cost Settings) -- the combined "
+             "Line Discount % + Global Discount % on a Strap line is silently capped here. Edit it "
+             "from the PET/PP Strap Costing page."),
+        )
+    conn.commit()
+
     # v34 -- BOM recipes (profit/waste/composition %) and per-line fixed
     # inputs (electricity/fixed cost/direct labor), per-row idempotent like
     # everything else here so an owner's own edits on an already-seeded live

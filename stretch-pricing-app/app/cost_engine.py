@@ -704,19 +704,29 @@ def apply_hidden_markup(price, markup_mode, markup_value):
     return price + value
 
 
-def capped_discount_pct(conn, line_discount_pct, global_discount_pct):
+def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch"):
     """v47 -- owner-requested guardrail: combines a quotation line's own
     Discount % with the quotation's Global Discount % (percentage points,
     added together, same as every call site already did), then silently
-    caps the total at the admin-configured 'Max Discount allowed' setting
-    (global_setting key db.MAX_DISCOUNT_SETTING_KEY, editable in Admin >
-    Global Cost Settings, seeded at 2.0). Applied identically for every
-    product family: Stretch Film / Pre-Stretch (where discount_pct comes
-    straight off the margin factor -- pricing._discounted_factor()) and
-    Strap (where it's a multiplicative discount on the final price --
-    strap_pricing.compute_strap_line()) alike, per the owner's explicit
-    instruction that this is ONE rule, the same everywhere, not a separate
-    cap per product category.
+    caps the total at the admin-configured 'Max Discount allowed' setting.
+
+    v94 -- owner-requested split: Stretch Film / Pre-Stretch and PET/PP
+    Strap now each have their OWN Max Discount setting, edited on their own
+    page, instead of the one shared cap v47 originally set up (the owner's
+    instruction at the time was that this should be one rule everywhere --
+    she has since asked for it to be two independent ones instead, one per
+    product family, so this is the current, authoritative behavior).
+    product_family='stretch' (the default -- every existing caller except
+    Strap's own) reads global_setting key db.MAX_DISCOUNT_SETTING_KEY
+    ('max_discount_pct', Admin > Global Cost Settings, seeded at 2.0).
+    product_family='strap' reads 'strap_max_discount_pct' instead (Admin >
+    PET/PP Strap Costing, seeded from whatever max_discount_pct's value
+    already was at the moment of the split -- see db.py's migration -- so
+    the cap in effect today didn't silently change for either line).
+    Stretch discount comes straight off the margin factor
+    (pricing._discounted_factor()); Strap's comes off its own BOM profit_pct
+    the same way as of v93 (strap_pricing.compute_strap_line()) -- the two
+    mechanisms match now, but the CAP itself is independently configurable.
 
     This is the single place the cap is enforced, and it runs server-side
     on every price calculation AND on save -- so a sales rep typing more
@@ -726,7 +736,8 @@ def capped_discount_pct(conn, line_discount_pct, global_discount_pct):
     Returns (effective_discount_pct, was_capped) -- `was_capped` lets the
     caller warn the rep in the UI that what they typed got reduced."""
     requested = (line_discount_pct or 0) + (global_discount_pct or 0)
-    max_allowed = _get_setting(conn, "max_discount_pct", 2.0)
+    setting_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
+    max_allowed = _get_setting(conn, setting_key, 2.0)
     if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
         return max_allowed, True
     return requested, False

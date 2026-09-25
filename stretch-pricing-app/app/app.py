@@ -210,8 +210,9 @@ def create_app():
         global_discount_pct = float(data.get("global_discount_pct") or 0)
         # v47: combined discount is silently capped at the admin-configured
         # max (Admin > Global Cost Settings > "Max Discount allowed") so the
-        # margin can never be eroded past what the owner approved -- same
-        # rule for every product family, see cost_engine.capped_discount_pct().
+        # margin can never be eroded past what the owner approved. v94 --
+        # this is Stretch Film's own cap now; Strap has its own separate
+        # one (Admin > PET/PP Strap Costing) -- see cost_engine.capped_discount_pct().
         discount_pct, discount_capped = cost_engine.capped_discount_pct(
             g.db, line_discount_pct, global_discount_pct
         )
@@ -398,10 +399,12 @@ def create_app():
         qty_coils = float(data.get("quantity_coils") or 0)
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
-        # v47: same combined + capped discount rule as Stretch Film -- see
-        # cost_engine.capped_discount_pct().
+        # v47: combined + capped discount rule -- see
+        # cost_engine.capped_discount_pct(). v94 -- Strap now has its own
+        # Max Discount cap (Admin > PET/PP Strap Costing), separate from
+        # Stretch Film's.
         discount_pct, discount_capped = cost_engine.capped_discount_pct(
-            g.db, line_discount_pct, global_discount_pct
+            g.db, line_discount_pct, global_discount_pct, product_family="strap"
         )
         credit_term = _is_credit_term(data)
         # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
@@ -561,9 +564,9 @@ def create_app():
                 # calculator -- see cost_engine.capped_discount_pct(). Saving
                 # re-caps independently of whatever the UI already showed,
                 # so the stored price can never reflect more discount than
-                # the owner allows.
+                # the owner allows. v94 -- Strap's own Max Discount cap.
                 discount_pct, line_capped = cost_engine.capped_discount_pct(
-                    db, line_discount_pct, global_discount_pct
+                    db, line_discount_pct, global_discount_pct, product_family="strap"
                 )
                 if line_capped:
                     any_discount_capped = True
@@ -1230,8 +1233,20 @@ def create_app():
                 uid,
             ),
         )
+        # v92 -- "New password" is its own optional field on the same Save
+        # form/row (admin_users.html): left blank, nothing changes; typed
+        # in, it resets that user's login password right here -- there was
+        # previously no way at all to change a password once the account
+        # existed (Password only ever appeared on the one-time Add user
+        # form), which is what the owner asked about.
+        new_password = request.form.get("new_password", "").strip()
+        if new_password:
+            db.execute(
+                "UPDATE user SET password_hash=? WHERE id=?",
+                (generate_password_hash(new_password), uid),
+            )
         db.commit()
-        flash("User updated.", "success")
+        flash("User updated." + (" Password changed." if new_password else ""), "success")
         return redirect(url_for("admin_users"))
 
     @app.route("/admin/users/<int:uid>/delete", methods=["POST"])
@@ -1477,8 +1492,10 @@ def create_app():
     def admin_global_settings():
         db = g.db
         # v34 -- the 3 strap_-prefixed freight/credit settings now live on
-        # the dedicated Strap Costing page instead (dollar_rate stays here
-        # too since it's shared by Stretch Film and Strap alike).
+        # the dedicated Strap Costing page instead. (v89 -- dollar_rate here
+        # is Stretch Film's own now; Strap got its own separate
+        # strap_dollar_rate, which lives on the Strap Costing page along
+        # with everything else strap_-prefixed -- see db.py's migration.)
         if request.method == "POST":
             for row in db.execute("SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%'").fetchall():
                 key = row["key"]
@@ -1656,12 +1673,19 @@ def create_app():
         # owner's clarification: only freight is shared, not FOB).
         # v88 -- strap_dollar_rate also excluded here: it gets its own
         # dedicated "Dollar Rate" section on the page (see dollar_rate
-        # above), not the generic FOB/credit-terms grid.
+        # above), not the generic FOB/credit-terms grid. v94 --
+        # strap_max_discount_pct excluded the same way, its own "Max
+        # Discount" section below (see max_discount below).
         freight = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'strap_%' "
-            "AND key NOT IN ('strap_shipping_rate_per_container_usd', 'strap_dollar_rate') "
+            "AND key NOT IN ('strap_shipping_rate_per_container_usd', 'strap_dollar_rate', "
+            "'strap_max_discount_pct') "
             "ORDER BY label"
         ).fetchall()
+        # v94 -- Strap's own Max Discount cap, independent of Stretch
+        # Film's (Global Cost Settings) -- see
+        # cost_engine.capped_discount_pct()/db._seed_strap_data().
+        max_discount = db.execute("SELECT value FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
         return render_template(
             "admin_strap_costing.html",
             dollar_rate=dollar_rate["value"] if dollar_rate else 45,
@@ -1669,6 +1693,7 @@ def create_app():
             boms=boms,
             line_configs=line_configs,
             freight=freight,
+            max_discount=max_discount["value"] if max_discount else 2.0,
         )
 
     @app.route("/admin/cost/labor", methods=["GET", "POST"])

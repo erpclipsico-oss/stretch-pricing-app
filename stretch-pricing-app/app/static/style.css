@@ -189,6 +189,12 @@ input[type=number] {
 .price-note-info { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
 .price-note-warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 .price-note-ok { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+/* v94 -- a distinct highlight color for the two now-separate Max Discount
+   settings (Stretch Film vs PET/PP Strap), so it's visually obvious at a
+   glance which page's box moves which product line's cap -- see
+   admin_global_settings.html (uses price-note-info, blue) and
+   admin_strap_costing.html (uses this, purple) for the matching boxes. */
+.price-note-strap { background: #faf5ff; border-color: #e9d5ff; color: #6b21a8; }
 
 .edit-grid { display: flex; flex-direction: column; gap: 6px; }
 .edit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--border); }
@@ -264,13 +270,15 @@ input[type=number] {
 .users-scroll { overflow-x: auto; }
 .users-row {
   display: grid;
-  grid-template-columns: 110px 130px 100px 100px 90px 200px 200px 64px 76px;
+  /* v92 -- last column widened 76px -> 230px to fit the new inline "New
+     password" input alongside Save/Delete (was just the two buttons). */
+  grid-template-columns: 110px 130px 100px 100px 90px 200px 200px 64px 230px;
   column-gap: 10px;
   row-gap: 4px;
   align-items: center;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border);
-  min-width: 1050px;
+  min-width: 1200px;
 }
 .users-row.header-row {
   font-size: 0.7rem;

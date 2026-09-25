@@ -12,7 +12,7 @@
     <li><strong>✅ Listens</strong> — <a href="{{ url_for('admin_material_rates') }}">Material Rates</a> (every resin/packaging rate, incl. Exceed/Vista/Enable/LD/UVI), <a href="{{ url_for('admin_electricity') }}">Electricity</a> tariff, <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> items, <a href="{{ url_for('admin_variable_costs') }}">Variable Costs</a>, <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a> ("Factors" table), <a href="{{ url_for('admin_pallet') }}">Pallet/Packaging</a> components, <a href="{{ url_for('admin_bom') }}">BOM</a> recipes, the exchange rate/assumptions below, and the Discount % (capped at "Max discount %" below).</li>
     <li><strong>❌ Does NOT listen</strong> — the <a href="{{ url_for('admin_labor') }}">Direct Labor</a> roster page. Its wage/overtime totals are <em>not</em> wired into Fixed Costs; they're purely informational, same as in the reference Excel workbook (its "Direct Labor" roster tab and its "Fixed" cost tab are two separately-maintained sheets there too — not formula-linked). To change what production labor actually costs in a price, edit the "Direct Labor wages" / "Direct Labor overtime" lines directly on the <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> page.</li>
     <li><strong>ℹ️ Business-layer extras (not in the Excel sheet at all)</strong> — the Color/Foreign-seller/Credit-term extras below are this app's own additive settings; there's nothing to "match against Excel" for them, they always apply as flat surcharges when their checkbox/flag is on.</li>
-    <li><strong>PET/PP Strap</strong> — has its own separate page, <a href="{{ url_for('admin_strap_costing') }}">PET/PP Strap Costing</a>, with the same kind of reference note at the top. It has its <strong>own</strong> Dollar Rate there (editing the one below only ever moves Stretch Film — the two are independent); the <a href="{{ url_for('admin_freight') }}">Freight</a> table is the one thing still shared by both product lines.</li>
+    <li><strong>PET/PP Strap</strong> — has its own separate page, <a href="{{ url_for('admin_strap_costing') }}">PET/PP Strap Costing</a>, with the same kind of reference note at the top. It has its <strong>own</strong> Dollar Rate and its <strong>own</strong> Max Discount cap there (editing either one below only ever moves Stretch Film — each pair is independent); the <a href="{{ url_for('admin_freight') }}">Freight</a> table is the one thing still shared by both product lines.</li>
   </ul>
 </div>
 <div class="panel">
@@ -28,10 +28,23 @@
         <span style="width:120px;">Value</span>
       </div>
       {% for s in settings %}
-      <div class="edit-row">
+      {# v94 -- Max Discount used to be one setting shared by Stretch Film
+         and Strap; it's now Stretch Film's own (Strap got its own separate
+         "strap_max_discount_pct" on the PET/PP Strap Costing page). This
+         row gets a matching 🔵 blue highlight there (Strap's own equivalent
+         box uses 🟣 purple) purely so the two are easy to tell apart at a
+         glance -- same setting name, two different pages, two different
+         numbers. #}
+      <div class="edit-row" {% if s.key == 'max_discount_pct' %}style="background:#eff6ff; border-radius:6px;"{% endif %}>
         <div class="edit-cell" style="width:320px;">
-          <strong>{{ s.label }}</strong>
-          {% if s.help %}<div class="hint" style="margin-top:2px;">{{ s.help }}</div>{% endif %}
+          <strong>{% if s.key == 'max_discount_pct' %}🔵 {% endif %}{{ s.label }}</strong>
+          {% if s.key == 'max_discount_pct' %}
+          <div class="hint" style="margin-top:2px;">
+            Stretch Film's own cap — PET/PP Strap now has its own separate one, on the
+            <a href="{{ url_for('admin_strap_costing') }}">PET/PP Strap Costing</a> page (🟣 purple
+            highlight there). Editing this one only ever moves Stretch Film.
+          </div>
+          {% elif s.help %}<div class="hint" style="margin-top:2px;">{{ s.help }}</div>{% endif %}
         </div>
         <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:120px;">
       </div>

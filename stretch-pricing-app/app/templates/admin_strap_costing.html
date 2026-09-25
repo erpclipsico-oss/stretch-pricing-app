@@ -20,9 +20,9 @@
   <div class="panel-header"><h2>PET / PP Strap — Costing</h2></div>
   <p class="hint" style="margin-bottom:14px;">
     Everything that prices the PET Strap and PP Strap lines, in one place: their own dollar rate,
-    material prices, BOM recipes (composition/profit/waste), per-line fixed cost/electricity/direct
-    labor, FOB cost per container, and the credit-term surcharge. Nothing on this page affects
-    Stretch Film pricing.
+    their own Max Discount cap, material prices, BOM recipes (composition/profit/waste), per-line
+    fixed cost/electricity/direct labor, FOB cost per container, and the credit-term surcharge.
+    Nothing on this page affects Stretch Film pricing.
     <strong>The shipping/freight rate is no longer set here</strong> — it's pulled from the same
     Freight table Stretch Film uses, under
     <a href="{{ url_for('admin_freight') }}">Catalog &amp; Rates &gt; Freight</a> (picked by the
@@ -40,6 +40,24 @@
       <div class="edit-row">
         <span style="width:220px;">Dollar Rate (EGP per $1)</span>
         <input type="number" step="any" name="strap_dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
+      </div>
+    </div>
+
+    <div class="panel-header" style="margin-top:28px;"><h2>Max Discount</h2></div>
+    <div class="price-note price-note-strap">
+      <div class="price-note-title">🟣 PET/PP Strap's own cap — separate from Stretch Film's</div>
+      A rep's Line Discount % + the quotation's Global Discount % are added together and silently
+      capped at this number before they ever touch a Strap price (see the discount note above: it
+      comes off the BOM's own Profit % here, floored so a Strap price can never drop below its real
+      cost). <strong>This used to be one shared setting with Stretch Film</strong> (Global Cost
+      Settings page) — the two are now independent, so changing this one only ever moves Strap;
+      Stretch Film's own cap lives on the Global Cost Settings page instead (shown there with a
+      matching 🔵 blue highlight so the two don't get mixed up).
+    </div>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Max Discount allowed (% points off margin)</span>
+        <input type="number" step="any" name="value_strap_max_discount_pct" value="{{ max_discount }}" style="width:100px;">
       </div>
     </div>
 

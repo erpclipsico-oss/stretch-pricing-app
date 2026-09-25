@@ -409,8 +409,24 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
                   if dollar_rate else 0.0)
     ex_work_roll = material_cost + electricity_cost + direct_labor_cost + fixed_cost
 
+    # v93 -- owner-confirmed: a Discount % must never be able to eat into
+    # actual production cost, in Strap exactly as in Stretch Film -- it may
+    # only ever come off the profit margin, floored at 0 so the price can
+    # never drop below ex_work_roll + core + packaging (raw cost) no matter
+    # how large the discount is. This used to be a flat (1 - discount%)
+    # multiplied across the WHOLE (packaging + coil_price) total, which had
+    # no such floor: with a low enough profit_pct on a given BOM recipe (or
+    # a high enough discount), that could reach past the margin and into
+    # real cost. Now the discount comes off the BOM's own profit_pct first
+    # (same mechanism as pricing._discounted_factor() for Stretch Film),
+    # and only that discounted profit feeds coil_price -- packaging and
+    # core cost are never discounted at all, matching Electricity/Fixed
+    # Cost/Direct Labor never being discounted either. At discount_pct=0
+    # this is numerically identical to the old formula, so today's prices
+    # are unchanged.
+    discounted_profit_pct = max((bom["profit"] or 0) - (discount_pct or 0) / 100.0, 0.0)
     core_rate = _material_rate(conn, line_key, "core") / dollar_rate if dollar_rate else 0.0
-    coil_price = ex_work_roll * (1 + bom["profit"]) + core_weight_kg * core_rate * (1 + PACKAGING_FACTORS["core"])
+    coil_price = ex_work_roll * (1 + discounted_profit_pct) + core_weight_kg * core_rate * (1 + PACKAGING_FACTORS["core"])
 
     packaging_total = _packaging_addons(
         conn, line_key, dollar_rate, core_weight_kg, bool(product["has_box"]), bool(product["has_pallet"])
@@ -419,9 +435,7 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     markup_pct = (hidden_markup_value or 0) if hidden_markup_mode == "percent" else 0
     if core_weight_kg > 0:
         ex_work_price_roll = _roundup2(
-            (packaging_total + coil_price)
-            * (1 - (discount_pct or 0) / 100.0)
-            * (1 + (markup_pct or 0) / 100.0)
+            (packaging_total + coil_price) * (1 + (markup_pct or 0) / 100.0)
         )
     else:
         ex_work_price_roll = 0.0
