@@ -731,13 +731,20 @@ def create_app():
                 credit_term=credit_term,
                 round_result=False,
             )
+            # v90 -- which container size (40ft/20ft) this line is quoted
+            # for, purely so the printed Pallets/Container figure can show
+            # the one number that matches -- see quotation_line.container_pref.
+            container_pref = l.get("container_pref") or "40ft"
+            if container_pref not in ("40ft", "20ft"):
+                container_pref = "40ft"
             db.execute(
                 """INSERT INTO quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
                     unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg,
                     line_discount_pct, pricing_basis, colored,
-                    custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type,
+                    container_pref)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
                  unit_price, unit_price_raw, unit_price_full, total_kg, line_discount_pct, pricing_basis,
@@ -746,7 +753,7 @@ def create_app():
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
                  (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None),
-                 uv_type),
+                 uv_type, container_pref),
             )
 
         db.commit()
@@ -825,7 +832,7 @@ def create_app():
             (qid,),
         ).fetchall()
         basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG",
-                         "per_coil": "$/Roll (CFR)"}
+                         "per_coil": "$/Roll"}
         # v67 -- per-line FOB $/KG and CIF $/KG, shown on the saved-
         # quotation view page, PDF and Excel (previously only the plain
         # "Unit $/KG" -- EX-Work for Stretch, CFR for Strap -- and the
@@ -971,19 +978,23 @@ def create_app():
             # "Stuffing —" note), on the owner's explicit request. Strap
             # reuses the "stuffing" figures above (a single resolved
             # container choice, 20ft or 40ft, per the line's own Box/
-            # Container inputs). Stretch Film has no per-line container
-            # choice, so both the 40ft and 20ft capacities from the
-            # Details-sheet packing-tier lookup are shown side by side --
-            # see cost_engine.lookup_packing_tier()/effective_rolls_per_pallet().
-            # Pre-Stretch lines aren't stuffed into a container via the
-            # packing-tier table at all, so Pallets/Container is left blank
-            # for them; Rolls/Pallet is still the rep's own saved figure.
+            # Container inputs).
+            # v90 -- Stretch Film used to show BOTH the 40ft and 20ft
+            # capacities together ("34/20"), which read as one confusing
+            # combined number -- owner asked for just the one she's actually
+            # quoting. It now picks a single figure using the line's own
+            # container_pref (40ft/20ft), the same way Strap already picks
+            # one via its Box/Container inputs. Both container labels are
+            # spelled out ("40ft"/"20ft") rather than with an apostrophe
+            # (was "40'"), which read as an inch mark. Pre-Stretch lines
+            # aren't stuffed into a container via the packing-tier table at
+            # all, so Pallets/Container is left blank for them; Rolls/Pallet
+            # is still the rep's own saved figure.
             rolls_per_pallet_display = pallets_per_container_display = None
             if line_pl in ("pet", "pp"):
                 if stuffing:
                     rolls_per_pallet_display = stuffing["rolls_per_pallet"]
-                    container_short = "40'" if stuffing["container"] == "40ft" else "20'"
-                    pallets_per_container_display = f"{stuffing['pallets_per_container']} ({container_short})"
+                    pallets_per_container_display = f"{stuffing['pallets_per_container']} ({stuffing['container']})"
             elif not (l["is_prestretch"] if "is_prestretch" in l.keys() else False):
                 eff_roll_weight = spec["roll_weight_kg"] if spec else l["p_roll_weight_kg"]
                 eff_auto_manual = l["packing_type"] if ("packing_type" in l.keys() and l["packing_type"]) else "Automatic"
@@ -996,8 +1007,11 @@ def create_app():
                 if tier and (tier["pallets_per_container40"] or tier["pallets_per_container20"]):
                     c40 = tier["pallets_per_container40"]
                     c20 = tier["pallets_per_container20"]
-                    pallets_per_container_display = (
-                        f"{c40:g}/{c20:g}" if c40 and c20 else f"{c40 or c20:g}")
+                    line_container_pref = l["container_pref"] if "container_pref" in l.keys() and l["container_pref"] else "40ft"
+                    chosen = c40 if line_container_pref == "40ft" else c20
+                    chosen = chosen or c40 or c20  # fall back if the preferred size has no figure at all
+                    if chosen:
+                        pallets_per_container_display = f"{chosen:g} ({line_container_pref})"
             else:
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
 
@@ -1218,6 +1232,46 @@ def create_app():
         )
         db.commit()
         flash("User updated.", "success")
+        return redirect(url_for("admin_users"))
+
+    @app.route("/admin/users/<int:uid>/delete", methods=["POST"])
+    @admin_required
+    def admin_user_delete(uid):
+        """v89 -- was missing entirely (only create/update existed); the
+        "Active" checkbox on the Users page was the only way to retire an
+        account. Deleting outright is refused, with a clear reason, in the
+        two cases where it would either break the app or silently erase
+        the audit trail on saved quotations: deleting yourself while
+        signed in, and deleting a user who still has quotations attributed
+        to them (quotation.created_by_id -> user.id is a real foreign key,
+        enforced -- see db.get_db()'s PRAGMA foreign_keys = ON -- so this
+        would otherwise fail with a raw DB error instead of an explanation).
+        In the second case, deactivating the account (the checkbox) is the
+        safe alternative -- it keeps every past quotation's "who made this
+        quote" intact for the sales history, while stopping that user from
+        logging in again."""
+        db = g.db
+        if uid == g.user["id"]:
+            flash("You can't delete the account you're currently signed in as.", "error")
+            return redirect(url_for("admin_users"))
+        target = db.execute("SELECT * FROM user WHERE id=?", (uid,)).fetchone()
+        if not target:
+            flash("User not found.", "error")
+            return redirect(url_for("admin_users"))
+        quote_count = db.execute(
+            "SELECT COUNT(*) c FROM quotation WHERE created_by_id=?", (uid,)
+        ).fetchone()["c"]
+        if quote_count:
+            flash(
+                f"Can't delete {target['username']}: {quote_count} saved quotation(s) are still "
+                "attributed to them, and deleting would break that history. Uncheck \"Active\" "
+                "instead to stop them from signing in without losing the record of what they quoted.",
+                "error",
+            )
+            return redirect(url_for("admin_users"))
+        db.execute("DELETE FROM user WHERE id=?", (uid,))
+        db.commit()
+        flash(f"User {target['username']} deleted.", "success")
         return redirect(url_for("admin_users"))
 
     # ---------- Admin: rates (products / factors / freight) ----------
@@ -2178,7 +2232,7 @@ def build_pdf(q, lines, totals):
         header = [Paragraph(t, header_style) for t in
                   ["#", "Product", "Pallet", "Packing", "Basis",
                    "Roll Weight<br/>(kg)", "Core Weight<br/>(kg)", "Rolls/<br/>Pallet",
-                   "Pallets/<br/>Container<br/>(40'/20')", f"FOB Price<br/>({dollar_unit})",
+                   "Pallets/<br/>Container", f"FOB Price<br/>({dollar_unit})",
                    f"CIF Price<br/>({dollar_unit})"]]
         rows = [header]
         span_commands = []
@@ -2408,7 +2462,7 @@ def build_xlsx(q, lines, totals):
     def _write_header_row(hdr_row, dollar_unit):
         headers = ["#", "Product", "Pallet", "Packing", "Basis",
                    "Roll Weight\n(kg)", "Core Weight\n(kg)", "Rolls/Pallet",
-                   "Pallets/Container\n(40'/20')", f"FOB Price\n({dollar_unit})",
+                   "Pallets/Container", f"FOB Price\n({dollar_unit})",
                    f"CIF Price\n({dollar_unit})"]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=hdr_row, column=col, value=h)

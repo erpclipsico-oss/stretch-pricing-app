@@ -160,6 +160,14 @@ CREATE TABLE IF NOT EXISTS quotation_line (
     -- flag, like "Colored" -- see cost_engine.margin_pct_for()/
     -- compute_ex_work_usd_kg().
     uv_type TEXT,
+    -- v90 -- Stretch Film line only: which container size (40ft/20ft) the
+    -- rep is quoting this line for, purely to pick a single Pallets/
+    -- Container figure to print (was showing both the 40ft and 20ft
+    -- capacities together as "34/20", which read as one confusing combined
+    -- number -- owner asked for just the one she's actually quoting).
+    -- Doesn't touch the price/FOB/CFR math at all -- Stretch's FOB is
+    -- still a flat per-port addon, not container-split like Strap.
+    container_pref TEXT NOT NULL DEFAULT '40ft',
     FOREIGN KEY (quotation_id) REFERENCES quotation(id)
 );
 
@@ -709,6 +717,15 @@ def _migrate(conn):
             "UPDATE strap_line_config SET direct_labor_per_ton_egp = direct_labor_per_kg_usd * 1000 * 45 "
             "WHERE line_key='pp' AND direct_labor_per_ton_egp = 0"
         )
+        conn.commit()
+
+    # v90 -- see quotation_line.container_pref's comment above: a Stretch
+    # Film line's own 40ft/20ft display choice for the printed Pallets/
+    # Container figure. Existing saved lines default to '40ft' (the column's
+    # own DEFAULT already covers that on ALTER).
+    line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
+    if "container_pref" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN container_pref TEXT NOT NULL DEFAULT '40ft'")
         conn.commit()
 
 

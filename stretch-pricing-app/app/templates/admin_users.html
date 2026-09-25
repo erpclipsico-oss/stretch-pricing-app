@@ -12,6 +12,12 @@
     reps. Never shown anywhere the customer or the rep can see it (screen, PDF or Excel) &mdash; it's
     for your own reference only, to work out what's owed.
   </p>
+  <p class="hint" style="margin-bottom:14px;">
+    <strong>Delete (✕)</strong> only works for a user with no saved quotations yet (each quotation
+    records who made it, so deleting would break that history). For anyone who has already quoted,
+    uncheck <strong>Active</strong> instead &mdash; it stops them from signing in without losing
+    their past quotations. You can't delete the account you're currently signed in as.
+  </p>
   <div class="users-scroll">
   <div class="edit-grid">
     <div class="users-row header-row">
@@ -56,7 +62,14 @@
         <label class="active-cell">
           <input type="checkbox" name="active" {% if u.active %}checked{% endif %} style="width:auto;"> active
         </label>
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        <span style="display:flex; gap:6px; align-items:center;">
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          {% if u.id != current_user.id %}
+          <button type="submit" class="btn-remove" title="Delete"
+                  formaction="{{ url_for('admin_user_delete', uid=u.id) }}"
+                  onclick="return confirm('Delete {{ u.username }}? This only works if they have no saved quotations -- otherwise uncheck Active instead.');">✕</button>
+          {% endif %}
+        </span>
       </form>
     </div>
     {% endfor %}

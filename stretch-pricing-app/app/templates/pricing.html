@@ -91,6 +91,7 @@
         <th>Core kg</th>
         <th>Rolls/pallet</th>
         <th title="How many pallets of this line the customer is ordering">Pallets/container</th>
+        <th title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
         <th>Discount %</th>
         <th>FOB $/kg</th>
         <th>CIF $/kg</th>
@@ -281,6 +282,12 @@ function addLine(prefill) {
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="Pallets per container -- how many pallets of this line"></td>
+    <td>
+      <select class="f-container" title="Which container size the printed Pallets/Container figure should show for this line -- doesn't affect price">
+        <option value="40ft" selected>40ft</option>
+        <option value="20ft">20ft</option>
+      </select>
+    </td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
@@ -339,6 +346,11 @@ function addLine(prefill) {
     pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
     tr.querySelector('.f-pallet').disabled = show;
+    // Pre-Stretch lines aren't stuffed into a container via the packing-
+    // tier table at all (see load_quotation()'s comment), so the printed
+    // Pallets/Container figure is always blank for them -- this selector
+    // has nothing to pick from.
+    tr.querySelector('.f-container').disabled = show;
     // Pre-Stretch already has its own dedicated roll wt / core wt inputs
     // (made-to-order, no catalog default, no Width field) -- the generic
     // per-line roll-spec inputs on the main row don't apply to it.
@@ -549,6 +561,7 @@ function readLines() {
       uv: tr.querySelector('.f-uv').checked,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+      container_pref: tr.querySelector('.f-container').value,
     };
     if (isPrestretch(line.product_id)) {
       const pr = tr.nextElementSibling;

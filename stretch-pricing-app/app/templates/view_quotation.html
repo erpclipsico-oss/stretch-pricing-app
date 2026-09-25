@@ -27,10 +27,16 @@
      v76.1 -- Qty (Pallets) dropped too, Rolls/Pallet and Pallets/Container
      added, in this exact order, per the owner's own follow-up correction:
      Product/Pallet/Packing/Basis, Total Qty (KG), Roll Weight, Core Weight,
-     Rolls/Pallet, Pallets/Container, then FOB/CIF price. Stretch Film lines
-     have no single per-line container choice, so Pallets/Container shows
-     both the 40ft and 20ft capacities (see load_quotation()'s comment).
+     Rolls/Pallet, Pallets/Container, then FOB/CIF price.
      v76.2 -- Total Qty (KG) dropped too, on the owner's follow-up request.
+     v90 -- Pallets/Container used to show both the 40ft and 20ft capacities
+     together for Stretch Film ("34/20", since a Stretch line has no single
+     container choice) -- the owner found the combined number confusing, so
+     it now shows just the one figure for whichever container size the rep
+     picks per line (see the line's own Container field in the quote
+     builder / quotation_line.container_pref), the same as Strap already
+     shows one figure for its own Box/Container choice. See
+     load_quotation()'s comment.
      v81 -- Strap is always quoted $/Roll, Stretch Film always $/KG (see the
      matching comment in build_pdf()), so the two can't share one FOB/CIF
      header -- rendered as its own macro instead, called once per product
@@ -43,7 +49,7 @@
       <tr>
         <th>Product</th><th>Pallet</th><th>Packing</th><th>Basis</th>
         <th>Roll Weight<br>(kg)</th><th>Core Weight<br>(kg)</th>
-        <th>Rolls/<br>Pallet</th><th>Pallets/Container<br>(40'/20')</th>
+        <th>Rolls/<br>Pallet</th><th>Pallets/<br>Container</th>
         <th>FOB Price<br>({{ dollar_unit }})</th><th>CIF Price<br>({{ dollar_unit }})</th>
       </tr>
     </thead>
