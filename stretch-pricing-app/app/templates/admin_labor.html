@@ -4,13 +4,22 @@
 {% set sync_table_key = 'labor_employee' %}
 {% set sync_last_upload = last_upload %}
 {% include "_table_sync_widget.html" %}
+<div class="price-note price-note-warn">
+  <div class="price-note-title">⚠️ This page does NOT affect the final price</div>
+  This roster is informational only — its totals are <strong>not</strong> wired into Fixed Costs, so editing
+  a wage or adding/removing an employee here has no effect on any quoted price. This matches the reference
+  Excel workbook exactly: its "Direct Labor" roster tab and its "Fixed" cost tab (the one that actually
+  feeds pricing) are two separately-maintained sheets there too, not formula-linked — confirmed deliberate,
+  not a gap in this app. To change what production labor actually costs in a price, edit the "Direct Labor
+  wages" / "Direct Labor overtime" lines on the <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> page directly.
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Direct Labor — اجور مباشرة</h2></div>
   <p class="hint" style="margin-bottom:14px;">
-    Production-floor roster from the workbook's 'اجور مباشرة' (Direct Labor) sheet. Each employee's
-    2024 base wage = 2023 base × (1 + increase rate); overtime pool = (2024 base / 8) × 4. The totals below
-    feed the 'تكاليف ثابتة' (Fixed Costs) sheet's "Production workers' wages" (fixed) and "Production
-    workers' overtime" (variable) lines, which in turn feed the Conversion Cost / EX-Work calculation.
+    Production-floor roster from the workbook's 'اجور مباشرة' (Direct Labor) sheet, kept here for reference
+    and headcount/wage tracking. Each employee's 2024 base wage = 2023 base × (1 + increase rate); overtime
+    pool = (2024 base / 8) × 4. These totals currently match the roster's own sheet total exactly, but (see
+    the notice above) they do not flow into the Fixed Costs totals that pricing actually uses.
   </p>
   <div class="edit-grid">
     <div class="edit-row header-row">

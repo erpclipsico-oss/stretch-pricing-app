@@ -435,14 +435,24 @@ def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_
         return f"{packaging_group}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
-        if "5kg" in am or "5 kg" in am:
-            return f"manual_smallbox5_{suffix}"
+        # v86 -- order matters: "Manual(2.3~3.5kg)" also contains the
+        # literal substring "5kg" (inside "3.5kg"), so checking the bare
+        # "5kg"/"5 kg" pattern first was silently misrouting every
+        # 2.3~3.5kg-labeled product onto the plain 5kg small-box pallet
+        # component instead of its own large-box one -- confirmed directly
+        # against the sheet (Super REGID Film micron 10: sheet's Stretch!AD
+        # references 'Pallet component'!$E$22 "Larg Box: 2.3~3.5" ($56.04
+        # total), the app was instead pulling the "5kg" box ($58.62),
+        # overstating packaging cost by ~$0.007/kg). The more specific
+        # 2.3/3.5/2.2/1.5 labels are now checked before the bare 5kg one.
         if "2.3" in am or "3.5" in am:
             return f"manual_largebox_{suffix}"
         if "2.2" in am:
             return f"manual_smallbox22_{suffix}"
         if "1.5" in am:
             return f"manual_smallbox15_{suffix}"
+        if "5kg" in am or "5 kg" in am:
+            return f"manual_smallbox5_{suffix}"
         return f"manual_smallbox5_{suffix}"
     return f"automatic_{suffix}"
 
@@ -801,7 +811,19 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
 
     core_cost = core_cost_usd(conn, product)
-    packaging_cost = packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override)
+    # v86 -- Stretch!AD's own formula gates every packaging term behind
+    # "J>0" (net/plastic weight > 0), not just a multiplication by J like
+    # every material-cost term above already is -- so when an overridden
+    # roll weight leaves zero or negative net plastic weight (roll weight
+    # <= core weight, an edge case only reachable via a manual per-line
+    # roll-weight override), the sheet drops packaging cost to 0 outright
+    # rather than still dividing the full pallet-component total by
+    # rolls/pallet. Confirmed directly against H1.36 (Super REGID Film
+    # micron 12 with roll weight overridden down to its own 0.3kg core
+    # weight: sheet AG=0.6667, this used to give 1.1454 by still charging
+    # a full packaging share).
+    packaging_cost = (packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override)
+                       if plastic_weight > 0 else 0.0)
 
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate
@@ -838,7 +860,9 @@ def breakdown(conn, product):
         material_cost += mat_cost(key, comp[key])
 
     core_cost = core_cost_usd(conn, product)
-    packaging_cost = packaging_cost_per_roll_usd(conn, product)
+    # v86 -- same J>0 (net plastic weight) gate as compute_ex_work_usd_kg
+    # above -- see its comment.
+    packaging_cost = packaging_cost_per_roll_usd(conn, product) if plastic_weight > 0 else 0.0
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate
     roll_type = conversion_roll_type_for(product["stretch_ability"], product["micron"])

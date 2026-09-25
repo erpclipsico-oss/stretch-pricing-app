@@ -4,14 +4,21 @@
 {% set sync_table_key = 'fixed_cost_item' %}
 {% set sync_last_upload = last_upload %}
 {% include "_table_sync_widget.html" %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Every line here listens</div>
+  Every item below (including "Direct Labor wages" / "Direct Labor overtime") feeds directly into the
+  monthly fixed-cost total used for Conversion Cost, and changes here move the price for every product.
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Fixed costs — تكاليف ثابتة</h2></div>
   <p class="hint" style="margin-bottom:14px;">
     Monthly overhead (production, selling, admin, financial) from the workbook's 'تكاليف ثابتة' sheet.
     The grand total is spread across each micron/roll-type's monthly production tons (see
     <a href="{{ url_for('admin_electricity') }}">Electricity capacity</a>) to get the fixed-cost-per-ton
-    component of Conversion Cost. The "اجور عمال الانتاج" / "اضافي عمال الانتاج" lines are kept in sync
-    automatically from the <a href="{{ url_for('admin_labor') }}">Direct Labor</a> roster — edit them there.
+    component of Conversion Cost. The "اجور عمال الانتاج" / "اضافي عمال الانتاج" lines are edited directly
+    here — they are <strong>not</strong> synced from the <a href="{{ url_for('admin_labor') }}">Direct Labor</a>
+    roster page (that page is reference-only; see its own notice), matching the Excel workbook's own two
+    separately-maintained sheets.
   </p>
   <form method="post">
     {% for category, items in by_category.items() %}

@@ -1472,23 +1472,25 @@ def create_app():
     @admin_required
     def admin_strap_costing():
         """v34 -- single consolidated page for everything that prices the
-        PET Strap / PP Strap lines: dollar rate (shared with Stretch Film),
-        their own material prices, BOM recipes (composition/profit/waste),
-        per-line fixed cost/electricity/direct labor, FOB cost per
-        container, and the credit-term surcharge setting. v62 -- only the
-        shipping/freight-rate-per-container setting moved out of here:
-        Strap's shipping leg now uses the shared Freight table (Admin >
-        Catalog & Rates > Freight) that Stretch Film uses, keyed by the
-        quotation's own Destination; FOB cost per container stays Strap's
-        own separate setting, per the owner's clarification."""
+        PET Strap / PP Strap lines: their own dollar rate, material prices,
+        BOM recipes (composition/profit/waste), per-line fixed cost/
+        electricity/direct labor, FOB cost per container, and the
+        credit-term surcharge setting. v62 -- only the shipping/freight-
+        rate-per-container setting moved out of here: Strap's shipping leg
+        now uses the shared Freight table (Admin > Catalog & Rates >
+        Freight) that Stretch Film uses, keyed by the quotation's own
+        Destination; FOB cost per container stays Strap's own separate
+        setting, per the owner's clarification. v88 -- Dollar Rate is now
+        Strap's own separate setting too (owner-requested split from
+        Stretch Film's -- they used to share one row; see
+        strap_pricing._dollar_rate()'s docstring)."""
         db = g.db
         if request.method == "POST":
-            # Dollar rate (shared global_setting -- also editable from
-            # Global Settings; same underlying row, so either page's edit
-            # takes effect for both Stretch Film and Strap).
-            val = request.form.get("dollar_rate")
+            # v88 -- Strap's own independent Dollar Rate (no longer shared
+            # with Stretch Film's Global Settings row).
+            val = request.form.get("strap_dollar_rate")
             if val is not None and val != "":
-                db.execute("UPDATE global_setting SET value=? WHERE key='dollar_rate'", (float(val),))
+                db.execute("UPDATE global_setting SET value=? WHERE key='strap_dollar_rate'", (float(val),))
 
             # Material prices (pet_*/pp_* rows only).
             for row in db.execute(
@@ -1527,11 +1529,15 @@ def create_app():
                 if elec_val is not None and elec_val != "":
                     db.execute("UPDATE strap_line_config SET electricity_per_ton_egp=? WHERE line_key=?",
                                (float(elec_val), line_key))
+                # v87 -- Fixed cost / Direct labor are now EGP/ton (live-
+                # divided by the Dollar Rate at calc time, like Electricity
+                # just above) instead of a frozen $/kg figure -- see
+                # strap_pricing._get_line_config()'s docstring.
                 if fixed_val is not None and fixed_val != "":
-                    db.execute("UPDATE strap_line_config SET fixed_cost_per_kg_usd=? WHERE line_key=?",
+                    db.execute("UPDATE strap_line_config SET fixed_cost_per_ton_egp=? WHERE line_key=?",
                                (float(fixed_val), line_key))
                 if labor_val is not None and labor_val != "":
-                    db.execute("UPDATE strap_line_config SET direct_labor_per_kg_usd=? WHERE line_key=?",
+                    db.execute("UPDATE strap_line_config SET direct_labor_per_ton_egp=? WHERE line_key=?",
                                (float(labor_val), line_key))
 
             # Freight / credit-term settings (strap_-prefixed global_setting rows).
@@ -1545,7 +1551,8 @@ def create_app():
             flash("PET/PP Strap costing updated.", "success")
             return redirect(url_for("admin_strap_costing"))
 
-        dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='dollar_rate'").fetchone()
+        # v88 -- Strap's own Dollar Rate (independent from Stretch Film's).
+        dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='strap_dollar_rate'").fetchone()
         material_rates = {
             "pet_resin": db.execute(
                 "SELECT * FROM material_rate WHERE material_key LIKE 'pet_%' AND category='resin' ORDER BY label"
@@ -1593,9 +1600,12 @@ def create_app():
         # strap_pricing.compute_strap_line() call site. FOB cost per
         # container stays here as Strap's own separate flat setting (the
         # owner's clarification: only freight is shared, not FOB).
+        # v88 -- strap_dollar_rate also excluded here: it gets its own
+        # dedicated "Dollar Rate" section on the page (see dollar_rate
+        # above), not the generic FOB/credit-terms grid.
         freight = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'strap_%' "
-            "AND key != 'strap_shipping_rate_per_container_usd' "
+            "AND key NOT IN ('strap_shipping_rate_per_container_usd', 'strap_dollar_rate') "
             "ORDER BY label"
         ).fetchall()
         return render_template(

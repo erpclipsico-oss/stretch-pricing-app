@@ -1,11 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Freight · Stretch Pricing{% endblock %}
 {% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Listens — shared by Stretch Film and PET/PP Strap</div>
+  Picking a destination on the quote builder pulls that row's rate in as the CIF/CFR freight
+  add-on for BOTH product lines: it adds straight onto the Stretch Film quotation's FOB Total
+  (per-line spread over that line's own kg for the on-screen $/KG figure), and it feeds directly
+  into each Strap line's own CFR $/KG through its container-share formula. Editing a rate here
+  moves the price the next time that destination is priced.
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Freight rates</h2></div>
   <p class="hint" style="margin-bottom:14px;">
-    Reference shipping cost shown next to each destination on the quote builder (not yet
-    automatically added into the quoted unit price). Edit a row and click Save.
+    Shipping cost per destination, shared by Stretch Film and PET/PP Strap (picked by the
+    quotation's own Destination selector). Edit a row and click Save.
   </p>
   <div class="edit-grid">
     {% for f in freight %}

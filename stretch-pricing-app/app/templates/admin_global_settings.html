@@ -4,6 +4,17 @@
 {% set sync_table_key = 'global_setting' %}
 {% set sync_last_upload = last_upload %}
 {% include "_table_sync_widget.html" %}
+<div class="price-note price-note-info">
+  <div class="price-note-title">What "listens" to the final price — quick reference</div>
+  Verified line by line against the reference Excel sheet (each item below reproduces the sheet's own
+  behaviour exactly, including the ones that don't affect price):
+  <ul>
+    <li><strong>✅ Listens</strong> — <a href="{{ url_for('admin_material_rates') }}">Material Rates</a> (every resin/packaging rate, incl. Exceed/Vista/Enable/LD/UVI), <a href="{{ url_for('admin_electricity') }}">Electricity</a> tariff, <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> items, <a href="{{ url_for('admin_variable_costs') }}">Variable Costs</a>, <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a> ("Factors" table), <a href="{{ url_for('admin_pallet') }}">Pallet/Packaging</a> components, <a href="{{ url_for('admin_bom') }}">BOM</a> recipes, the exchange rate/assumptions below, and the Discount % (capped at "Max discount %" below).</li>
+    <li><strong>❌ Does NOT listen</strong> — the <a href="{{ url_for('admin_labor') }}">Direct Labor</a> roster page. Its wage/overtime totals are <em>not</em> wired into Fixed Costs; they're purely informational, same as in the reference Excel workbook (its "Direct Labor" roster tab and its "Fixed" cost tab are two separately-maintained sheets there too — not formula-linked). To change what production labor actually costs in a price, edit the "Direct Labor wages" / "Direct Labor overtime" lines directly on the <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> page.</li>
+    <li><strong>ℹ️ Business-layer extras (not in the Excel sheet at all)</strong> — the Color/Foreign-seller/Credit-term extras below are this app's own additive settings; there's nothing to "match against Excel" for them, they always apply as flat surcharges when their checkbox/flag is on.</li>
+    <li><strong>PET/PP Strap</strong> — has its own separate page, <a href="{{ url_for('admin_strap_costing') }}">PET/PP Strap Costing</a>, with the same kind of reference note at the top. It has its <strong>own</strong> Dollar Rate there (editing the one below only ever moves Stretch Film — the two are independent); the <a href="{{ url_for('admin_freight') }}">Freight</a> table is the one thing still shared by both product lines.</li>
+  </ul>
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Global cost engine settings</h2></div>
   <p class="hint" style="margin-bottom:14px;">

@@ -4,6 +4,13 @@
 {% set sync_table_key = 'material_rate' %}
 {% set sync_last_upload = last_upload %}
 {% include "_table_sync_widget.html" %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Every rate here listens (verified against Excel)</div>
+  Every resin and packaging rate below — including Exceed 3518/3812/XP, Vista/Vista 6000, Enable, LD and
+  UVI, not just C4 — flows straight into the material-composition cost for any product whose BOM actually
+  uses it, matching a same-cell change in the reference Excel sheet exactly. A product that shows no price
+  movement for a given material simply doesn't use that material in its recipe (see <a href="{{ url_for('admin_bom') }}">BOM</a>).
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">

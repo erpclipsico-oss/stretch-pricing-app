@@ -4,6 +4,12 @@
 {% set sync_table_key = 'margin_factor' %}
 {% set sync_last_upload = last_upload %}
 {% include "_table_sync_widget.html" %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Listens — verified</div>
+  A row's margin % here feeds directly into <code>ex_work &times; (1 + margin)</code> for any line that
+  matches that row's Micron/Film type/Packing type/Roll size (Discount % reduces this margin, floored at 0%,
+  before that multiplication — it never eats into the EX-Work cost itself).
+</div>
 <div class="panel">
   <div class="panel-header"><h2>Margin factors</h2></div>
   <p class="hint" style="margin-bottom:14px;">

@@ -203,8 +203,18 @@ CREATE TABLE IF NOT EXISTS strap_bom (
 CREATE TABLE IF NOT EXISTS strap_line_config (
     line_key TEXT PRIMARY KEY,
     electricity_per_ton_egp REAL NOT NULL DEFAULT 0,
+    -- v87 -- fixed_cost_per_kg_usd/direct_labor_per_kg_usd are kept only so
+    -- an old already-deployed DB has something to migrate from (see
+    -- _migrate()); no longer read anywhere -- fixed_cost_per_ton_egp/
+    -- direct_labor_per_ton_egp below are the live inputs now, matching
+    -- electricity_per_ton_egp's own EGP-in/divide-by-live-Dollar-Rate
+    -- pattern (both reference workbooks' own Fixed Cost (kg) USD / Direct
+    -- Labor (kg) USD cells are formulas over the Dollar Rate cell, not
+    -- frozen numbers).
     fixed_cost_per_kg_usd REAL NOT NULL DEFAULT 0,
-    direct_labor_per_kg_usd REAL NOT NULL DEFAULT 0
+    direct_labor_per_kg_usd REAL NOT NULL DEFAULT 0,
+    fixed_cost_per_ton_egp REAL NOT NULL DEFAULT 0,
+    direct_labor_per_ton_egp REAL NOT NULL DEFAULT 0
 );
 
 -- ============== Cost engine: raw, editable inputs behind EX-Work cost =====
@@ -650,6 +660,56 @@ def _migrate(conn):
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Alexandria (Egypt)', 1500)")
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Damietta (Egypt)', 1800)")
     conn.commit()
+
+    # v87 -- strap_line_config's Fixed Cost / Direct Labor were stored as
+    # already-converted USD/kg constants, frozen at whatever Dollar Rate
+    # happened to be true the moment they were typed in -- unlike
+    # electricity_per_ton_egp (stored in EGP, divided by the LIVE Dollar
+    # Rate at every calc -- see strap_pricing.compute_strap_line()).
+    # Confirmed directly against both reference workbooks (PET_Export_
+    # pricing_1.25.xlsx's 'Fixed Cost'!G7, PP_Export_pricing_1.32.xlsx's
+    # 'Fixed Cost'!G6 and 'Powers'!C18): those sheets' own Fixed Cost (kg)
+    # USD / Direct Labor (kg) USD cells are LIVE formulas (EGP total /
+    # Material cost!Dollar Rate cell), so changing the sheet's Dollar Rate
+    # moves them too -- this app's frozen-USD fields silently didn't move,
+    # a real divergence from Excel (not a deliberate one, unlike the Labor
+    # roster/Fixed Costs split -- see admin_labor.html's own notice), found
+    # while checking "does the Dollar Rate move EVERY EGP-priced Strap
+    # figure the same way it does in Excel". Fixed by storing the EGP-per-
+    # ton figure instead (matching electricity's own pattern exactly) and
+    # dividing by the live Dollar Rate at calc time.
+    line_cfg_cols = {row["name"] for row in conn.execute("PRAGMA table_info(strap_line_config)").fetchall()}
+    if "fixed_cost_per_ton_egp" not in line_cfg_cols:
+        conn.execute("ALTER TABLE strap_line_config ADD COLUMN fixed_cost_per_ton_egp REAL NOT NULL DEFAULT 0")
+        conn.commit()
+        # One-time backfill: back out each line's original EGP total from
+        # its frozen USD/kg figure using the Dollar Rate that reference
+        # workbook actually had at the time (PET_Export_pricing_1.25.xlsx =
+        # 47, PP_Export_pricing_1.32.xlsx = 45) -- reproduces each sheet's
+        # own Fixed Cost (ton) EGP cell exactly (PET 7,161.92 / PP 5,627.26),
+        # so today's prices are unchanged by this migration; only a FUTURE
+        # Dollar Rate edit will newly move this component, matching Excel.
+        conn.execute(
+            "UPDATE strap_line_config SET fixed_cost_per_ton_egp = fixed_cost_per_kg_usd * 1000 * 47 "
+            "WHERE line_key='pet' AND fixed_cost_per_ton_egp = 0"
+        )
+        conn.execute(
+            "UPDATE strap_line_config SET fixed_cost_per_ton_egp = fixed_cost_per_kg_usd * 1000 * 45 "
+            "WHERE line_key='pp' AND fixed_cost_per_ton_egp = 0"
+        )
+        conn.commit()
+    if "direct_labor_per_ton_egp" not in line_cfg_cols:
+        conn.execute("ALTER TABLE strap_line_config ADD COLUMN direct_labor_per_ton_egp REAL NOT NULL DEFAULT 0")
+        conn.commit()
+        conn.execute(
+            "UPDATE strap_line_config SET direct_labor_per_ton_egp = direct_labor_per_kg_usd * 1000 * 47 "
+            "WHERE line_key='pet' AND direct_labor_per_ton_egp = 0"
+        )
+        conn.execute(
+            "UPDATE strap_line_config SET direct_labor_per_ton_egp = direct_labor_per_kg_usd * 1000 * 45 "
+            "WHERE line_key='pp' AND direct_labor_per_ton_egp = 0"
+        )
+        conn.commit()
 
 
 def _seed_packaging_v2(conn):
@@ -2693,10 +2753,19 @@ STRAP_BOM_SEED = [
 
 # v34 -- per-line electricity/fixed-cost/direct-labor figures, moved here
 # from strap_pricing.LINE_CONFIG for the same reason (admin-editable).
-# line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd
+# v87 -- fixed_cost_per_kg_usd/direct_labor_per_kg_usd kept only as a
+# historical record of the frozen figures (no longer read -- see
+# strap_line_config's own comment in SCHEMA); fixed_cost_per_ton_egp/
+# direct_labor_per_ton_egp are the live EGP-denominated inputs now, taken
+# straight from each reference workbook's own Fixed Cost (ton) EGP /
+# Direct Labor (ton) EGP cells (PET_Export_pricing_1.25.xlsx,
+# PP_Export_pricing_1.32.xlsx) so a fresh install's Dollar Rate sensitivity
+# matches Excel from the start, same as an already-deployed DB after
+# migration.
+# line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd, fixed_cost_per_ton_egp, direct_labor_per_ton_egp
 STRAP_LINE_CONFIG_SEED = [
-    ("pet", 3233.8378874999994, 0.15238135851623189, 0.0),
-    ("pp", 4937.625783806608, 0.12505020582355653, 0.023584587962962967),
+    ("pet", 3233.8378874999994, 0.15238135851623189, 0.0, 7161.9238502629, 0.0),
+    ("pp", 4937.625783806608, 0.12505020582355653, 0.023584587962962967, 5627.2592620600435, 1061.3064583333335),
 ]
 
 # line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg, has_box, has_pallet, ctr20, ctr40
@@ -2753,6 +2822,30 @@ def _seed_strap_data(conn):
         )
     conn.commit()
 
+    # v88 -- owner-requested split: PET/PP Strap now has its OWN Dollar
+    # Rate, independent of Stretch Film's (they used to share the single
+    # "dollar_rate" row -- see strap_pricing._dollar_rate()). Seeded from
+    # whatever "dollar_rate" is worth RIGHT NOW rather than a fixed
+    # constant, so: a fresh install gets the same default (45) both start
+    # at, and an already-deployed DB's Strap prices are unchanged the
+    # moment this ships (it starts at today's shared value and only
+    # diverges once someone edits one of the two independently from here
+    # on, on the PET/PP Strap Costing page).
+    exists = conn.execute("SELECT key FROM global_setting WHERE key='strap_dollar_rate'").fetchone()
+    if not exists:
+        current_shared = conn.execute(
+            "SELECT value FROM global_setting WHERE key='dollar_rate'"
+        ).fetchone()
+        seed_value = current_shared["value"] if current_shared and current_shared["value"] is not None else 45
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            ("strap_dollar_rate", "PET/PP Strap: Dollar Rate (EGP per $1)", seed_value,
+             "Independent of Stretch Film's own Dollar Rate (Global Cost Settings) -- converts "
+             "every EGP-priced Strap material/electricity/fixed-cost/direct-labor figure into $. "
+             "Edit it from the PET/PP Strap Costing page."),
+        )
+    conn.commit()
+
     # v34 -- BOM recipes (profit/waste/composition %) and per-line fixed
     # inputs (electricity/fixed cost/direct labor), per-row idempotent like
     # everything else here so an owner's own edits on an already-seeded live
@@ -2770,7 +2863,8 @@ def _seed_strap_data(conn):
         )
     conn.commit()
 
-    for line_key, electricity, fixed_cost, direct_labor in STRAP_LINE_CONFIG_SEED:
+    for (line_key, electricity, fixed_cost, direct_labor,
+         fixed_cost_egp, direct_labor_egp) in STRAP_LINE_CONFIG_SEED:
         exists = conn.execute(
             "SELECT line_key FROM strap_line_config WHERE line_key=?", (line_key,)
         ).fetchone()
@@ -2778,9 +2872,10 @@ def _seed_strap_data(conn):
             continue
         conn.execute(
             """INSERT INTO strap_line_config
-               (line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd)
-               VALUES (?,?,?,?)""",
-            (line_key, electricity, fixed_cost, direct_labor),
+               (line_key, electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd,
+                fixed_cost_per_ton_egp, direct_labor_per_ton_egp)
+               VALUES (?,?,?,?,?,?)""",
+            (line_key, electricity, fixed_cost, direct_labor, fixed_cost_egp, direct_labor_egp),
         )
     conn.commit()
 

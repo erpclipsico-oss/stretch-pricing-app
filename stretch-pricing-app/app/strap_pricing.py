@@ -155,7 +155,10 @@ def _material_rate(conn, line_key, suffix):
 
 
 def _dollar_rate(conn):
-    return _get_setting(conn, "dollar_rate", 45)
+    # v88 -- owner-requested split: independent from Stretch Film's own
+    # "dollar_rate" (Global Cost Settings) -- see db.py's strap_dollar_rate
+    # seed note. Editable on the PET/PP Strap Costing page.
+    return _get_setting(conn, "strap_dollar_rate", 45)
 
 
 def _get_bom(conn, line_key, bom_key):
@@ -178,14 +181,22 @@ def _get_bom(conn, line_key, bom_key):
 
 def _get_line_config(conn, line_key):
     """DB-backed electricity/fixed-cost/direct-labor figures (v34),
-    admin-editable via the Strap Costing page."""
+    admin-editable via the Strap Costing page.
+
+    v87 -- fixed_cost_per_ton_egp/direct_labor_per_ton_egp (EGP, like
+    electricity_per_ton_egp) are the live inputs now; compute_strap_line()
+    divides them by the current Dollar Rate at calc time, matching both
+    reference workbooks' own live Fixed Cost (kg) USD / Direct Labor (kg)
+    USD formulas exactly (see db.py's strap_line_config migration note for
+    why this replaced the old frozen fixed_cost_per_kg_usd/
+    direct_labor_per_kg_usd constants)."""
     row = conn.execute(
-        """SELECT electricity_per_ton_egp, fixed_cost_per_kg_usd, direct_labor_per_kg_usd
+        """SELECT electricity_per_ton_egp, fixed_cost_per_ton_egp, direct_labor_per_ton_egp
            FROM strap_line_config WHERE line_key=?""",
         (line_key,),
     ).fetchone()
     if not row:
-        return {"electricity_per_ton_egp": 0.0, "fixed_cost_per_kg_usd": 0.0, "direct_labor_per_kg_usd": 0.0}
+        return {"electricity_per_ton_egp": 0.0, "fixed_cost_per_ton_egp": 0.0, "direct_labor_per_ton_egp": 0.0}
     return dict(row)
 
 
@@ -379,8 +390,12 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
 
     electricity_cost = (roll_net_kg * line_numbers["electricity_per_ton_egp"] / 1000.0 / dollar_rate
                          if dollar_rate else 0.0)
-    direct_labor_cost = roll_net_kg * line_numbers["direct_labor_per_kg_usd"]
-    fixed_cost = roll_net_kg * line_numbers["fixed_cost_per_kg_usd"]
+    # v87 -- direct_labor/fixed_cost now divide by the LIVE dollar_rate too,
+    # same as electricity above (see _get_line_config()'s docstring).
+    direct_labor_cost = (roll_net_kg * line_numbers["direct_labor_per_ton_egp"] / 1000.0 / dollar_rate
+                          if dollar_rate else 0.0)
+    fixed_cost = (roll_net_kg * line_numbers["fixed_cost_per_ton_egp"] / 1000.0 / dollar_rate
+                  if dollar_rate else 0.0)
     ex_work_roll = material_cost + electricity_cost + direct_labor_cost + fixed_cost
 
     core_rate = _material_rate(conn, line_key, "core") / dollar_rate if dollar_rate else 0.0

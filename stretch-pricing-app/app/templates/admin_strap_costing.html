@@ -1,13 +1,28 @@
 {% extends "base.html" %}
 {% block title %}PET/PP Strap Costing · Stretch Pricing{% endblock %}
 {% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Verified against both reference workbooks (PET_Export_pricing / PP_Export_pricing)</div>
+  Every input on this page listens and matches its sheet: Dollar Rate, every resin/packaging
+  material rate, BOM composition/profit/waste %, Electricity, Fixed cost, Direct labor, FOB cost
+  per container, and the Freight rate (shared table, own destination pick). Box vs No-Box, Pallet
+  vs No-Pallet and 20ft vs 40ft container all correctly switch the packaging/container-share
+  formula. <strong>Fixed as part of this check:</strong> Fixed cost / Direct labor used to be
+  entered as an already-converted $/kg figure that stayed frozen when the Dollar Rate changed
+  (Electricity never had this problem — it was always EGP-based). Both reference sheets' own Fixed
+  Cost / Direct Labor cells are live EGP-÷-Dollar-Rate formulas, so this page now takes them the
+  same way — enter the EGP/ton figure below and it re-converts every time the Dollar Rate changes,
+  exactly like Electricity already did. <strong>Also changed:</strong> the Dollar Rate below is now
+  Strap's own — it no longer shares a row with Stretch Film's Dollar Rate (Global Cost Settings);
+  editing one no longer moves the other.
+</div>
 <div class="panel">
   <div class="panel-header"><h2>PET / PP Strap — Costing</h2></div>
   <p class="hint" style="margin-bottom:14px;">
-    Everything that prices the PET Strap and PP Strap lines, in one place: dollar rate, material
-    prices, BOM recipes (composition/profit/waste), per-line fixed cost/electricity/direct labor,
-    FOB cost per container, and the credit-term surcharge. Stretch Film pricing is unaffected by
-    anything on this page except the Dollar Rate, which both product lines share.
+    Everything that prices the PET Strap and PP Strap lines, in one place: their own dollar rate,
+    material prices, BOM recipes (composition/profit/waste), per-line fixed cost/electricity/direct
+    labor, FOB cost per container, and the credit-term surcharge. Nothing on this page affects
+    Stretch Film pricing.
     <strong>The shipping/freight rate is no longer set here</strong> — it's pulled from the same
     Freight table Stretch Film uses, under
     <a href="{{ url_for('admin_freight') }}">Catalog &amp; Rates &gt; Freight</a> (picked by the
@@ -17,13 +32,14 @@
 
     <div class="panel-header" style="margin-top:8px;"><h2>Dollar Rate</h2></div>
     <p class="hint" style="margin-bottom:10px;">
-      Shared with Stretch Film (same setting as on the Global Settings page) — used to convert
-      every EGP-priced material/electricity figure below into $.
+      PET/PP Strap's own Dollar Rate — independent of Stretch Film's (Global Cost Settings page).
+      Used to convert every EGP-priced material/electricity/fixed-cost/direct-labor figure below
+      into $.
     </p>
     <div class="edit-grid">
       <div class="edit-row">
         <span style="width:220px;">Dollar Rate (EGP per $1)</span>
-        <input type="number" step="any" name="dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
+        <input type="number" step="any" name="strap_dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
       </div>
     </div>
 
@@ -87,14 +103,14 @@
                value="{{ line_configs[line_key].electricity_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
       </div>
       <div class="edit-row">
-        <span style="width:220px;">Fixed cost ($/kg)</span>
+        <span style="width:220px;">Fixed cost (EGP/ton)</span>
         <input type="number" step="any" name="linecfg_{{ line_key }}_fixed_cost"
-               value="{{ line_configs[line_key].fixed_cost_per_kg_usd if line_configs.get(line_key) else 0 }}" style="width:140px;">
+               value="{{ line_configs[line_key].fixed_cost_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
       </div>
       <div class="edit-row">
-        <span style="width:220px;">Direct labor ($/kg)</span>
+        <span style="width:220px;">Direct labor (EGP/ton)</span>
         <input type="number" step="any" name="linecfg_{{ line_key }}_direct_labor"
-               value="{{ line_configs[line_key].direct_labor_per_kg_usd if line_configs.get(line_key) else 0 }}" style="width:140px;">
+               value="{{ line_configs[line_key].direct_labor_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
       </div>
     </div>
     {% endfor %}
