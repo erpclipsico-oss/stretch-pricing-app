@@ -294,19 +294,30 @@ def suggest_rolls_per_pallet(core_weight_kg, has_box):
 
 
 def suggest_pallets_per_container(core_weight_kg, has_box, ctr20, ctr40):
-    """Companion to suggest_rolls_per_pallet -- the pallets/container figure
-    implicit in the same formula, shown read-only for reference."""
-    small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
-    if small:
-        if ctr20:
-            return 11
-        if ctr40:
-            return 22 if has_box else 24
-    else:
-        if ctr20:
-            return 10
-        if ctr40:
-            return 20
+    """The Pallets/Container figure shown to a rep/customer (quote builder
+    live preview + the printed PDF/Excel/view page) -- purely informational,
+    read-only.
+
+    v91 -- owner-confirmed, twice, explicitly overriding the small-core
+    (<0.7kg) 11/22/24 split this used to return (which came from the
+    per-sheet container-SHARE formula in _container_share below, used to
+    spread the flat per-container FOB/freight cost across each coil -- see
+    that function's own docstring). The owner was clear that figure is not
+    her real max loading and she never asked for that split: her own
+    stated max loading for PET/PP Strap is a flat 20 pallets/40ft container,
+    10 pallets/20ft container, full stop -- no exception for a lighter
+    core weight or for Box vs No-Box. This function now just returns that.
+
+    Deliberately NOT touched: _container_share()/compute_strap_line()'s
+    actual FOB/CFR $ math, which keeps dividing by the verified per-sheet
+    11/22/24/10/20 split (still exactly matches PET_Export_pricing /
+    PP_Export_pricing's own formulas) -- the owner's correction was about
+    what number gets PRINTED as Pallets/Container, not about the $ price,
+    which she has not disputed."""
+    if ctr20:
+        return 10
+    if ctr40:
+        return 20
     return 0
 
 
