@@ -155,7 +155,15 @@
         <th>Qty (pallets)</th>
         <th>Discount %</th>
         <th title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
-        <th title="FOB + per-container shipping share, priced per roll (not per kg)">CFR $/Roll</th>
+        <!-- v99 -- owner-reported: relabeled "CFR" to "CIF" here to match
+             what every other screen already calls this same figure (the
+             saved-quotation view, PDF and Excel exports all say "CIF
+             Price" for Strap too -- only this live quote-builder header
+             still said "CFR"). Purely a label fix: the number itself is
+             unchanged, still FOB + freight/shipping share per roll -- the
+             server's own field names (cfr_price_roll etc.) are internal
+             and untouched. -->
+        <th title="FOB + per-container shipping share, priced per roll (not per kg)">CIF $/Roll</th>
         <th></th>
       </tr>
     </thead>
