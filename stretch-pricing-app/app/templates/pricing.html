@@ -4,13 +4,24 @@
 {% block content %}
 
 <div class="panel">
+  <!-- v100 -- owner-requested Arabic/English toggle for the whole Pricing
+       screen's interface text (buttons, labels, table headers, tooltips,
+       notices). Scoped to UI chrome only -- product names/catalog data
+       stay as entered, and the page layout stays left-to-right (numbers
+       and the tables read the same either way) since flipping a
+       number-heavy grid to RTL tends to make it harder to scan, not
+       easier; only the words themselves switch. See the LANG/I18N/t()/
+       applyLanguage() block near the end of this page's script. -->
+  <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+    <button type="button" class="btn btn-outline" id="langToggleBtn" style="font-size:0.8rem; padding:5px 10px;">🌐 العربية</button>
+  </div>
   <div class="panel-header">
-    <h2>New quotation <button type="button" class="btn btn-danger-outline" id="resetBtn">🗑 New quotation</button></h2>
+    <h2><span data-i18n="new_quotation">New quotation</span> <button type="button" class="btn btn-danger-outline" id="resetBtn">🗑 <span data-i18n="new_quotation_btn">New quotation</span></button></h2>
     <div class="panel-actions">
-      <button type="button" class="btn btn-success" id="saveBtn">💾 Save</button>
-      <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ Export Excel</button>
-      <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ Export PDF</button>
-      <button type="button" class="btn btn-primary" id="calcBtn">⚡ Calculate</button>
+      <button type="button" class="btn btn-success" id="saveBtn">💾 <span data-i18n="save">Save</span></button>
+      <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ <span data-i18n="export_excel">Export Excel</span></button>
+      <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ <span data-i18n="export_pdf">Export PDF</span></button>
+      <button type="button" class="btn btn-primary" id="calcBtn">⚡ <span data-i18n="calculate">Calculate</span></button>
     </div>
   </div>
 
@@ -32,9 +43,9 @@
        admins; a sales rep never sees this control and always prices as
        themself regardless. -->
   <div class="field" style="max-width:340px; margin-bottom:14px;">
-    <label>🎭 Act as (preview prices as)</label>
+    <label>🎭 <span data-i18n="act_as">Act as (preview prices as)</span></label>
     <select id="actAsUser">
-      <option value="">Myself (Admin)</option>
+      <option value="" data-i18n="myself_admin">Myself (Admin)</option>
       {% for u in preview_users %}
       <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
       {% endfor %}
@@ -45,7 +56,7 @@
 
   <div class="grid grid-4">
     <div class="field">
-      <label>Loading Port</label>
+      <label data-i18n="loading_port">Loading Port</label>
       <select id="loading_port">
         {% for p in loading_ports %}
         <option value="{{ p.port }}">{{ p.port }}</option>
@@ -53,16 +64,16 @@
       </select>
     </div>
     <div class="field">
-      <label>Destination</label>
+      <label data-i18n="destination">Destination</label>
       <select id="destination">
-        <option value="">Select...</option>
+        <option value="" data-i18n="select_ellipsis">Select...</option>
         {% for f in freight %}
         <option value="{{ f.country }}">{{ f.country }}</option>
         {% endfor %}
       </select>
     </div>
     <div class="field">
-      <label>Payment Term</label>
+      <label data-i18n="payment_term">Payment Term</label>
       <select id="payment_term">
         {% for pt in payment_terms %}
         <option value="{{ pt }}">{{ pt }}</option>
@@ -70,7 +81,7 @@
       </select>
     </div>
     <div class="field">
-      <label>Global Discount %</label>
+      <label data-i18n="global_discount_pct">Global Discount %</label>
       <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
     </div>
   </div>
@@ -90,18 +101,18 @@
 
   <div class="grid grid-4">
     <div class="field">
-      <label>Customer Name</label>
+      <label data-i18n="customer_name">Customer Name</label>
       <input type="text" id="customer_name">
     </div>
     <div class="field">
-      <label>Quotation No.</label>
+      <label data-i18n="quotation_no">Quotation No.</label>
       <input type="text" id="quotation_no">
     </div>
   </div>
 
   <div class="lines-header">
-    <h3>Quotation lines</h3>
-    <button type="button" class="btn btn-outline" id="addLineBtn">+ Add line</button>
+    <h3 data-i18n="quotation_lines">Quotation lines</h3>
+    <button type="button" class="btn btn-outline" id="addLineBtn">+ <span data-i18n="add_line">Add line</span></button>
   </div>
 
   <div style="overflow-x:auto;">
@@ -109,21 +120,21 @@
     <thead>
       <tr>
         <th>#</th>
-        <th>Product</th>
-        <th>Pallet type</th>
-        <th>Packing type</th>
-        <th>Price basis</th>
-        <th title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
-        <th title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
-        <th>Width (mm)</th>
-        <th>Roll kg</th>
-        <th>Core kg</th>
-        <th>Rolls/pallet</th>
-        <th title="How many pallets of this line the customer is ordering">Pallets/container</th>
-        <th title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
-        <th>Discount %</th>
-        <th>FOB $/kg</th>
-        <th>CIF $/kg</th>
+        <th data-i18n="col_product">Product</th>
+        <th data-i18n="col_pallet_type">Pallet type</th>
+        <th data-i18n="col_packing_type">Packing type</th>
+        <th data-i18n="col_price_basis">Price basis</th>
+        <th data-i18n="col_colored" data-i18n-title="tip_colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
+        <th data-i18n="col_uv" data-i18n-title="tip_uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
+        <th data-i18n="col_width_mm">Width (mm)</th>
+        <th data-i18n="col_roll_kg">Roll kg</th>
+        <th data-i18n="col_core_kg">Core kg</th>
+        <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
+        <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering">Pallets/container</th>
+        <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
+        <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_fob_kg">FOB $/kg</th>
+        <th data-i18n="col_cif_kg">CIF $/kg</th>
         <th></th>
       </tr>
     </thead>
@@ -132,29 +143,29 @@
   </div>
 
   <div class="lines-header" style="margin-top:18px;">
-    <h3>PET / PP Strap lines</h3>
-    <button type="button" class="btn btn-outline" id="addStrapLineBtn">+ Add strap line</button>
+    <h3 data-i18n="strap_lines">PET / PP Strap lines</h3>
+    <button type="button" class="btn btn-outline" id="addStrapLineBtn">+ <span data-i18n="add_strap_line">Add strap line</span></button>
   </div>
   <div style="overflow-x:auto;">
   <table class="lines-table lines-table-compact" id="strapLinesTable">
     <thead>
       <tr>
         <th>#</th>
-        <th>Product</th>
-        <th>Material</th>
-        <th>Width (mm)</th>
-        <th>Thickness (mm)</th>
-        <th title="Updates instantly as Width/Thickness/Material change">g/m</th>
-        <th>Meters/coil</th>
-        <th>Core size</th>
-        <th title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
-        <th>Box</th>
-        <th>Pallet</th>
-        <th>Container</th>
-        <th>Rolls/pallet</th>
-        <th>Qty (pallets)</th>
-        <th>Discount %</th>
-        <th title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
+        <th data-i18n="col_product">Product</th>
+        <th data-i18n="col_material">Material</th>
+        <th data-i18n="col_width_mm">Width (mm)</th>
+        <th data-i18n="col_thickness_mm">Thickness (mm)</th>
+        <th data-i18n="col_gm" data-i18n-title="tip_gm" title="Updates instantly as Width/Thickness/Material change">g/m</th>
+        <th data-i18n="col_meters_coil">Meters/coil</th>
+        <th data-i18n="col_core_size">Core size</th>
+        <th data-i18n="col_roll_weight_kg" data-i18n-title="tip_roll_weight_kg" title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
+        <th data-i18n="col_box">Box</th>
+        <th data-i18n="col_pallet">Pallet</th>
+        <th data-i18n="col_container">Container</th>
+        <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
+        <th data-i18n="col_qty_pallets">Qty (pallets)</th>
+        <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_fob_roll" data-i18n-title="tip_fob_roll" title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
         <!-- v99 -- owner-reported: relabeled "CFR" to "CIF" here to match
              what every other screen already calls this same figure (the
              saved-quotation view, PDF and Excel exports all say "CIF
@@ -163,7 +174,7 @@
              unchanged, still FOB + freight/shipping share per roll -- the
              server's own field names (cfr_price_roll etc.) are internal
              and untouched. -->
-        <th title="FOB + per-container shipping share, priced per roll (not per kg)">CIF $/Roll</th>
+        <th data-i18n="col_cif_roll" data-i18n-title="tip_cif_roll" title="FOB + per-container shipping share, priced per roll (not per kg)">CIF $/Roll</th>
         <th></th>
       </tr>
     </thead>
@@ -207,6 +218,145 @@ const STRAP_PRODUCTS = [
 ];
 const STRAP_BOM_LABELS = {{ strap_bom_labels|tojson }};
 const STRAP_BOM_COMPONENTS = {{ strap_bom_components|tojson }};
+
+// v100 -- owner-requested Arabic/English toggle for the Pricing screen's
+// interface (buttons, field/column labels, tooltips). Scoped to UI chrome:
+// product names (catalog data), core-size/BOM technical option text, and
+// the few dynamically-built notice sentences (discount-cap warning, the
+// gross-weight alarm) are left as they already were -- translating every
+// runtime-generated string too would be a much larger, separate pass, and
+// isn't what "بدّلي شكل الرندر بالعربي" is really asking for. The page
+// layout itself stays left-to-right in both languages (only the words
+// change) since flipping a number-heavy table to RTL tends to make it
+// harder to scan, not easier -- happy to add that too if it's wanted.
+//
+// t(key) looks up a UI-chrome string tagged with data-i18n="key" in the
+// HTML. textLabel(value) / codeLabel(value) look up a <select> option's
+// text: textLabel for options whose `value` attribute already IS the
+// English label (Pallet type, Packing type, Payment term -- so the same
+// map works whichever language is active, keyed by the one fixed English
+// value each option always carries); codeLabel for options whose `value`
+// is an internal code, not English text (Price basis: per_kg/net_per_kg/
+// gross/net; Pre-Stretch Packaging: no_boxes/boxes), so English needs its
+// own lookup map too, not just a fallback to the value.
+let currentLang = (function () {
+  try { return localStorage.getItem('pricingLang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; }
+})();
+
+const I18N = {
+  en: {
+    new_quotation: 'New quotation', new_quotation_btn: 'New quotation', save: 'Save',
+    export_excel: 'Export Excel', export_pdf: 'Export PDF', calculate: 'Calculate',
+    act_as: 'Act as (preview prices as)', myself_admin: 'Myself (Admin)',
+    loading_port: 'Loading Port', destination: 'Destination', select_ellipsis: 'Select...',
+    payment_term: 'Payment Term', global_discount_pct: 'Global Discount %',
+    customer_name: 'Customer Name', quotation_no: 'Quotation No.',
+    quotation_lines: 'Quotation lines', add_line: 'Add line',
+    strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
+    col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
+    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV',
+    col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
+    col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
+    col_container: 'Container', col_discount_pct: 'Discount %', col_fob_kg: 'FOB $/kg',
+    col_cif_kg: 'CIF $/kg', col_material: 'Material', col_thickness_mm: 'Thickness (mm)',
+    col_gm: 'g/m', col_meters_coil: 'Meters/coil', col_core_size: 'Core size',
+    col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
+    col_qty_pallets: 'Qty (pallets)', col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
+    prestretch_details: 'Pre-Stretch details', ps_roll_wt: 'Roll wt (KG)',
+    ps_core_wt: 'Core wt (KG)', ps_rolls_pallet: 'Rolls/Pallet', ps_packaging: 'Packaging',
+    tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
+    tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
+    tip_pallets_container: 'How many pallets of this line the customer is ordering',
+    tip_container: "Which container size the printed Pallets/Container figure should show (doesn't affect price)",
+    tip_gm: 'Updates instantly as Width/Thickness/Material change',
+    tip_roll_weight_kg: 'Computed gross weight per roll (net strap weight + core weight)',
+    tip_fob_roll: 'Ex-Work + per-container FOB share, priced per roll (not per kg)',
+    tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
+  },
+  ar: {
+    new_quotation: 'عرض سعر جديد', new_quotation_btn: 'عرض سعر جديد', save: 'حفظ',
+    export_excel: 'تصدير إكسل', export_pdf: 'تصدير PDF', calculate: 'احسب',
+    act_as: 'التسعير كأنك (معاينة الأسعار)', myself_admin: 'أنا (أدمن)',
+    loading_port: 'ميناء الشحن', destination: 'الوجهة', select_ellipsis: 'اختر...',
+    payment_term: 'شرط الدفع', global_discount_pct: 'الخصم العام %',
+    customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
+    quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
+    strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
+    col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
+    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV',
+    col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
+    col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
+    col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_fob_kg: 'FOB $/كجم',
+    col_cif_kg: 'CIF $/كجم', col_material: 'الخامة', col_thickness_mm: 'السمك (مم)',
+    col_gm: 'جم/م', col_meters_coil: 'متر/كويل', col_core_size: 'مقاس الكور',
+    col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
+    col_qty_pallets: 'الكمية (بالتة)', col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
+    prestretch_details: 'تفاصيل البري-ستريتش', ps_roll_wt: 'وزن الرول (كجم)',
+    ps_core_wt: 'وزن الكور (كجم)', ps_rolls_pallet: 'رول/بالتة', ps_packaging: 'التعبئة',
+    tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
+    tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
+    tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
+    tip_container: 'مقاس الكونتينر اللي هيظهر بيه رقم بالتة/كونتينر (مش بيأثر على السعر)',
+    tip_gm: 'بيتحدث فورًا مع تغيير العرض/السمك/الخامة',
+    tip_roll_weight_kg: 'الوزن الإجمالي المحسوب للرول (وزن الشريط + وزن الكور)',
+    tip_fob_roll: 'EX-Work + نصيب الكونتينر من الـ FOB، بالسعر للرول الواحد (مش للكيلو)',
+    tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
+  },
+};
+
+function t(key) {
+  return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
+}
+
+// English label <-> Arabic label, keyed by the option's own `value`
+// attribute, for <select> options whose value already IS the fixed
+// English text (Pallet type / Packing type / Payment term).
+const TEXT_I18N_AR = {
+  'Standard Pallet': 'بالتة عادية', 'Euro Pallet': 'بالتة يورو',
+  'Automatic': 'أوتوماتيك', 'Manual(5kg)': 'يدوي (5 كجم)',
+  'Manual(2.3~3.5kg)': 'يدوي (2.3~3.5 كجم)', 'Manual(2.2kg)': 'يدوي (2.2 كجم)',
+  'Manual(1.5kg)': 'يدوي (1.5 كجم)',
+  'Cash (0 days)': 'كاش (0 يوم)', '30 days': '30 يوم', '60 days': '60 يوم', '90 days': '90 يوم',
+};
+function textLabel(value) {
+  return (currentLang === 'ar' && TEXT_I18N_AR[value]) || value;
+}
+
+// English label <-> Arabic label, keyed by an internal CODE (not English
+// text), for <select> options whose value is per_kg/net_per_kg/gross/net
+// (Price basis) or no_boxes/boxes (Pre-Stretch Packaging) -- English needs
+// its own lookup here too since the code itself isn't readable text.
+const CODE_LABELS_EN = {
+  per_kg: '$/KG (Gross)', net_per_kg: '$/KG (Net)', gross: '$/Roll (Gross)', net: '$/Roll (Net)',
+  no_boxes: 'No Boxes', boxes: 'With Boxes',
+};
+const CODE_LABELS_AR = {
+  per_kg: '$/كجم (جروس)', net_per_kg: '$/كجم (نت)', gross: '$/رول (جروس)', net: '$/رول (نت)',
+  no_boxes: 'بدون كراتين', boxes: 'بكراتين',
+};
+function codeLabel(value) {
+  return (currentLang === 'ar' ? CODE_LABELS_AR : CODE_LABELS_EN)[value] || value;
+}
+
+function applyLanguage() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
+  // Refresh every already-rendered <option>'s text (covers rows created
+  // before a language switch, and the server-rendered Payment Term list)
+  // -- each option's `value` never changes, only its displayed text does.
+  document.querySelectorAll('#payment_term option, .f-pallet option, .f-packing option')
+    .forEach(opt => { opt.textContent = textLabel(opt.value); });
+  document.querySelectorAll('.f-basis option, .f-ps-packaging option')
+    .forEach(opt => { opt.textContent = codeLabel(opt.value); });
+  const btn = document.getElementById('langToggleBtn');
+  if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
+}
+
+function setLanguage(lang) {
+  currentLang = lang;
+  try { localStorage.setItem('pricingLang', lang); } catch (e) {}
+  applyLanguage();
+}
 
 // v37 -- client-side mirror of strap_pricing.meter_weight_g_per_m(), so the
 // g/m preview updates instantly as width/thickness/material change, with no
@@ -306,17 +456,17 @@ function addLine(prefill) {
     </td>
     <td>
       <select class="f-pallet">
-        ${PALLET_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+        ${PALLET_TYPES.map(t => `<option value="${t}">${textLabel(t)}</option>`).join('')}
       </select>
     </td>
     <td>
       <select class="f-packing">
-        ${PACKING_TYPES.map(t => `<option value="${t}">${t}</option>`).join('')}
+        ${PACKING_TYPES.map(t => `<option value="${t}">${textLabel(t)}</option>`).join('')}
       </select>
     </td>
     <td>
       <select class="f-basis">
-        ${PRICING_BASES.map(b => `<option value="${b[0]}" ${b[0]==='per_kg' ? 'selected' : ''}>${b[1]}</option>`).join('')}
+        ${PRICING_BASES.map(b => `<option value="${b[0]}" ${b[0]==='per_kg' ? 'selected' : ''}>${codeLabel(b[0])}</option>`).join('')}
       </select>
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
@@ -355,16 +505,16 @@ function addLine(prefill) {
   pr.style.display = 'none';
   pr.innerHTML = `
     <td></td>
-    <td colspan="4" style="font-size:0.8rem; color:#666;">Pre-Stretch details &rarr;</td>
+    <td colspan="4" style="font-size:0.8rem; color:#666;"><span data-i18n="prestretch_details">Pre-Stretch details</span> &rarr;</td>
     <td colspan="13">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <label style="font-size:0.78rem;">Roll wt (KG)
+        <label style="font-size:0.78rem;"><span data-i18n="ps_roll_wt">Roll wt (KG)</span>
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
-        <label style="font-size:0.78rem;">Core wt (KG)
+        <label style="font-size:0.78rem;"><span data-i18n="ps_core_wt">Core wt (KG)</span>
           <input type="number" class="f-ps-corewt" min="0" step="0.01" style="width:70px;"></label>
-        <label style="font-size:0.78rem;">Rolls/Pallet
+        <label style="font-size:0.78rem;"><span data-i18n="ps_rolls_pallet">Rolls/Pallet</span>
           <input type="number" class="f-ps-rpp" min="0" step="1" style="width:70px;"></label>
-        <label style="font-size:0.78rem;">Packaging
+        <label style="font-size:0.78rem;"><span data-i18n="ps_packaging">Packaging</span>
           <!-- v99 -- owner-reported: this select had no explicit width, so
                the page-wide "select { width:100%; }" rule (style.css) made
                it stretch to the full row width and wrap onto its own line
@@ -374,7 +524,7 @@ function addLine(prefill) {
                that same rule -- this select just never had the matching
                override). -->
           <select class="f-ps-packaging" style="width:150px;">
-            ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('')}
+            ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
           </select>
         </label>
       </span>
@@ -408,20 +558,27 @@ function addLine(prefill) {
   // (Stretch!AO118/AP118) has NO "Gross" alternative at all -- it always
   // divides by the NET weight (see compute_prestretch_line()'s matching
   // v99 comment in pricing.py, which now applies that unconditionally).
-  // So "$/Roll (Gross)" is now the misleading option for Pre-Stretch (it
-  // never was a real, different figure there either), while for every
-  // OTHER product "Gross" is the only genuine basis (see the v97 note
-  // above) -- the two options are mirror images of each other depending on
-  // which kind of line this is, which is exactly what this function picks
-  // between.
+  // So "$/KG (Gross)"/"$/Roll (Gross)" are the misleading options for
+  // Pre-Stretch (never real, different figures there), while for every
+  // OTHER product Gross is the sheet-verified basis (see the v97 note
+  // above).
+  //
+  // v100 -- owner-confirmed: Net is now offered for every product, not
+  // just Pre-Stretch (see compute_line()'s matching v100 comment in
+  // pricing.py) -- PRICING_BASES now has 4 entries ($/KG Gross/Net,
+  // $/Roll Gross/Net) instead of 3, so a regular line gets everything
+  // EXCEPT the two now-meaningless "Gross" ones for Pre-Stretch, and gets
+  // all four for every other product.
   function syncBasisOptions(show) {
     const basisSelect = tr.querySelector('.f-basis');
     const current = basisSelect.value;
     const bases = show
-      ? PRICING_BASES.filter(b => b[0] !== 'gross')
-      : PRICING_BASES.filter(b => b[0] !== 'net');
-    basisSelect.innerHTML = bases.map(b => `<option value="${b[0]}">${b[1]}</option>`).join('');
-    basisSelect.value = bases.some(b => b[0] === current) ? current : 'per_kg';
+      ? PRICING_BASES.filter(b => b[0] !== 'gross' && b[0] !== 'per_kg')
+      : PRICING_BASES;
+    basisSelect.innerHTML = bases.map(b => `<option value="${b[0]}">${codeLabel(b[0])}</option>`).join('');
+    basisSelect.value = bases.some(b => b[0] === current)
+      ? current
+      : (show ? 'net_per_kg' : 'per_kg');
   }
 
   function syncPrestretchVisibility() {
@@ -470,6 +627,10 @@ function addLine(prefill) {
   ['.f-ps-rollwt', '.f-ps-corewt', '.f-ps-rpp'].forEach(sel => {
     pr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
+  // v100 -- newly-created rows must reflect the currently active language
+  // immediately (option text especially), not just elements present at
+  // initial page load.
+  applyLanguage();
 }
 
 function renumber() {
@@ -591,6 +752,7 @@ function addStrapLine() {
    '.f-strap-rpp', '.f-strap-qty-pallets', '.f-strap-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
+  applyLanguage();
 }
 
 function renumberStrap() {
@@ -952,38 +1114,37 @@ async function calculateAll() {
     // the owner confirmed freight/CFR doesn't need to match the sheet.
     const fobUnit = roundUp(rc.exwUnitRaw + lineFobAddonPerKg, 2);
     const cifUnit = roundHalfUp(fobUnit + lineFreightPerKg, 2);
-    // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown was
-    // only ever changing a label -- the FOB/CIF cells always showed the
-    // plain $/KG number no matter which basis this row had selected. Now
+    // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown --
     // when the row's own Price basis is a Roll basis, show the $ amount
     // for ONE WHOLE ROLL instead (unit $/KG x that roll's weight), with a
     // "/roll" suffix so it reads unambiguously -- "$/KG" stays a plain
     // per-kg number.
-    // v50 fix: a REGULAR (non-Pre-Stretch) line's own $/KG (rc.exwUnit) is
-    // the SAME number no matter which basis is picked -- pricing.py's
-    // compute_line() docstring: "every regular product ... the full (gross)
-    // roll weight, core included ... every roll always ships with its
-    // core". So multiplying that SAME $/KG by a smaller Net (core-excluded)
-    // weight, like v49 did for every product, manufactured a lower "Net"
-    // price out of thin air even though the roll (core and all) costs the
-    // same to make -- exactly the "kda kda lazem a7ot se3r el core" bug
-    // reported. Only Pre-Stretch (compute_prestretch_line(), v47) actually
-    // returns a genuinely different, HIGHER $/KG for the Net basis (the
-    // owner-confirmed one place Net differs), so ONLY there does using the
-    // net weight for this display make sense. Every other product always
-    // uses its full gross roll weight here, matching what it's actually
-    // billed and priced on, regardless of which basis is selected.
+    //
+    // v100 -- owner-confirmed: Net is now a genuine, different figure for
+    // EVERY product (not just Pre-Stretch -- see compute_line()'s matching
+    // v100 comment in pricing.py: same re-divide-by-net-weight method,
+    // just extended to every product line on request). fobUnit/cifUnit
+    // above already ARE whichever basis (gross or net) the server was
+    // asked to compute, for every product uniformly -- no more special-
+    // casing Pre-Stretch here. rollWeight below picks the matching weight
+    // (net-excludes-core, or gross) so a Roll-basis figure multiplies the
+    // right $/KG by the right weight. And per the owner's explicit ask --
+    // "kul se3r lazem yebayen mahsoob Net wala Gross" -- every FOB/CIF
+    // figure shown (KG or Roll) now carries a visible " (Net)"/" (Gross)"
+    // tag naming which basis it was computed on, not just the dropdown's
+    // own option label.
+    const basisTag = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg') ? ' (Net)' : ' (Gross)';
     if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
-      const rollWeight = (rc.pricingBasis === 'net' && rc.isPrestretchLine)
+      const rollWeight = (rc.pricingBasis === 'net')
         ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
         : rc.rollWeightKg;
       const fobRoll = fobUnit * rollWeight;
       const cifRoll = cifUnit * rollWeight;
-      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll';
-      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll';
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll' + basisTag;
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll' + basisTag;
     } else {
-      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2);
-      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2);
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2) + basisTag;
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2) + basisTag;
     }
   }
 
@@ -1160,6 +1321,17 @@ document.addEventListener('keydown', function (e) {
     try { if (typeof el.showPicker === 'function') el.showPicker(); } catch (err) {}
   }
 });
+
+// v100 -- wire up the Arabic/English toggle button, and apply the saved
+// language preference to the page's static chrome (headers, labels,
+// buttons, tooltips) right away, before any line row exists -- addLine()
+// itself re-applies it for the row it creates, but the elements outside
+// the lines tables (page title, Save/Export buttons, field labels, column
+// headers) only exist once and are never touched by addLine().
+document.getElementById('langToggleBtn').addEventListener('click', () => {
+  setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+});
+applyLanguage();
 
 // start with one line
 addLine();

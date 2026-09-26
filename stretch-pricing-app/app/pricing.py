@@ -175,17 +175,28 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                   hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False):
     """Returns (unit_price_usd_kg, total_kg).
 
-    pricing_basis (v46 -- owner-confirmed): for every regular (non-Pre-
-    Stretch) product, 'per_kg' / 'gross' / 'net' are ALL the same total-
-    weight basis -- the full (gross) roll weight, core included. The Net
-    basis genuinely differs (gross minus core) ONLY for Pre-Stretch (see
-    compute_prestretch_line() below) -- every roll always ships with its
-    core, so for every other product line the owner does not want the
-    core weight silently dropped out of what the customer is billed for
-    just because "Net" was picked in the dropdown. The dropdown still
-    offers Gross/Net/KG (and existing saved quotations keep whichever
-    basis they were saved with) purely as a display label ($/Roll vs
-    $/KG) -- it no longer changes the total KG/price for these products.
+    pricing_basis:
+    v46 -- for every regular (non-Pre-Stretch) product, 'per_kg' and
+    'gross' are the same total-weight basis -- the full (gross) roll
+    weight, core included -- and that GROSS figure is the one confirmed
+    to match the reference Excel sheet exactly (Stretch!AG/AI/AJ are all
+    explicitly labelled "-gross weight" there; the sheet has no separate
+    Net calculation anywhere for these regular rows).
+
+    v100 -- owner-confirmed follow-up: 'net' is now ALSO offered for every
+    regular product, not just Pre-Stretch -- computed with the exact same
+    method as Pre-Stretch's own Net (compute_prestretch_line(), v47/v99):
+    take the confirmed-correct Gross $/KG, then re-divide the SAME total
+    dollar amount by the NET (core-excluded) roll weight instead of the
+    gross one, so the $/KG shown rises accordingly while the $ total per
+    roll is unchanged. The owner explicitly asked for this knowing the
+    sheet has no Net figure to verify it against for regular products --
+    unlike the Gross figure above (sheet-verified) and Pre-Stretch's Net
+    (sheet-verified against Stretch!AO/AP), this Net figure for regular
+    products is a first-party calculation with no sheet reference cell,
+    so a "does this match the sheet" audit can only ever apply to it in
+    the sense that this SAME formula pattern is what the sheet uses for
+    Pre-Stretch -- there is no regular-product Net cell to diff against.
 
     roll_weight_kg / core_weight_kg / width_mm / rolls_per_pallet_override:
     per-quotation-line overrides of the product catalog's defaults, since
@@ -203,10 +214,23 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
                                  hidden_markup_value=hidden_markup_value, round_result=round_result,
                                  credit_term=credit_term)
-    # v46: always the full gross roll weight for every regular product --
-    # see this function's docstring. (Pre-Stretch is the one place the
-    # Net basis actually subtracts the core -- compute_prestretch_line().)
-    roll_weight = effective["roll_weight_kg"] or 0
+    # v46: the confirmed-correct, sheet-matching GROSS weight -- see this
+    # function's docstring.
+    gross_roll_weight = effective["roll_weight_kg"] or 0
+    core_weight = effective["core_weight_kg"] or 0
+    net_roll_weight = max(gross_roll_weight - core_weight, 0)
+
+    # v100: owner-confirmed -- same re-divide-the-same-$-total-by-a-smaller-
+    # weight method as Pre-Stretch's Net (see compute_prestretch_line()),
+    # now applied to every regular product too when 'net' (a $/Roll view)
+    # or 'net_per_kg' (a plain $/KG view -- v100) is selected; both mean
+    # the same underlying Net $/KG, just displayed differently upstream.
+    if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0:
+        unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
+        roll_weight = net_roll_weight
+    else:
+        roll_weight = gross_roll_weight
+
     total_kg = cost_engine.round_half_up((quantity_pallets or 0) * rolls_per_pallet * roll_weight, 3)
     return unit_price, total_kg
 

@@ -131,7 +131,21 @@ def create_app():
         pallet_types = ["Standard Pallet", "Euro Pallet"]
         packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
         payment_terms = ["Cash (0 days)", "30 days", "60 days", "90 days"]
-        pricing_bases = [("gross", "$/Roll (Gross)"), ("net", "$/Roll (Net)"), ("per_kg", "$/KG")]
+        # v100 -- owner-confirmed: Net/Gross now offered as their own $/KG
+        # views too (not just baked into the $/Roll figure), for EVERY
+        # product -- see compute_line()'s matching v100 docstring note in
+        # pricing.py. "per_kg"/"gross" both mean the sheet-verified GROSS
+        # $/KG; "net_per_kg" is the new Net $/KG (same re-divide-by-net-
+        # weight method as Pre-Stretch's own Net, applied to every product
+        # now); "gross"/"net" are the existing $/Roll views, unchanged
+        # except that "net" now uses this same generalized Net calc for
+        # every product, not just Pre-Stretch.
+        pricing_bases = [
+            ("per_kg", "$/KG (Gross)"),
+            ("net_per_kg", "$/KG (Net)"),
+            ("gross", "$/Roll (Gross)"),
+            ("net", "$/Roll (Net)"),
+        ]
         prestretch_packaging_types = [("no_boxes", "No Boxes"), ("boxes", "With Boxes")]
         # v37 -- live client-side g/m preview (width x thickness -> g/m,
         # instantly, no round-trip) needs each BOM recipe's own component
@@ -922,7 +936,11 @@ def create_app():
                WHERE ql.quotation_id=?""",
             (qid,),
         ).fetchall()
-        basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)", "per_kg": "$/KG",
+        # v100 -- "net_per_kg" added (see pricing_bases in pricing_page()'s
+        # matching v100 comment); "per_kg" relabeled "(Gross)" to match the
+        # dropdown's own option text now that a Net $/KG view exists too.
+        basis_labels = {"gross": "$/Roll (Gross)", "net": "$/Roll (Net)",
+                         "per_kg": "$/KG (Gross)", "net_per_kg": "$/KG (Net)",
                          "per_coil": "$/Roll"}
         # v67 -- per-line FOB $/KG and CIF $/KG, shown on the saved-
         # quotation view page, PDF and Excel (previously only the plain
