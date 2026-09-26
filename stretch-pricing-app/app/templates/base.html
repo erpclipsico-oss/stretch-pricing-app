@@ -14,50 +14,57 @@
   <header class="topbar">
     <div class="topbar-left">
       <span class="brand"><img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo"> Stretch Pricing</span>
-      <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
-      <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
-      {% if current_user.role == 'admin' %}
-      <span class="nav-sep">|</span>
+      <!-- v96 -- mobile hamburger toggle (the "three short lines" the owner
+           asked for): hidden on desktop, shown only under the @media
+           breakpoint in style.css, where it toggles #navLinks (below) open
+           /closed instead of the links just wrapping into a messy stack. -->
+      <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">&#9776;</button>
+      <nav class="nav-links" id="navLinks">
+        <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
+        <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
+        {% if current_user.role == 'admin' %}
+        <span class="nav-sep">|</span>
 
-      <div class="nav-dropdown">
-        <button type="button" class="nav-link nav-dropdown-btn">Catalog &amp; Rates &#9662;</button>
-        <div class="nav-dropdown-menu">
-          <a href="{{ url_for('admin_products') }}">Products</a>
-          <a href="{{ url_for('admin_freight') }}">Freight</a>
-          <a href="{{ url_for('admin_loading_ports') }}">Loading Ports (FOB)</a>
-          <a href="{{ url_for('admin_prestretch') }}">Pre-Stretch</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-link nav-dropdown-btn">Catalog &amp; Rates &#9662;</button>
+          <div class="nav-dropdown-menu">
+            <a href="{{ url_for('admin_products') }}">Products</a>
+            <a href="{{ url_for('admin_freight') }}">Freight</a>
+            <a href="{{ url_for('admin_loading_ports') }}">Loading Ports (FOB)</a>
+            <a href="{{ url_for('admin_prestretch') }}">Pre-Stretch</a>
+          </div>
         </div>
-      </div>
 
-      <div class="nav-dropdown">
-        <button type="button" class="nav-link nav-dropdown-btn">Costing &#9662;</button>
-        <div class="nav-dropdown-menu">
-          <a href="{{ url_for('admin_cost_preview') }}">Cost Preview</a>
-          <span class="nav-dropdown-sep"></span>
-          <a href="{{ url_for('admin_global_settings') }}">Global Settings</a>
-          <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a>
-          <a href="{{ url_for('admin_material_rates') }}">Material Rates</a>
-          <a href="{{ url_for('admin_labor') }}">Labor</a>
-          <a href="{{ url_for('admin_electricity') }}">Electricity</a>
-          <a href="{{ url_for('admin_variable_costs') }}">Variable Costs</a>
-          <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a>
-          <a href="{{ url_for('admin_pallet') }}">Pallet/Packaging</a>
-          <a href="{{ url_for('admin_bom') }}">BOM</a>
-          <a href="{{ url_for('admin_packing_tiers') }}">Packing Tiers</a>
-          <span class="nav-dropdown-sep"></span>
-          <a href="{{ url_for('admin_cost_upload') }}">Annual Cost Upload (full workbook)</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-link nav-dropdown-btn">Costing &#9662;</button>
+          <div class="nav-dropdown-menu">
+            <a href="{{ url_for('admin_cost_preview') }}">Cost Preview</a>
+            <span class="nav-dropdown-sep"></span>
+            <a href="{{ url_for('admin_global_settings') }}">Global Settings</a>
+            <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a>
+            <a href="{{ url_for('admin_material_rates') }}">Material Rates</a>
+            <a href="{{ url_for('admin_labor') }}">Labor</a>
+            <a href="{{ url_for('admin_electricity') }}">Electricity</a>
+            <a href="{{ url_for('admin_variable_costs') }}">Variable Costs</a>
+            <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a>
+            <a href="{{ url_for('admin_pallet') }}">Pallet/Packaging</a>
+            <a href="{{ url_for('admin_bom') }}">BOM</a>
+            <a href="{{ url_for('admin_packing_tiers') }}">Packing Tiers</a>
+            <span class="nav-dropdown-sep"></span>
+            <a href="{{ url_for('admin_cost_upload') }}">Annual Cost Upload (full workbook)</a>
+          </div>
         </div>
-      </div>
 
-      <a href="{{ url_for('admin_strap_costing') }}" class="nav-link">PET/PP Strap Costing</a>
+        <a href="{{ url_for('admin_strap_costing') }}" class="nav-link">PET/PP Strap Costing</a>
 
-      <div class="nav-dropdown">
-        <button type="button" class="nav-link nav-dropdown-btn">Admin &#9662;</button>
-        <div class="nav-dropdown-menu">
-          <a href="{{ url_for('admin_users') }}">Users</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-link nav-dropdown-btn">Admin &#9662;</button>
+          <div class="nav-dropdown-menu">
+            <a href="{{ url_for('admin_users') }}">Users</a>
+          </div>
         </div>
-      </div>
-      {% endif %}
+        {% endif %}
+      </nav>
     </div>
     <div class="topbar-right">
       <span class="user-chip">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</span>
@@ -95,10 +102,35 @@
           if (!isOpen) menu.classList.add('open');
         });
       });
+
+      // v96 -- mobile hamburger menu: toggles #navLinks open/closed (only
+      // visible under the small-screen @media breakpoint in style.css --
+      // on desktop .nav-toggle is display:none and #navLinks is always
+      // shown, so this has no visible effect there).
+      var navToggle = document.getElementById('navToggle');
+      var navLinks = document.getElementById('navLinks');
+      if (navToggle && navLinks) {
+        navToggle.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var isOpen = navLinks.classList.toggle('open');
+          navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+        // Tapping an actual page link (not a dropdown toggle button) closes
+        // the mobile menu, so it doesn't stay open over the next page.
+        navLinks.querySelectorAll('a.nav-link').forEach(function (a) {
+          a.addEventListener('click', function () {
+            navLinks.classList.remove('open');
+            navToggle.setAttribute('aria-expanded', 'false');
+          });
+        });
+      }
+
       document.addEventListener('click', function () {
         dropdowns.forEach(function (dd) {
           dd.querySelector('.nav-dropdown-menu').classList.remove('open');
         });
+        if (navLinks) navLinks.classList.remove('open');
+        if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
       });
     });
   </script>

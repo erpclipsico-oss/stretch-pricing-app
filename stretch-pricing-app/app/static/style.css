@@ -82,6 +82,58 @@ body {
 .topbar-right { display: flex; align-items: center; gap: 14px; }
 .user-chip { color: #9ca3af; font-size: 0.85rem; }
 
+/* v96 -- mobile-friendly nav: on a normal (wide) screen, .nav-toggle (the
+   hamburger button) is hidden and .nav-links behaves exactly like the old
+   .topbar-left did (a plain wrapping row of links) -- this is a no-op on
+   desktop. Under the breakpoint below, the hamburger appears and the links
+   collapse into a vertical panel toggled open/closed by it, instead of
+   wrapping into an unreadable multi-row mess with no way to hide it. */
+.nav-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.nav-toggle:hover { background: rgba(255,255,255,0.08); }
+.nav-links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; row-gap: 6px; }
+
+@media (max-width: 860px) {
+  .topbar { flex-wrap: wrap; padding: 10px 14px; }
+  .topbar-left { width: 100%; justify-content: space-between; }
+  .nav-toggle { display: inline-block; }
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 2px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #374151;
+  }
+  .nav-links.open { display: flex; }
+  .nav-links .nav-link { padding: 9px 4px; }
+  .nav-sep { display: none; }
+  .nav-dropdown { width: 100%; }
+  .nav-dropdown-btn { width: 100%; justify-content: space-between; padding: 9px 4px; }
+  .nav-dropdown-menu {
+    position: static;
+    box-shadow: none;
+    border: none;
+    background: #1f2937;
+    border-radius: 6px;
+    margin: 2px 0 4px 12px;
+    min-width: 0;
+    width: calc(100% - 12px);
+  }
+  .topbar-right { width: 100%; justify-content: space-between; margin-top: 8px; }
+}
+
 .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
 .container-wide { max-width: 1800px; margin: 24px auto; padding: 0 10px; }
 

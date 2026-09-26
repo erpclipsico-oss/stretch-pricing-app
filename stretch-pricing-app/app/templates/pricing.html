@@ -59,6 +59,13 @@
        outlined below (.f-discount / .f-strap-discount). -->
   <div id="discountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-bottom:10px;"></div>
 
+  <!-- v96: shown whenever a PET/PP Strap line's gross roll weight (net + core)
+       is over the owner-confirmed max (20.2kg PET / 12.2kg PP) -- see
+       strap_pricing.gross_weight_exceeds_max(). The row's Meters/Coil (or
+       Roll Weight display) field is also outlined red below. Saving is
+       blocked server-side until this is fixed. -->
+  <div id="grossWeightNotice" class="hint" style="display:none; color:#991b1b; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:8px 12px; margin-bottom:10px;"></div>
+
   <div class="grid grid-4">
     <div class="field">
       <label>Customer Name</label>
@@ -95,8 +102,6 @@
         <th>Discount %</th>
         <th>FOB $/kg</th>
         <th>CIF $/kg</th>
-        <th>Total KG</th>
-        <th>Line total $</th>
         <th></th>
       </tr>
     </thead>
@@ -128,9 +133,7 @@
         <th>Qty (pallets)</th>
         <th>Discount %</th>
         <th title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
-        <th title="FOB + per-container shipping share, priced per roll (not per kg) -- this is what feeds the line total">CFR $/Roll</th>
-        <th>Total KG</th>
-        <th>Line total $</th>
+        <th title="FOB + per-container shipping share, priced per roll (not per kg)">CFR $/Roll</th>
         <th></th>
       </tr>
     </thead>
@@ -138,11 +141,13 @@
   </table>
   </div>
 
-  <div class="totals-box">
-    <div><span>Discount</span><strong id="discountCell">-$0.00</strong></div>
-    <div class="grand"><span>FOB Total</span><strong id="fobTotalCell">$0.00</strong></div>
-    <div class="grand"><span>CIF Total</span><strong id="cifTotalCell">$0.00</strong></div>
-  </div>
+  <!-- v96 -- owner-confirmed: no totals with prices (or total weight)
+       anywhere on this screen or in the PDF/Excel exports, for either
+       Stretch Film or Strap -- this used to be a Discount/FOB Total/CIF
+       Total box here, plus a "Total KG"/"Line total $" column on each of
+       the two tables above. Each line's own FOB/CIF $ per kg (or per roll
+       for Strap) is still shown per line -- only the summed dollar/weight
+       figures are gone. -->
 </div>
 
 <script>
@@ -291,8 +296,6 @@ function addLine(prefill) {
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
-    <td class="f-kg num">0</td>
-    <td class="f-total num">$0.00</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('linesBody').appendChild(tr);
@@ -448,8 +451,6 @@ function addStrapLine() {
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
-    <td class="f-strap-kg num">0</td>
-    <td class="f-strap-total num">$0.00</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('strapLinesBody').appendChild(tr);
@@ -612,6 +613,11 @@ async function calculateAll() {
   // plus an outline on the affected row(s)' discount field.
   let anyDiscountCapped = false;
   let cappedMaxPct = null;
+  // v96: whether any Strap line's gross roll weight is over the max --
+  // see strap_pricing.gross_weight_exceeds_max() and the .f-strap-meters
+  // outline set in the strap-lines loop below.
+  let anyGrossWeightExceeded = false;
+  let exceededLineLabel = '';
   for (const tr of rows) {
     const product_id = tr.querySelector('.f-product').value;
     const pallet_type = tr.querySelector('.f-pallet').value;
@@ -672,8 +678,9 @@ async function calculateAll() {
         tr.querySelector('.f-rpp').value = data.rolls_per_pallet;
       }
     }
-    tr.querySelector('.f-kg').textContent = data.total_kg.toLocaleString();
-    tr.querySelector('.f-total').textContent = '$' + data.line_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    // v96 -- no more "Total KG"/"Line total $" cells to write into (removed
+    // per the owner's request); data.total_kg/line_gross are still used
+    // below, just not displayed per line anymore.
     subtotal += data.line_gross;
     stretchSubtotal += data.line_gross;
     subtotalFull += (data.line_gross_full != null ? data.line_gross_full : data.line_gross);
@@ -774,12 +781,33 @@ async function calculateAll() {
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
     tr.querySelector('.f-strap-fob').textContent = roundHalfUp(data.fob_price_roll, 2).toFixed(2);
     tr.querySelector('.f-strap-cfr').textContent = roundHalfUp(data.cfr_price_roll, 2).toFixed(2);
-    tr.querySelector('.f-strap-kg').textContent = effectiveTotalKg.toLocaleString();
-    tr.querySelector('.f-strap-total').textContent = '$' + effectiveGross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    // v96 -- no more "Total KG"/"Line total $" cells to write into (removed
+    // per the owner's request); effectiveTotalKg/effectiveGross are still
+    // used below, just not displayed per line anymore.
     // Roll Weight (kg) -- server's own gross_weight_kg (net strap weight +
     // core weight) is authoritative; the live client-side estimate in
     // updateRollWeightLive() is just a same-formula preview before Calculate.
     tr.querySelector('.f-strap-rollwt').value = roundHalfUp(data.gross_weight_kg, 2).toFixed(2);
+    // v96: gross roll weight over the owner-confirmed max (20.2kg PET /
+    // 12.2kg PP) -- warn live and outline the fields that control it, same
+    // pattern as the discount-cap outline above. Saving is blocked
+    // server-side too (see /api/save-quotation), this is just the earlier
+    // heads-up so the rep can fix it before hitting Save.
+    const rollwtField = tr.querySelector('.f-strap-rollwt');
+    const metersField = tr.querySelector('.f-strap-meters');
+    if (data.gross_weight_exceeded) {
+      anyGrossWeightExceeded = true;
+      const lineLabel = sel.selectedOptions[0].dataset.line === 'pp' ? 'PP Strap' : 'PET Strap';
+      exceededLineLabel = `${lineLabel} (الحد الأقصى ${data.gross_weight_max_kg}كجم)`;
+      const warnMsg = `وزن الرول ${data.gross_weight_kg.toFixed(2)}كجم تعدى الحد الأقصى المسموح (${data.gross_weight_max_kg}كجم) -- قلل الـ Meters/Coil`;
+      rollwtField.style.outline = '2px solid #dc2626';
+      rollwtField.title = warnMsg;
+      if (metersField) { metersField.style.outline = '2px solid #dc2626'; metersField.title = warnMsg; }
+    } else {
+      rollwtField.style.outline = '';
+      rollwtField.title = '';
+      if (metersField) { metersField.style.outline = ''; metersField.title = ''; }
+    }
     if (custom) {
       // Reflect the server-computed g/m (the authoritative value actually
       // priced with -- the live preview in updateGmLive() is a same-formula
@@ -876,10 +904,11 @@ async function calculateAll() {
     }
   }
 
-  const money = (v) => '$' + roundHalfUp(v, 2).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('discountCell').textContent = '-' + money(discount);
-  document.getElementById('fobTotalCell').textContent = money(fobTotal);
-  document.getElementById('cifTotalCell').textContent = money(cifTotal);
+  // v96 -- owner-confirmed: no totals with prices (or total weight)
+  // anywhere on this screen -- there used to be a Discount/FOB Total/CIF
+  // Total box written here (discount/fobTotal/cifTotal above still feed
+  // each line's own FOB/CIF $/kg cells via fobAddon/freightAmt in the loop
+  // above; they're just no longer summed into a quote-level display).
 
   // v47: page-level notice when any line's discount got auto-capped --
   // see the .f-discount/.f-strap-discount outlines set above.
@@ -889,6 +918,15 @@ async function calculateAll() {
     capNotice.textContent = `⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند ${cappedMaxPct}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.`;
   } else {
     capNotice.style.display = 'none';
+  }
+
+  // v96: page-level alarm for the gross-weight-over-max check above.
+  const weightNotice = document.getElementById('grossWeightNotice');
+  if (anyGrossWeightExceeded) {
+    weightNotice.style.display = '';
+    weightNotice.textContent = `🚫 ${exceededLineLabel}: وزن الرول تعدى الحد الأقصى المسموح -- قلل عدد الـ Meters/Coil في السطر المتعلّم باللون الأحمر. لا يمكن حفظ العرض قبل تصحيح ده.`;
+  } else {
+    weightNotice.style.display = 'none';
   }
 }
 
@@ -909,6 +947,12 @@ async function saveQuotation() {
     body: JSON.stringify(payload)
   });
   const data = await resp.json();
+  if (data.error) {
+    // v96: server-side hard block (gross roll weight over the max, or an
+    // unknown product) -- nothing was saved (db.rollback() ran server-side).
+    alert('⚠️ ' + data.error);
+    return;
+  }
   if (data.id) {
     currentQuotationId = data.id;
     document.getElementById('exportBtn').disabled = false;

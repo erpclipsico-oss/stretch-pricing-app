@@ -456,6 +456,10 @@ def create_app():
             "meter_weight_g_per_m": calc["meter_weight_g_per_m"],
             "meters_per_coil": product["meters_per_coil"],
             "core_weight_kg": product["core_weight_kg"],
+            # v96 -- max gross-roll-weight alarm (strap_pricing.gross_weight_exceeds_max()):
+            # lets the Pricing screen warn live, before the rep even tries to Save.
+            "gross_weight_max_kg": calc["gross_weight_max_kg"],
+            "gross_weight_exceeded": calc["gross_weight_exceeded"],
             "suggested_rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
                 product["core_weight_kg"], bool(product["has_box"])),
             "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
@@ -591,6 +595,25 @@ def create_app():
                                                                hidden_markup_value=creator_strap_markup_value,
                                                                fob_container_usd=strap_fob_container_usd,
                                                                shipping_container_usd=strap_shipping_container_usd)
+                # v96 -- owner-confirmed hard ceiling on gross roll weight
+                # (20.2kg PET / 12.2kg PP -- strap_pricing.TARGET_GROSS_WEIGHT_KG).
+                # suggest_meters_per_coil() only ever proposes a default; a rep
+                # can still type in a larger Meters/Coil by hand with nothing
+                # stopping them today, so this blocks the WHOLE save (nothing
+                # committed yet -- see db.rollback() below) the moment any one
+                # line would exceed it, rather than silently saving an
+                # overweight roll. The Pricing screen also warns live from the
+                # same calc via /api/calculate-line, before the rep even hits Save.
+                if calc["gross_weight_exceeded"]:
+                    db.rollback()
+                    line_label = "PP Strap" if line_product_line == "pp" else "PET Strap"
+                    return jsonify({
+                        "error": (
+                            f"{line_label}: gross roll weight {calc['gross_weight_kg']:.2f}kg "
+                            f"exceeds the maximum allowed ({calc['gross_weight_max_kg']:.1f}kg) -- "
+                            f"reduce Meters/Coil for this line and try again."
+                        )
+                    }), 400
                 total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
                 unit_price = calc["cfr_price_kg"]
                 unit_price_full = calc_full["cfr_price_kg"]
@@ -2396,24 +2419,13 @@ def build_pdf(q, lines, totals):
         elements.append(_make_table(rows, spans))
         elements.append(Spacer(1, 14))
 
-    totals_rows = [
-        [f"Global Discount ({q['global_discount_pct'] or 0}%)",
-         f"-${cost_engine.round_half_up(totals['subtotal'] - totals['total'], 2):,.2f}"],
-        [f"FOB Total ({q['loading_port'] or '-'})", f"${totals['fob_total']:,.2f}"],
-        [f"CIF Total ({q['destination'] or '-'})", f"${totals['cif_total']:,.2f}"],
-    ]
-    # v75 -- widened from [400,90] (490pt) to sum to PAGE_CONTENT_WIDTH
-    # (510pt), same alignment pass as the letterhead/meta table above.
-    totals_table = Table(totals_rows, colWidths=[420, 90])
-    totals_table.hAlign = "LEFT"
-    totals_table.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.black),
-    ]))
-    elements.append(totals_table)
-
+    # v96 -- owner-confirmed: no totals with prices (or total weight)
+    # anywhere on the Pricing screen or in the PDF/Excel exports, for either
+    # Stretch Film or Strap -- this used to end with a Global Discount/FOB
+    # Total/CIF Total box; per-line "Line Total"/"Total KG" columns were
+    # already dropped from this same table earlier (v76/v76.2). The rep
+    # reads FOB/CIF per unit ($/KG or $/Roll) straight off the line-items
+    # table above; nothing here sums them into a quote-level dollar figure.
     doc.build(elements)
     buf.seek(0)
     return buf
@@ -2569,18 +2581,12 @@ def build_xlsx(q, lines, totals):
         row += 1
         row, _ = _write_line_rows(row, stretch_lines, 1)
 
-    row += 1
-    totals_rows = [
-        (f"Global Discount ({q['global_discount_pct'] or 0}%)", -cost_engine.round_half_up(totals["subtotal"] - totals["total"], 2)),
-        (f"FOB Total ({q['loading_port'] or '-'})", cost_engine.round_half_up(totals["fob_total"], 2)),
-        (f"CIF Total ({q['destination'] or '-'})", cost_engine.round_half_up(totals["cif_total"], 2)),
-    ]
-    for label, val in totals_rows:
-        ws.cell(row=row, column=1, value=label).font = bold
-        cell = ws.cell(row=row, column=11, value=val)
-        cell.font = bold
-        cell.number_format = "$#,##0.00"
-        row += 1
+    # v96 -- owner-confirmed: no totals with prices (or total weight)
+    # anywhere on the Pricing screen or in the PDF/Excel exports, for either
+    # Stretch Film or Strap -- this used to end with a Global Discount/FOB
+    # Total/CIF Total block (matching build_pdf()'s own removal). Per-line
+    # "Line Total"/"Total Qty (KG)" columns were already dropped from this
+    # same sheet earlier (v76/v76.2).
 
     # v69 -- widened a bit (was [4, 30, 12, 12, 12, 12, 10, 10, 10, 10, 12])
     # to give the now-2-line headers room to breathe.

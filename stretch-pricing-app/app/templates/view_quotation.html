@@ -88,10 +88,10 @@
   {% else %}
     {{ render_lines_table(stretch_lines, '$/KG') }}
   {% endif %}
-  <div class="totals-box">
-    <div><span>Discount</span><strong>-${{ '%.2f'|format(totals.subtotal - totals.total) }}</strong></div>
-    <div class="grand"><span>FOB Total ({{ q.loading_port or '-' }})</span><strong>${{ '%.2f'|format(totals.fob_total) }}</strong></div>
-    <div class="grand"><span>CIF Total ({{ q.destination or '-' }})</span><strong>${{ '%.2f'|format(totals.cif_total) }}</strong></div>
-  </div>
+  {# v96 -- owner-confirmed: no totals with prices (or total weight)
+     anywhere on the Pricing screen, in this saved-quote view, or in the
+     PDF/Excel exports, for either Stretch Film or Strap. This used to end
+     with a Discount/FOB Total/CIF Total box; the rep reads FOB/CIF per
+     unit ($/KG or $/Roll) straight off the table above instead. #}
 </div>
 {% endblock %}

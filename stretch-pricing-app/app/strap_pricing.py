@@ -69,6 +69,29 @@ def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
     meters = net_target_max_kg * 1000.0 / gm_per_m
     return int(meters // 10) * 10
 
+
+def gross_weight_max_kg(line_key):
+    """The owner-confirmed hard ceiling (top of TARGET_GROSS_WEIGHT_KG's
+    window) for this line's gross roll weight, or 0 if the line isn't
+    recognized."""
+    return TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))[1]
+
+
+def gross_weight_exceeds_max(line_key, gross_weight_kg):
+    """v96 -- hard-validation companion to suggest_meters_per_coil() above.
+    That function only ever proposes a DEFAULT meters/coil when the field is
+    left blank/0 -- it never stops a rep from typing in a larger meters/coil
+    by hand, which can push the actual (net + core) gross roll weight past
+    the owner-confirmed ceiling (20.2kg PET / 12.2kg PP) with nothing
+    catching it. This is that check: compute_strap_line() calls it and
+    app.py uses the result to block Save (and warn live) whenever a line's
+    real gross weight is over the line, telling the rep to reduce
+    Meters/Coil. A tiny epsilon absorbs float noise so a roll landing
+    exactly on the ceiling (e.g. suggest_meters_per_coil()'s own output)
+    never trips it."""
+    max_kg = gross_weight_max_kg(line_key)
+    return bool(max_kg) and gross_weight_kg > max_kg + 1e-6
+
 # v34 -- BOM composition %, profit % and waste % are now stored (and
 # admin-editable) in the strap_bom DB table -- see _get_bom() below and
 # db.STRAP_BOM_SEED for the seeded starting values (identical to what used
@@ -486,6 +509,13 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
 
     return {
         "gross_weight_kg": gross_weight_kg,
+        # v96 -- hard-validation companions (see gross_weight_exceeds_max()'s
+        # docstring above): app.py uses these to block Save and to warn live
+        # in the Pricing screen when a line's real gross roll weight (net +
+        # core, from whatever meters/coil is actually set) is over the
+        # owner-confirmed ceiling for this line.
+        "gross_weight_max_kg": gross_weight_max_kg(line_key),
+        "gross_weight_exceeded": gross_weight_exceeds_max(line_key, gross_weight_kg),
         "net_weight_kg": roll_net_kg,
         "meter_weight_g_per_m": net_weight_g_per_m,
         "material_cost": material_cost,
