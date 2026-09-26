@@ -21,6 +21,28 @@
   </div>
   {% endif %}
 
+  {% if current_user and current_user.role == 'admin' and preview_users %}
+  <!-- v99 -- "Act as [salesperson]" preview (owner request): lets an admin
+       see the exact final price a given sales rep would get -- that rep's
+       own hidden markup/bonus baked in -- without logging out and back in
+       as them. Purely a display/pricing switch: every calculate + save
+       call below sends the chosen user's id as preview_as_user_id, and the
+       server (see _resolve_pricing_user() in app.py) uses that person's
+       seller_type/hidden markup instead of the admin's own. Only visible to
+       admins; a sales rep never sees this control and always prices as
+       themself regardless. -->
+  <div class="field" style="max-width:340px; margin-bottom:14px;">
+    <label>🎭 Act as (preview prices as)</label>
+    <select id="actAsUser">
+      <option value="">Myself (Admin)</option>
+      {% for u in preview_users %}
+      <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
+      {% endfor %}
+    </select>
+    <div id="actAsNote" class="hint" style="display:none; margin-top:4px; color:#1d4ed8;"></div>
+  </div>
+  {% endif %}
+
   <div class="grid grid-4">
     <div class="field">
       <label>Loading Port</label>
@@ -233,6 +255,15 @@ function isPrestretch(productId) {
   return !!(p && p.is_prestretch);
 }
 
+// v99 -- "Act as [salesperson]" preview (admin-only; see the matching HTML
+// comment above the #actAsUser dropdown). Returns the selected user's id, or
+// null when the admin has "Myself (Admin)" selected or the control isn't on
+// the page at all (a non-admin's Pricing screen never renders it).
+function previewAsUserId() {
+  const sel = document.getElementById('actAsUser');
+  return (sel && sel.value) ? sel.value : null;
+}
+
 // v44 -- auto-recalculate. Previously every price-affecting field (Pallet
 // type, Packing type, Pricing basis, Colored, UV, Qty, Discount, custom
 // roll/core/width/rolls-per-pallet, plus the strap fields and Payment
@@ -344,8 +375,42 @@ function addLine(prefill) {
     tr.querySelector('.f-rpp').value = p.rolls_per_pallet || '';
   }
 
+  // v97 -- owner-confirmed: "$/Roll (Net)" is only a meaningful, genuinely
+  // different figure for Pre-Stretch (see compute_prestretch_line() in
+  // pricing.py -- confirmed against the reference Excel sheet's Pre-Stretch
+  // row). For every other product the sheet has no separate Net $/KG or
+  // $/Roll at all -- Net and Gross are always the exact same number there
+  // (see AG10/AI10/AJ10's "gross weight" labels), so offering "$/Roll
+  // (Net)" as its own dropdown choice for a regular line is misleading:
+  // it looks like a different price when it never is one. Rebuilds the
+  // Price basis dropdown's own options (not just disables it) so "$/Roll
+  // (Net)" only ever appears once a Pre-Stretch product is picked for this
+  // line, and switches back to "$/KG" automatically if a line is changed
+  // away from Pre-Stretch while "Net" was selected.
+  //
+  // v99 -- mirror fix, owner-confirmed: the sheet's Pre-Stretch FOB/CFR
+  // (Stretch!AO118/AP118) has NO "Gross" alternative at all -- it always
+  // divides by the NET weight (see compute_prestretch_line()'s matching
+  // v99 comment in pricing.py, which now applies that unconditionally).
+  // So "$/Roll (Gross)" is now the misleading option for Pre-Stretch (it
+  // never was a real, different figure there either), while for every
+  // OTHER product "Gross" is the only genuine basis (see the v97 note
+  // above) -- the two options are mirror images of each other depending on
+  // which kind of line this is, which is exactly what this function picks
+  // between.
+  function syncBasisOptions(show) {
+    const basisSelect = tr.querySelector('.f-basis');
+    const current = basisSelect.value;
+    const bases = show
+      ? PRICING_BASES.filter(b => b[0] !== 'gross')
+      : PRICING_BASES.filter(b => b[0] !== 'net');
+    basisSelect.innerHTML = bases.map(b => `<option value="${b[0]}">${b[1]}</option>`).join('');
+    basisSelect.value = bases.some(b => b[0] === current) ? current : 'per_kg';
+  }
+
   function syncPrestretchVisibility() {
     const show = isPrestretch(tr.querySelector('.f-product').value);
+    syncBasisOptions(show);
     pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
     tr.querySelector('.f-pallet').disabled = show;
@@ -630,6 +695,7 @@ async function calculateAll() {
     const payload = {
       product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
       line_discount_pct, global_discount_pct: globalDiscountPct,
+      preview_as_user_id: previewAsUserId(),
     };
     if (isPrestretch(product_id)) {
       const pr = tr.nextElementSibling;
@@ -732,6 +798,7 @@ async function calculateAll() {
       // FOB/CIF math already does. FOB (loading port) stays Strap's own
       // separate flat setting, so loading_port isn't needed here.
       destination: document.getElementById('destination').value,
+      preview_as_user_id: previewAsUserId(),
     };
     if (custom) {
       Object.assign(payload, {
@@ -798,8 +865,8 @@ async function calculateAll() {
     if (data.gross_weight_exceeded) {
       anyGrossWeightExceeded = true;
       const lineLabel = sel.selectedOptions[0].dataset.line === 'pp' ? 'PP Strap' : 'PET Strap';
-      exceededLineLabel = `${lineLabel} (الحد الأقصى ${data.gross_weight_max_kg}كجم)`;
-      const warnMsg = `وزن الرول ${data.gross_weight_kg.toFixed(2)}كجم تعدى الحد الأقصى المسموح (${data.gross_weight_max_kg}كجم) -- قلل الـ Meters/Coil`;
+      exceededLineLabel = `${lineLabel} (max ${data.gross_weight_max_kg}kg)`;
+      const warnMsg = `Roll weight ${data.gross_weight_kg.toFixed(2)}kg exceeds the maximum allowed (${data.gross_weight_max_kg}kg) -- reduce Meters/Coil`;
       rollwtField.style.outline = '2px solid #dc2626';
       rollwtField.title = warnMsg;
       if (metersField) { metersField.style.outline = '2px solid #dc2626'; metersField.title = warnMsg; }
@@ -924,7 +991,7 @@ async function calculateAll() {
   const weightNotice = document.getElementById('grossWeightNotice');
   if (anyGrossWeightExceeded) {
     weightNotice.style.display = '';
-    weightNotice.textContent = `🚫 ${exceededLineLabel}: وزن الرول تعدى الحد الأقصى المسموح -- قلل عدد الـ Meters/Coil في السطر المتعلّم باللون الأحمر. لا يمكن حفظ العرض قبل تصحيح ده.`;
+    weightNotice.textContent = `🚫 ${exceededLineLabel}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.`;
   } else {
     weightNotice.style.display = 'none';
   }
@@ -940,6 +1007,7 @@ async function saveQuotation() {
     payment_term: document.getElementById('payment_term').value,
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
     lines: [...readLines(), ...readStrapLines()],
+    preview_as_user_id: previewAsUserId(),
   };
   const resp = await fetch('/api/save-quotation', {
     method: 'POST',
@@ -967,6 +1035,12 @@ async function saveQuotation() {
     if (data.discount_capped) {
       msg += '\n\n⚠️ تنبيه: خصم سطر أو أكتر كان أعلى من الحد الأقصى المسموح، فاتقفل تلقائيًا قبل الحفظ.';
     }
+    // v99 -- confirms, on a fresh "Act as [salesperson]" save, exactly which
+    // sales rep this new quotation got attributed to (see the matching note
+    // on acting_as_user in api_save_quotation()) -- never a silent surprise.
+    if (data.acting_as_username) {
+      msg += `\n\n🎭 Saved under ${data.acting_as_username}'s account (their own pricing/markup was used).`;
+    }
     alert(msg);
   }
 }
@@ -989,6 +1063,61 @@ document.getElementById('global_discount_pct').addEventListener('input', schedul
 // but is wired the same way so its Total updates live too.
 document.getElementById('loading_port').addEventListener('change', scheduleRecalc);
 document.getElementById('destination').addEventListener('change', scheduleRecalc);
+
+// v99 -- "Act as [salesperson]" preview: switching the dropdown re-runs
+// Calculate immediately (not debounced -- this is a deliberate, infrequent
+// pick, not something typed) so every line's FOB/CIF updates right away to
+// that rep's own price, and shows a small note confirming who's selected
+// so it's never ambiguous whose price is on screen.
+const actAsUserEl = document.getElementById('actAsUser');
+if (actAsUserEl) {
+  actAsUserEl.addEventListener('change', () => {
+    const note = document.getElementById('actAsNote');
+    if (actAsUserEl.value) {
+      note.style.display = '';
+      note.textContent = `Prices below reflect ${actAsUserEl.selectedOptions[0].textContent}'s own pricing.`;
+    } else {
+      note.style.display = 'none';
+    }
+    calculateAll();
+  });
+}
+
+// v99 -- keyboard Left/Right arrow-key cell navigation across a quotation
+// line's fields, and from one line into the next, so a rep doesn't have to
+// keep reaching for the mouse for every field (owner request). Scoped to
+// the two lines tables only (#linesTable / #strapLinesTable, which cover
+// both the main rows and the Pre-Stretch details sub-row, since that row
+// lives inside #linesTable too). Every writable field in these tables is a
+// <select>, a checkbox, or a number input -- there's no free-text field to
+// move a text caret inside -- so Left/Right always jumps straight to the
+// next/previous field, which is exactly "right/left moves to the next
+// cell" as asked for, rather than trying to detect caret position (which
+// number inputs don't even expose in Chrome/Firefox). Radio buttons
+// (Strap's 40ft/20ft container choice) are left untouched since the
+// browser already uses Left/Right natively to switch within that radio
+// group, and hijacking it there would break that instead of helping.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'radio') return;
+  const root = el.closest('#linesTable, #strapLinesTable');
+  if (!root) return;
+  const fields = [...root.querySelectorAll(
+    'input:not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled])'
+  )].filter(f => f.offsetParent !== null);
+  const idx = fields.indexOf(el);
+  if (idx === -1) return;
+  const nextIdx = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+  if (nextIdx < 0 || nextIdx >= fields.length) return;
+  e.preventDefault();
+  const target = fields[nextIdx];
+  target.focus();
+  // Select the field's whole value on arrival (spreadsheet-like), so typing
+  // right away replaces it instead of inserting into whatever was there.
+  try { if (typeof target.select === 'function') target.select(); } catch (err) {}
+});
 
 // start with one line
 addLine();

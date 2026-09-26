@@ -146,8 +146,21 @@ def create_app():
                 for row in g.db.execute("SELECT bom_key, components_json FROM strap_bom WHERE line_key=?",
                                          (line_key,)).fetchall()
             }
+        # v99 -- admin-only "Act as [salesperson]" preview (owner request):
+        # every other active user, so the admin can pick one from a dropdown
+        # and see the exact price (hidden markup/bonus baked in) that rep
+        # would get -- see _resolve_pricing_user() in api_calculate_line()/
+        # _calculate_strap_line() and api_save_quotation()'s acting_as_user.
+        preview_users = []
+        if g.user["role"] == "admin":
+            preview_users = g.db.execute(
+                "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
+                "ORDER BY full_name, username",
+                (g.user["id"],),
+            ).fetchall()
         return render_template(
             "pricing.html",
+            preview_users=preview_users,
             products=products,
             strap_products=strap_products,
             strap_bom_labels=strap_pricing.BOM_LABELS,
@@ -188,12 +201,17 @@ def create_app():
         # Always 0 now so it's a no-op; the user.price_adjustment_usd_kg
         # column and DB value are left alone (unused) rather than migrated.
         adjustment = 0
-        seller_type = g.user["seller_type"] if "seller_type" in g.user.keys() else None
+        # v99 -- see _resolve_pricing_user()'s docstring: an admin previewing
+        # "Act as [salesperson]" gets that salesperson's own seller_type +
+        # hidden markup here instead of their own; everyone else always gets
+        # their own g.user, unchanged from before.
+        pricing_user = _resolve_pricing_user(data)
+        seller_type = pricing_user["seller_type"] if "seller_type" in pricing_user.keys() else None
         # v46 -- hidden per-user markup, independent from Strap's own --
         # see user.stretch_markup_mode/stretch_markup_value and
         # cost_engine.apply_hidden_markup().
-        hidden_markup_mode = g.user["stretch_markup_mode"] if "stretch_markup_mode" in g.user.keys() else None
-        hidden_markup_value = (g.user["stretch_markup_value"] if "stretch_markup_value" in g.user.keys()
+        hidden_markup_mode = pricing_user["stretch_markup_mode"] if "stretch_markup_mode" in pricing_user.keys() else None
+        hidden_markup_value = (pricing_user["stretch_markup_value"] if "stretch_markup_value" in pricing_user.keys()
                                 else 0) or 0
         colored = bool(data.get("colored"))
         # v39 -- UV is now a plain checkbox ("uv": true/false); which of the
@@ -333,6 +351,28 @@ def create_app():
             "discount_capped": discount_capped,
         })
 
+    def _resolve_pricing_user(data):
+        """v99 -- admin-only "Act as [salesperson]" preview (owner request):
+        an admin can pick another sales rep (e.g. Manuel) from a dropdown at
+        the top of the Pricing screen and see the exact final price that rep
+        would get -- their own hidden Stretch/Strap markup/bonus baked in --
+        without logging out and back in as them. Only an admin account may
+        switch: a plain sales rep's own g.user always drives their own
+        pricing regardless of what a client sends, so this can't be used to
+        see someone else's hidden markup by anything other than an admin
+        deliberately choosing to. Falls back to g.user whenever no (or an
+        invalid/inactive) preview_as_user_id is sent, so ordinary use is
+        unaffected."""
+        if g.user["role"] != "admin":
+            return g.user
+        preview_id = data.get("preview_as_user_id")
+        if not preview_id:
+            return g.user
+        preview_user = g.db.execute(
+            "SELECT * FROM user WHERE id=? AND active=1", (preview_id,)
+        ).fetchone()
+        return preview_user or g.user
+
     def _is_credit_term(data):
         """The quotation's own Payment Term selector: anything other than
         'Cash (...)' triggers a flat $/kg credit-term surcharge -- PET/PP
@@ -410,8 +450,12 @@ def create_app():
         # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
         # from Stretch Film's own -- see user.strap_markup_mode/
         # strap_markup_value and strap_pricing.compute_strap_line().
-        hidden_markup_mode = g.user["strap_markup_mode"] if "strap_markup_mode" in g.user.keys() else None
-        hidden_markup_value = (g.user["strap_markup_value"] if "strap_markup_value" in g.user.keys() else 0) or 0
+        # v99 -- resolved through _resolve_pricing_user() so an admin's "Act
+        # as [salesperson]" preview picks up that rep's own hidden markup here
+        # too, not just on the Stretch Film side.
+        pricing_user = _resolve_pricing_user(data)
+        hidden_markup_mode = pricing_user["strap_markup_mode"] if "strap_markup_mode" in pricing_user.keys() else None
+        hidden_markup_value = (pricing_user["strap_markup_value"] if "strap_markup_value" in pricing_user.keys() else 0) or 0
         # v62 -- only the shipping (freight) leg is shared with Stretch
         # Film's Catalog & Rates > Rates tables now, keyed by the
         # quotation's own Destination pick; FOB stays Strap's own separate
@@ -491,6 +535,22 @@ def create_app():
         seller_type = data.get("seller_type", "Foreign sellers")
         global_discount_pct = float(data.get("global_discount_pct") or 0)
 
+        # v99 -- admin "Act as [salesperson]" preview (see
+        # _resolve_pricing_user()'s docstring). For a BRAND-NEW quotation
+        # only, an admin previewing as e.g. Manuel gets it saved with
+        # created_by_id = Manuel's own id, not the admin's -- that's what
+        # makes the markup-resolution below (creator/creator_id, already
+        # existing since v46) naturally price it exactly as Manuel would,
+        # both now and on every future edit, with no separate "acting as"
+        # flag to carry forward. Editing an EXISTING quotation always keeps
+        # its original creator (existing["created_by_id"]), same as before
+        # v99 -- "Act as" only decides who a brand-new quote is attributed to.
+        acting_as_user = None
+        if not q_id and g.user["role"] == "admin" and data.get("preview_as_user_id"):
+            acting_as_user = db.execute(
+                "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
+            ).fetchone()
+
         if q_id:
             db.execute(
                 """UPDATE quotation SET quotation_no=?, customer_name=?, loading_port=?, destination=?,
@@ -502,18 +562,19 @@ def create_app():
             db.execute("DELETE FROM quotation_line WHERE quotation_id=?", (q_id,))
             quotation_id = q_id
         else:
+            new_created_by_id = acting_as_user["id"] if acting_as_user else g.user["id"]
             cur = db.execute(
                 """INSERT INTO quotation
                    (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
                     country_class, seller_type, global_discount_pct, status, created_by_id, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?, ?)""",
                 (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
-                 country_class, seller_type, global_discount_pct, g.user["id"],
+                 country_class, seller_type, global_discount_pct, new_created_by_id,
                  datetime.now(timezone.utc).isoformat()),
             )
             quotation_id = cur.lastrowid
 
-        creator_id = existing["created_by_id"] if q_id else g.user["id"]
+        creator_id = existing["created_by_id"] if q_id else new_created_by_id
         creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
         # v56 -- "Price adjustment $/KG" retired, see the matching note in
         # api_calculate_line() above.
@@ -788,6 +849,10 @@ def create_app():
         return jsonify({
             "id": quotation_id, "quotation_no": q["quotation_no"], "total": total,
             "discount_capped": any_discount_capped,
+            # v99 -- tells the admin, on a fresh "Act as [salesperson]" save,
+            # which sales rep this new quotation actually got attributed to
+            # (created_by_id), so it's never a silent surprise.
+            "acting_as_username": (acting_as_user["full_name"] or acting_as_user["username"]) if acting_as_user else None,
         })
 
     # ---------- History ----------

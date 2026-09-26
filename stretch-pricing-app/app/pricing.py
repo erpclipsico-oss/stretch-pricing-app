@@ -348,7 +348,12 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
                              hidden_markup_mode=None, hidden_markup_value=0, credit_term=False):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
-    packaging type, instead of the product catalog's fixed values."""
+    packaging type, instead of the product catalog's fixed values.
+
+    v99: unit_price_usd_kg returned here is ALWAYS the Net-weight-based
+    figure (matching the sheet's Stretch!AO/AP unconditionally -- see the
+    comment below); pricing_basis only still matters for choosing how the
+    $/Roll figure is displayed upstream (per_kg vs a whole-roll amount)."""
     # unit_price is always computed on GROSS weight -- Stretch!AI79 is
     # explicitly labelled "-gross weight" in the source sheet, and every
     # EX-Work-stage figure (AG79, AI79, AJ79=AI79*H79) is built off the
@@ -363,18 +368,24 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
 
-    if pricing_basis == "net" and net_roll_weight > 0:
-        # v47: Pre-Stretch is the one place a genuinely different Net $/KG
-        # is computed -- confirmed against Stretch!AO79/AP79 (FOB/CFR $/KG),
-        # which divide the SAME container-level $ total (itself anchored to
-        # the gross-weight EX-Work price, AJ79=AI79*H79) by the container's
-        # NET/plastic weight (G79*J79) instead of its gross weight. Same $
-        # spread over less weight -> a higher $/KG. We reproduce that at the
-        # roll level: keep the $ total per roll fixed (unit_price_gross *
-        # gross_weight) and re-divide by the net weight, so switching a
-        # Pre-Stretch line to the Net basis raises the $/KG shown (this is
-        # the "price used to be high on Net" behaviour the owner recalled)
-        # while the total quoted amount for that line is unchanged.
+    # v99 -- owner-confirmed fix: Stretch!AO118/AP118 (Pre-Stretch's FOB/CFR
+    # $/KG in the reference sheet) ALWAYS divide by the NET/plastic weight
+    # (G118*J118) -- there is no "Gross" alternative anywhere in the sheet
+    # for Pre-Stretch's FOB/CFR at all (confirmed via a full-sheet formula
+    # check). This used to only apply when the rep explicitly picked "Net"
+    # from the Price basis dropdown, defaulting to the lower Gross-based
+    # figure otherwise -- a real, numerically-verified gap versus the sheet
+    # (e.g. 1.89 $/KG gross-default vs 2.15 $/KG net for the same line) that
+    # the owner confirmed should always match the sheet's Net figure. Now
+    # applied unconditionally whenever net_roll_weight is available, exactly
+    # like Excel -- the rep no longer needs to remember to pick "Net" for
+    # the FOB/CFR $/KG shown to be correct; the "Price basis" dropdown only
+    # picks $/Roll vs $/KG display from here on for Pre-Stretch (see the
+    # matching "Gross" option removal for Pre-Stretch in pricing.html).
+    # Keep the $ total per roll fixed (unit_price_gross * gross_weight) and
+    # re-divide by the net weight, same math as before -- only the gate
+    # controlling WHEN this applies has changed.
+    if net_roll_weight > 0:
         unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
         roll_weight = net_roll_weight
     else:
