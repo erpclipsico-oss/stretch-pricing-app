@@ -357,7 +357,15 @@ function addLine(prefill) {
         <label style="font-size:0.78rem;">Rolls/Pallet
           <input type="number" class="f-ps-rpp" min="0" step="1" style="width:70px;"></label>
         <label style="font-size:0.78rem;">Packaging
-          <select class="f-ps-packaging">
+          <!-- v99 -- owner-reported: this select had no explicit width, so
+               the page-wide "select { width:100%; }" rule (style.css) made
+               it stretch to the full row width and wrap onto its own line
+               below the label instead of sitting right next to it like
+               Roll wt/Core wt/Rolls per Pallet above (those are <input>s
+               with their own inline width:70px, which already overrides
+               that same rule -- this select just never had the matching
+               override). -->
+          <select class="f-ps-packaging" style="width:150px;">
             ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('')}
           </select>
         </label>
@@ -1117,6 +1125,32 @@ document.addEventListener('keydown', function (e) {
   // Select the field's whole value on arrival (spreadsheet-like), so typing
   // right away replaces it instead of inserting into whatever was there.
   try { if (typeof target.select === 'function') target.select(); } catch (err) {}
+});
+
+// v99 -- owner-reported: pressing Enter on a checkbox (Colored/UV/Box/
+// Pallet) or a <select> (Product/Pallet type/Packaging/basis/etc.) did
+// nothing -- there's no <form> around these fields, so the browser's own
+// default Enter behavior (submit the form) never had anything to do, and
+// neither a checkbox nor a <select> toggles/opens on Enter by itself (only
+// Space does, natively). Made Enter do the obviously-expected thing for
+// both, page-wide (not just inside the two lines tables, so it also covers
+// Loading Port/Destination/Payment Term/Act as up top): toggle a checkbox
+// (and fire its 'change' event, so scheduleRecalc() etc. still runs same
+// as a mouse click would), or open a select's own native dropdown via
+// showPicker() (supported in current Chrome; falls back to doing nothing
+// -- never throws -- on a browser that lacks it, same as before this fix).
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    e.preventDefault();
+    el.checked = !el.checked;
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  } else if (el.tagName === 'SELECT') {
+    e.preventDefault();
+    try { if (typeof el.showPicker === 'function') el.showPicker(); } catch (err) {}
+  }
 });
 
 // start with one line
