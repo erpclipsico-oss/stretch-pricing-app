@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Cost Preview · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Cost engine preview</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Live, itemised EX-Work $/KG breakdown for every product, computed right now from all the cost-engine
+    tables (Material Rates, BOM, Pallet Component, Electricity, Fixed/Variable Costs, Global Settings).
+    Use this to audit the effect of any change before it reaches a quote. This page never writes to the
+    database — it is read-only.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:170px;">Product</span><span style="width:55px;">Type</span>
+      <span style="width:80px;">Material $</span><span style="width:60px;">Core $</span>
+      <span style="width:80px;">Packaging $</span><span style="width:70px;">Interest $</span>
+      <span style="width:110px;">Conv./ton $</span><span style="width:80px;">Other $</span>
+      <span style="width:90px;">EX-Work $/KG</span>
+    </div>
+    {% for row in rows %}
+    <div class="edit-row">
+      <span style="width:170px;">{{ row.label }}</span>
+      <span style="width:55px;">{{ row.breakdown.roll_type }}</span>
+      <span style="width:80px;">{{ row.breakdown.material_cost_usd }}</span>
+      <span style="width:60px;">{{ row.breakdown.core_cost_usd }}</span>
+      <span style="width:80px;">{{ row.breakdown.packaging_cost_usd }}</span>
+      <span style="width:70px;">{{ row.breakdown.material_interest_usd }}</span>
+      <span style="width:110px;">{{ row.breakdown.conversion_cost_usd_per_ton }}</span>
+      <span style="width:80px;">{{ row.breakdown.other_costs_usd }}</span>
+      <strong style="width:90px;">{{ row.breakdown.ex_work_usd_kg }}</strong>
+    </div>
+    {% else %}
+    <p class="empty">No products yet.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

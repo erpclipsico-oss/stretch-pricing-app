@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: stretch-pricing-app
+    env: python
+    plan: free
+    rootDir: stretch-pricing-app
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn run:app"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
