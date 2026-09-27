@@ -822,6 +822,15 @@ def create_app():
                 pallets_per_container = l.get("prestretch_pallets_per_container")
                 pallets_per_container = (float(pallets_per_container)
                                           if pallets_per_container not in (None, "") else None)
+                # v115 -- owner-confirmed: Pallet Type and Container
+                # (20ft/40ft) are this line's own record of what it's
+                # quoted on, same as every other product, so they're no
+                # longer force-disabled on the Pre-Stretch row (see
+                # pricing.html's matching v115 comment) -- persist whatever
+                # the rep actually picked instead of silently defaulting.
+                ps_container_pref = l.get("container_pref") or "40ft"
+                if ps_container_pref not in ("40ft", "20ft"):
+                    ps_container_pref = "40ft"
                 unit_price, total_kg = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
@@ -844,13 +853,13 @@ def create_app():
                         unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
                         colored, prestretch_roll_weight_kg, prestretch_core_weight_kg,
                         prestretch_rolls_per_pallet, prestretch_packaging_type,
-                        prestretch_pallets_per_container)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        prestretch_pallets_per_container, container_pref)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
                      float(l.get("quantity_pallets") or 0), unit_price, unit_price_full, total_kg,
                      line_discount_pct, pricing_basis, int(colored),
                      roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
-                     pallets_per_container),
+                     pallets_per_container, ps_container_pref),
                 )
                 continue
 
@@ -1217,7 +1226,8 @@ def create_app():
                 pallets_per_container = (l["prestretch_pallets_per_container"]
                                           if "prestretch_pallets_per_container" in l.keys() else None)
                 if pallets_per_container and rolls_per_pallet_display:
-                    pallets_per_container_display = f"{pallets_per_container:g}"
+                    ps_container_label = l["container_pref"] if ("container_pref" in l.keys() and l["container_pref"]) else "40ft"
+                    pallets_per_container_display = f"{pallets_per_container:g} ({ps_container_label})"
                     ps_roll_wt = l["prestretch_roll_weight_kg"] if "prestretch_roll_weight_kg" in l.keys() else None
                     ps_core_wt = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
                     if ps_roll_wt:

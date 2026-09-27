@@ -290,7 +290,7 @@ const I18N = {
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
-    prestretch_packaging_note: 'Pre-Stretch packaging:',
+    prestretch_packaging_note: 'Pre-Stretch packaging:', ps_pallets_container: 'Pallets/Container',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
     tip_pallets_container: 'How many pallets of this line the customer is ordering',
@@ -326,7 +326,7 @@ const I18N = {
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
-    prestretch_packaging_note: 'تعبئة البري-ستريتش:',
+    prestretch_packaging_note: 'تعبئة البري-ستريتش:', ps_pallets_container: 'بالتة/كونتينر',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
     tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
@@ -600,6 +600,19 @@ function addLine(prefill) {
         <select class="f-ps-packaging" style="width:150px;">
           ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
         </select>
+        <!-- v114 -- owner-confirmed, matched against the H1.36 sheet's
+             Stretch!AK118 ("Pallet Per Container"): Pre-Stretch's FOB/CIF
+             must be a FIXED per-SKU rate too, same as every other product,
+             not one that rises when this specific order is smaller than a
+             full container. AK118 is itself a blank, hand-typed cell in the
+             sheet (Pre-Stretch has no packing-tier lookup, made-to-order),
+             so this is typed in per line here too, exactly like Roll wt/
+             Core wt/Rolls-per-pallet already are. Left blank, FOB/CIF falls
+             back to spreading the add-on over this line's own order size
+             (the old behaviour) rather than guessing a number. -->
+        <label style="font-size:0.78rem;"><span data-i18n="ps_pallets_container">Pallets/Container</span>
+          <input type="number" class="f-ps-pallets-container" min="0" step="1" style="width:70px;"
+                 title="This Pre-Stretch SKU's Pallets-per-Container (Stretch!AK118 in the reference sheet) -- used to build a fixed FOB/CIF $/KG regardless of how many pallets this quote orders. Leave blank to spread FOB/CIF over this line's own order size instead."></label>
       </span>
     </td>
   `;
@@ -664,12 +677,20 @@ function addLine(prefill) {
     syncBasisOptions(show);
     pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
-    tr.querySelector('.f-pallet').disabled = show;
-    // Pre-Stretch lines aren't stuffed into a container via the packing-
-    // tier table at all (see load_quotation()'s comment), so the printed
-    // Pallets/Container figure is always blank for them -- this selector
-    // has nothing to pick from.
-    tr.querySelector('.f-container').disabled = show;
+    // v115 -- owner-confirmed: Pallet Type (Standard/Euro) and Container
+    // (20ft/40ft) stay selectable for Pre-Stretch too, exactly like every
+    // other product -- the sheet's own Pre-Stretch row has a "Pallet size"
+    // column too (Stretch!C118), and a Pre-Stretch order can genuinely be
+    // stuffed on either pallet type or either container size, same as any
+    // other line. These used to be force-disabled here on the assumption
+    // that Pre-Stretch "isn't stuffed into a container via the packing-
+    // tier table" -- true for the OLD auto-lookup, but irrelevant now that
+    // v115 added a manual Pallets/Container figure (the "Pre-Stretch
+    // details" row below) instead: Pallet Type and Container are just this
+    // line's own record of what it's quoted on, same as any other product,
+    // and Pallet Type was never wired to Pre-Stretch's own cost math
+    // (packaging cost is driven entirely by the Packaging Boxes/No-Boxes
+    // choice below, not by pallet type).
     // v114 -- Width/Roll wt/Core wt/Rolls-per-pallet stay enabled and are
     // typed in directly here for Pre-Stretch too, exactly like every other
     // product (owner-confirmed). prefillRollSpec() already blanks them out
@@ -691,6 +712,7 @@ function addLine(prefill) {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
   pr.querySelector('.f-ps-packaging').addEventListener('change', scheduleRecalc);
+  pr.querySelector('.f-ps-pallets-container').addEventListener('input', scheduleRecalc);
   // v100 -- newly-created rows must reflect the currently active language
   // immediately (option text especially), not just elements present at
   // initial page load.
@@ -965,6 +987,8 @@ function readLines() {
       line.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
       line.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
       line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+      const psPalletsContainer = pr.querySelector('.f-ps-pallets-container').value;
+      line.prestretch_pallets_per_container = psPalletsContainer !== '' ? parseFloat(psPalletsContainer) : null;
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1103,6 +1127,14 @@ async function calculateAll() {
       pallets40: data.pallets_per_container40 || 0,
       pallets20: data.pallets_per_container20 || 0,
       containerPref: tr.querySelector('.f-container') ? tr.querySelector('.f-container').value : '40ft',
+      // v114 -- the rep's own typed Pallets/Container for this Pre-Stretch
+      // line (see addLine()'s matching v114 comment); used below the same
+      // way pallets40/pallets20 are for every other product, so Pre-Stretch
+      // also gets a FIXED per-SKU FOB/CIF $/KG instead of one that rises
+      // when this order is smaller than a full container.
+      prestretchPalletsPerContainer: isPrestretch(product_id)
+        ? parseFloat((tr.nextElementSibling.querySelector('.f-ps-pallets-container').value) || 0)
+        : 0,
     });
   }
 
@@ -1286,6 +1318,15 @@ async function calculateAll() {
       const pallets = (rc.containerPref === '20ft') ? (rc.pallets20 || rc.pallets40) : (rc.pallets40 || rc.pallets20);
       if (pallets && rc.rollsPerPallet && rc.rollWeightKg) {
         fobDenomKg = pallets * rc.rollsPerPallet * rc.rollWeightKg;
+      }
+    } else if (rc.prestretchPalletsPerContainer && rc.rollsPerPallet) {
+      // v114 -- same fixed-per-SKU idea as above, for Pre-Stretch: use the
+      // rep's own typed Pallets/Container x Rolls/Pallet x NET weight
+      // (Pre-Stretch is always Net -- see compute_prestretch_line()'s v99
+      // comment), matching Stretch!AK118*G118*J118 in the sheet exactly.
+      const netWt = Math.max((rc.rollWeightKg || 0) - (rc.coreWeightKg || 0), 0);
+      if (netWt) {
+        fobDenomKg = rc.prestretchPalletsPerContainer * rc.rollsPerPallet * netWt;
       }
     }
     const lineFobAddonPerKg = fobDenomKg > 0 ? fobAddon / fobDenomKg : 0;

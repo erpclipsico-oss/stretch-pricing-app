@@ -409,6 +409,7 @@ def init_db():
     _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
     _seed_extras_settings(conn)
+    _fix_prestretch_extra_v117(conn)
     _fix_stale_material_rates_v8(conn)
     _seed_strap_data(conn)
     _seed_max_discount_setting(conn)
@@ -1104,7 +1105,21 @@ EXTRAS_GLOBAL_SETTINGS = [
     ("extra_color_usd_kg", "Extras - Color extra ($/KG)", 0.25,
      "Added to the unit price of any line whose product color is not "
      "Transparent/Clear/Natural (Pricing Settings > Extras > 'Color extra')."),
-    ("extra_prestretch_usd_kg", "Extras - Prestretch extra ($/KG)", 0.12,
+    # v117 -- was seeded at 0.12; checked directly against the H1.36
+    # reference sheet's own Pre-Stretch margin formula (Stretch!AI119 =
+    # AG119 + 'Material pricing'!$M$3/1000, confirmed via LibreOffice
+    # recalculation with real test inputs) -- the sheet's own Pre-Stretch
+    # markup is a flat $0.10/KG ('Material pricing'!M3 = "Prestretch/TON"
+    # = 100, i.e. 100/1000 = 0.10), not $0.12, and M3=100 was confirmed
+    # unchanged across every version of the reference sheet the owner has
+    # sent (unlike e.g. the Core material rate, which the sheet itself has
+    # changed over time -- see _fix_stale_material_rates_v8/v107's history
+    # above). 0.12 was simply the wrong number from whenever this setting
+    # was first seeded. See _fix_prestretch_extra_v117 below for the
+    # existing-row correction (same idempotent-only-if-still-the-old-
+    # default pattern as _fix_stale_global_settings_v7, so an owner edit
+    # away from 0.12 is never silently overwritten).
+    ("extra_prestretch_usd_kg", "Extras - Prestretch extra ($/KG)", 0.10,
      "Added to the unit price of every Pre-Stretch line, on top of its "
      "normal EX-Work + margin ('Extras > Prestretch extra')."),
     ("extra_foreign_seller_pct", "Extras - Foreign sellers extra (% of selling price)", 1.0,
@@ -1142,6 +1157,20 @@ def _seed_extras_settings(conn):
             "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
             (key, label, value, help_text),
         )
+
+
+def _fix_prestretch_extra_v117(conn):
+    """One-time correction of an already-live 'extra_prestretch_usd_kg' row
+    stuck at the old, wrong 0.12 default -- see the v117 comment on
+    EXTRAS_GLOBAL_SETTINGS above for how 0.10 was confirmed against the
+    reference sheet. Only touches the row when it is still EXACTLY the old
+    default (0.12): if the owner has since edited it to anything else in
+    Admin, that edit is left alone, same rule _seed_extras_settings()
+    itself documents for this table."""
+    row = conn.execute("SELECT value FROM global_setting WHERE key='extra_prestretch_usd_kg'").fetchone()
+    if row is not None and row["value"] == 0.12:
+        conn.execute("UPDATE global_setting SET value=0.10 WHERE key='extra_prestretch_usd_kg'")
+        conn.commit()
     conn.commit()
 
 
