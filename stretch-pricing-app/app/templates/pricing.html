@@ -32,16 +32,17 @@
   </div>
   {% endif %}
 
-  {% if current_user and current_user.role == 'admin' and preview_users %}
+  {% if current_user and current_user.role in ('admin', 'sub_admin') and preview_users %}
   <!-- v99 -- "Act as [salesperson]" preview (owner request): lets an admin
        see the exact final price a given sales rep would get -- that rep's
        own hidden markup/bonus baked in -- without logging out and back in
        as them. Purely a display/pricing switch: every calculate + save
        call below sends the chosen user's id as preview_as_user_id, and the
        server (see _resolve_pricing_user() in app.py) uses that person's
-       seller_type/hidden markup instead of the admin's own. Only visible to
-       admins; a sales rep never sees this control and always prices as
-       themself regardless. -->
+       seller_type/hidden markup instead of the admin's own. v102 -- owner
+       asked for sub_admin to get this too, so it's now shown to admin AND
+       sub_admin (ACT_AS_ROLES server-side); a plain sales rep never sees
+       this control and always prices as themself regardless. -->
   <div class="field" style="max-width:340px; margin-bottom:14px;">
     <label>🎭 <span data-i18n="act_as">Act as (preview prices as)</span></label>
     <select id="actAsUser">

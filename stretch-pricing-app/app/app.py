@@ -95,6 +95,13 @@ def create_app():
     # across every Admin > Costing page's sync buttons.
     SUB_ADMIN_TABLE_KEYS = {"margin_factor", "material_rate"}
 
+    # v102 -- owner also asked for sub_admin to get the "Act as [salesperson]"
+    # pricing-preview feature (see _resolve_pricing_user() below), same as
+    # admin -- unlike the back-office screens above, this isn't scoped to
+    # Margin Factors/Material Rates; a sub_admin gets the full Act-as picker
+    # on the Pricing screen exactly like an admin does.
+    ACT_AS_ROLES = ("admin", "sub_admin")
+
     def table_sync_access_required(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -199,13 +206,15 @@ def create_app():
                 for row in g.db.execute("SELECT bom_key, components_json FROM strap_bom WHERE line_key=?",
                                          (line_key,)).fetchall()
             }
-        # v99 -- admin-only "Act as [salesperson]" preview (owner request):
-        # every other active user, so the admin can pick one from a dropdown
-        # and see the exact price (hidden markup/bonus baked in) that rep
-        # would get -- see _resolve_pricing_user() in api_calculate_line()/
-        # _calculate_strap_line() and api_save_quotation()'s acting_as_user.
+        # v99 -- "Act as [salesperson]" preview (owner request): every other
+        # active user, so an admin (or, since v102, a sub_admin) can pick one
+        # from a dropdown and see the exact price (hidden markup/bonus baked
+        # in) that rep would get -- see _resolve_pricing_user() in
+        # api_calculate_line()/_calculate_strap_line() and
+        # api_save_quotation()'s acting_as_user. v102 -- owner asked for
+        # sub_admin to get this too, same as admin (ACT_AS_ROLES below).
         preview_users = []
-        if g.user["role"] == "admin":
+        if g.user["role"] in ACT_AS_ROLES:
             preview_users = g.db.execute(
                 "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
                 "ORDER BY full_name, username",
@@ -405,18 +414,19 @@ def create_app():
         })
 
     def _resolve_pricing_user(data):
-        """v99 -- admin-only "Act as [salesperson]" preview (owner request):
-        an admin can pick another sales rep (e.g. Manuel) from a dropdown at
-        the top of the Pricing screen and see the exact final price that rep
-        would get -- their own hidden Stretch/Strap markup/bonus baked in --
-        without logging out and back in as them. Only an admin account may
-        switch: a plain sales rep's own g.user always drives their own
-        pricing regardless of what a client sends, so this can't be used to
-        see someone else's hidden markup by anything other than an admin
-        deliberately choosing to. Falls back to g.user whenever no (or an
+        """v99 -- "Act as [salesperson]" preview (owner request): an admin
+        (or, since v102, a sub_admin) can pick another sales rep (e.g.
+        Manuel) from a dropdown at the top of the Pricing screen and see the
+        exact final price that rep would get -- their own hidden
+        Stretch/Strap markup/bonus baked in -- without logging out and back
+        in as them. Only an account in ACT_AS_ROLES may switch: a plain
+        sales rep's own g.user always drives their own pricing regardless of
+        what a client sends, so this can't be used to see someone else's
+        hidden markup by anything other than an admin/sub_admin deliberately
+        choosing to. Falls back to g.user whenever no (or an
         invalid/inactive) preview_as_user_id is sent, so ordinary use is
         unaffected."""
-        if g.user["role"] != "admin":
+        if g.user["role"] not in ACT_AS_ROLES:
             return g.user
         preview_id = data.get("preview_as_user_id")
         if not preview_id:
@@ -588,18 +598,19 @@ def create_app():
         seller_type = data.get("seller_type", "Foreign sellers")
         global_discount_pct = float(data.get("global_discount_pct") or 0)
 
-        # v99 -- admin "Act as [salesperson]" preview (see
+        # v99 -- "Act as [salesperson]" preview (see
         # _resolve_pricing_user()'s docstring). For a BRAND-NEW quotation
-        # only, an admin previewing as e.g. Manuel gets it saved with
-        # created_by_id = Manuel's own id, not the admin's -- that's what
+        # only, an admin/sub_admin previewing as e.g. Manuel gets it saved
+        # with created_by_id = Manuel's own id, not their own -- that's what
         # makes the markup-resolution below (creator/creator_id, already
         # existing since v46) naturally price it exactly as Manuel would,
         # both now and on every future edit, with no separate "acting as"
         # flag to carry forward. Editing an EXISTING quotation always keeps
         # its original creator (existing["created_by_id"]), same as before
         # v99 -- "Act as" only decides who a brand-new quote is attributed to.
+        # v102 -- sub_admin included via ACT_AS_ROLES, same as admin.
         acting_as_user = None
-        if not q_id and g.user["role"] == "admin" and data.get("preview_as_user_id"):
+        if not q_id and g.user["role"] in ACT_AS_ROLES and data.get("preview_as_user_id"):
             acting_as_user = db.execute(
                 "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
             ).fetchone()
