@@ -1237,7 +1237,14 @@ def create_app():
                 # Stretch line's unit_price_usd_kg/_raw already ARE its
                 # EX-Work price (the FOB/CIF port add-on is spread on top of
                 # it below, never baked into unit_price_usd_kg itself).
-                exw_unit = cost_engine.round_half_up(raw_base, 2)
+                # v110 -- unit_price_usd_kg_raw is now ALWAYS the pure GROSS
+                # raw price regardless of this line's own pricing_basis (see
+                # pricing.py's compute_line() v110 note), so round(raw_base)
+                # is no longer this line's own EX-Work figure for a Net-
+                # basis line -- use the already-correctly-basis-converted
+                # frozen unit_price_usd_kg instead (same value the discount/
+                # line-total math above already uses).
+                exw_unit = l["unit_price_usd_kg"]
                 # v104 -- owner-requested change (Arabic: "خليها زي الشيت"):
                 # the flat FOB Cost/Container ($1500 at Alexandria, etc.) is
                 # now spread over this line's own FULL CONTAINER weight
@@ -1260,10 +1267,33 @@ def create_app():
                 # or an edge case with no known container capacity) so
                 # nothing crashes or shows a blank FOB/CIF.
                 fob_denom_kg = line_full_container_kg if line_full_container_kg else l["total_kg"]
+                # v110 -- FOB/CIF must be built from the GROSS raw_base +
+                # addon and ROUNDUP'd in gross terms FIRST (this is what
+                # matches the sheet's own Stretch!AO/AP), then -- only for a
+                # Net-basis line, as the LAST step -- re-divided over the
+                # net (core-excluded) weight, exactly like EX-Work's own
+                # Gross->Net conversion. Net-converting any earlier (e.g.
+                # the old raw_base itself) rounds a cent short of the
+                # reference the owner checks against -- see pricing.py's
+                # compute_line() v110 comment for the full story and the
+                # confirmed example ($1.76, not $1.74/$1.75).
                 fob_unit = cost_engine.round_up(
                     raw_base + (fob_addon / fob_denom_kg if fob_denom_kg else 0), 2)
                 cif_unit = cost_engine.round_half_up(
                     fob_unit + (freight_amt / fob_denom_kg if fob_denom_kg else 0), 2)
+                # v110 -- Pre-Stretch lines are excluded here: they never set
+                # eff_roll_weight above (only the `elif not is_prestretch`
+                # branch does) and already get their own Net handling
+                # through compute_prestretch_line() at save time, not this
+                # path -- see this function's is_prestretch branch further up.
+                is_prestretch_line = bool(l["is_prestretch"]) if "is_prestretch" in l.keys() else False
+                if basis in ("net", "net_per_kg") and not is_prestretch_line:
+                    gross_roll_weight = eff_roll_weight or 0
+                    core_wt = spec["core_weight_kg"] if spec else (l["p_core_weight_kg"] or 0)
+                    net_roll_weight = max(gross_roll_weight - (core_wt or 0), 0)
+                    if net_roll_weight > 0 and gross_roll_weight:
+                        fob_unit = cost_engine.round_half_up(fob_unit * gross_roll_weight / net_roll_weight, 2)
+                        cif_unit = cost_engine.round_half_up(cif_unit * gross_roll_weight / net_roll_weight, 2)
 
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
                                pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,

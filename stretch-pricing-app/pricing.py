@@ -225,7 +225,37 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     # now applied to every regular product too when 'net' (a $/Roll view)
     # or 'net_per_kg' (a plain $/KG view -- v100) is selected; both mean
     # the same underlying Net $/KG, just displayed differently upstream.
-    if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0:
+    # v107 -- this used to round_half_up(..., 2) unconditionally, even when
+    # round_result=False, which broke the "raw, unrounded" contract the
+    # caller relies on for unit_price_usd_kg_raw.
+    #
+    # v110 -- v107 only half-fixed it. The owner reported the Net FOB $/KG
+    # still didn't match her reference (render showed $1.74-1.75, reference
+    # showed $1.76, for 23mic/150%Standard/16kg/46rpp) -- traced it to the
+    # ORDER of operations, not just rounding: FOB must be built from the
+    # GROSS raw price plus the FOB addon (that's what ROUNDUP()s to the
+    # sheet-confirmed Gross FOB, Stretch!AO), and ONLY THEN, as the very
+    # last step, re-divided over the net weight for a Net-basis display --
+    # exactly the same order the app already uses for Pre-Stretch and for
+    # this same function's own EX-Work Net figure (Gross computed+rounded
+    # first, THEN net-converted). What v107 left in place instead net-
+    # converted the RAW price BEFORE the FOB addon was ever added, so the
+    # ROUNDUP() at the end was rounding a net-scaled number one full addon-
+    # step below where it should have started, coming up a cent short.
+    # Confirmed: rebuilding FOB as round(sheet-matching Gross FOB * gross_
+    # roll_weight / net_roll_weight, 2) gives exactly $1.76 for the owner's
+    # example. Fix: round_result=False (the "raw" call FOB is built from)
+    # now returns the PURE GROSS raw price, completely untouched by
+    # pricing_basis -- callers building FOB/CIF must add the addon and
+    # ROUNDUP in gross terms first, then apply this SAME net_roll_weight/
+    # gross_roll_weight ratio themselves as the final step (see app.py's
+    # api_calculate_line and pricing.html's per-line FOB/CIF block, and
+    # app.py's load_quotation()/build_pdf()/build_xlsx() for the saved-
+    # quotation view, all updated to match). round_result=True (the plain
+    # EX-Work $/KG shown in the table) keeps converting-then-rounding here,
+    # since that's just Gross EX-Work (already rounded) re-divided by net
+    # weight -- unaffected by this fix, confirmed unchanged in testing.
+    if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0 and round_result:
         unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
         roll_weight = net_roll_weight
     else:
