@@ -404,6 +404,7 @@ def init_db():
     _seed_box_packaging_v3(conn)
     _seed_full_import_v4(conn)
     _seed_corrugated_packaging_v112(conn)
+    _seed_box_packaging_350_12mic_v113(conn)
     _fix_fixed_cost_duplication_v6(conn)
     _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
@@ -880,6 +881,40 @@ def _seed_box_packaging_v3(conn):
 # cost_engine._PACKAGING_GROUP_SUFFIXES's note -- a Euro-pallet quote line
 # for this SKU safely falls back to the normal Automatic lookup instead of
 # guessing a EUR total).
+# v113 -- owner confirmed (2026-09-27, after independently verifying via a
+# live quotation PDF that showed 12-micron/350% pricing IDENTICALLY to
+# 12-micron/300% -- 2.15/2.22/2.26 EXW/FOB/CIF at 16kg/46-rolls-per-pallet)
+# that 12-micron/350% Power Plus ALSO gets the roll -> PE bag -> box
+# packaging, not the plain Automatic pallet packaging. This REVERSES the
+# v16 note above ("12-micron/350% is NOT special") -- that was the owner's
+# understanding at the time; this is a later, more specific confirmation
+# for this exact SKU. Reuses the SAME 'box_12m300' pallet_component bucket
+# (identical packaging spec -- same box/PE-bag/pallet, just a different
+# product carrying it), not a new guessed one.
+def _seed_box_packaging_350_12mic_v113(conn):
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='box_packaging_350_12mic_v113_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    conn.execute(
+        "UPDATE product SET packaging_group='box_12m300' "
+        "WHERE stretch_ability LIKE '350%%' AND micron='12' AND packaging_group IS NULL"
+    )
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("box_packaging_350_12mic_v113_seeded", "12m/350% boxed packaging v113 seeded (internal marker)", 1,
+         "Internal marker: 12-micron/350% Power Plus was pointed at the same 'box_12m300' "
+         "packaging bucket as 12-micron/300%, per the owner's 2026-09-27 confirmation. Do not "
+         "delete this row -- it stops the one-time refresh from running again and overwriting "
+         "a manual edit made in Admin > Products."),
+    )
+    conn.commit()
+    from . import cost_engine
+    cost_engine.recalculate_all_products(conn)
+
+
 CORRUGATED_250P40_PACKAGING_KEY = "corrugated_250p40_usd"
 
 
