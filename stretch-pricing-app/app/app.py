@@ -814,6 +814,14 @@ def create_app():
                 core_weight_kg = float(l.get("prestretch_core_weight_kg") or 0)
                 rolls_per_pallet = float(l.get("prestretch_rolls_per_pallet") or 0)
                 packaging_type = l.get("prestretch_packaging_type", "no_boxes")
+                # v114 -- see db.py's matching v114 comment: the rep's own
+                # typed "Pallets/Container" figure for this Pre-Stretch SKU
+                # (Stretch!AK118 in the sheet), used below to build a FIXED
+                # per-SKU FOB/CIF $/KG instead of one that rises when this
+                # particular order is smaller than a full container.
+                pallets_per_container = l.get("prestretch_pallets_per_container")
+                pallets_per_container = (float(pallets_per_container)
+                                          if pallets_per_container not in (None, "") else None)
                 unit_price, total_kg = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
@@ -835,12 +843,14 @@ def create_app():
                        (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
                         unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
                         colored, prestretch_roll_weight_kg, prestretch_core_weight_kg,
-                        prestretch_rolls_per_pallet, prestretch_packaging_type)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        prestretch_rolls_per_pallet, prestretch_packaging_type,
+                        prestretch_pallets_per_container)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
                      float(l.get("quantity_pallets") or 0), unit_price, unit_price_full, total_kg,
                      line_discount_pct, pricing_basis, int(colored),
-                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type),
+                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                     pallets_per_container),
                 )
                 continue
 
@@ -1193,6 +1203,27 @@ def create_app():
                             line_full_container_kg = chosen * rolls_per_pallet_display * eff_roll_weight
             else:
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
+                # v114 -- owner-confirmed, matched directly against
+                # Stretch!AK118 ("Pallet Per Container") in the H1.36 sheet:
+                # Pre-Stretch's FOB/CIF must also be a FIXED per-SKU rate,
+                # built from the rep's own typed Pallets/Container figure
+                # for this line (see db.py's/api_save_quotation's matching
+                # v114 comments) -- NOT the actual quantity this order
+                # happens to be for. The sheet's AO118/AP118 divide by
+                # AK118*G118*J118, where J118 is the NET (core-excluded)
+                # weight per roll, unlike every other product's AO/AP (those
+                # divide by the GROSS roll weight H -- see the v104 comment
+                # above) -- Pre-Stretch is Net-based throughout, per v99.
+                pallets_per_container = (l["prestretch_pallets_per_container"]
+                                          if "prestretch_pallets_per_container" in l.keys() else None)
+                if pallets_per_container and rolls_per_pallet_display:
+                    pallets_per_container_display = f"{pallets_per_container:g}"
+                    ps_roll_wt = l["prestretch_roll_weight_kg"] if "prestretch_roll_weight_kg" in l.keys() else None
+                    ps_core_wt = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
+                    if ps_roll_wt:
+                        net_wt = max((ps_roll_wt or 0) - (ps_core_wt or 0), 0)
+                        if net_wt:
+                            line_full_container_kg = pallets_per_container * rolls_per_pallet_display * net_wt
 
             if line_pl in ("pet", "pp"):
                 # v81 -- owner-confirmed: Strap is ALWAYS quoted $/Roll, never

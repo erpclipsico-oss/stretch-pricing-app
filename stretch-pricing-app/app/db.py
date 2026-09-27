@@ -403,6 +403,8 @@ def init_db():
     _seed_packaging_v2(conn)
     _seed_box_packaging_v3(conn)
     _seed_full_import_v4(conn)
+    _seed_corrugated_packaging_v112(conn)
+    _seed_box_packaging_350_12mic_v113(conn)
     _fix_fixed_cost_duplication_v6(conn)
     _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
@@ -547,6 +549,26 @@ def _migrate(conn):
         conn.execute(
             "ALTER TABLE quotation_line ADD COLUMN prestretch_packaging_type TEXT NOT NULL DEFAULT 'no_boxes'"
         )
+        conn.commit()
+
+    line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
+    if "prestretch_pallets_per_container" not in line_cols:
+        # v114 -- owner-confirmed (2026-09-27, checked directly against the
+        # H1.36 reference sheet's Stretch!AK118 -- "Pallet Per Container"):
+        # Pre-Stretch's FOB/CIF $/KG must be a FIXED per-SKU rate too, same
+        # as every other product (Stretch!AO/AP always divide by
+        # AK*G*<weight>, a full-container figure, never by however many
+        # pallets this specific quote line happens to order). AK118 is a
+        # blank, hand-typed cell in the sheet -- Pre-Stretch has no
+        # packing-tier lookup of its own (made-to-order), so like Roll wt/
+        # Core wt/Rolls-per-pallet, the rep types this in per quotation
+        # line too, instead of it coming from a catalog table. Before this,
+        # the app had no such field at all and silently fell back to
+        # spreading the flat FOB/freight add-on over this line's own
+        # ordered quantity (total_kg) -- correct code, wrong denominator,
+        # which is exactly why a small Pre-Stretch order showed a much
+        # higher FOB/CIF than the sheet's fixed per-SKU rate.
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN prestretch_pallets_per_container REAL")
         conn.commit()
 
     # ---- Per-line custom roll spec for EVERY product, not just Pre-Stretch
@@ -863,6 +885,91 @@ def _seed_box_packaging_v3(conn):
          "row -- it stops the one-time refresh from running again and overwriting manual "
          "edits made in Admin > Pallet/Packaging, Admin > Products, or a product's packaging "
          "group."),
+    )
+    conn.commit()
+    from . import cost_engine
+    cost_engine.recalculate_all_products(conn)
+
+
+# v112 -- owner confirmed (H1.36 sheet cross-checked + owner's own
+# confirmation) that 250% Power / 40-micron genuinely ships with extra
+# corrugated wrap -- 3.6kg Corrugated sheets + 0.5kg Stretch wrap, instead
+# of every other same-weight Automatic product's 0.4kg Corrugated + 1kg
+# Stretch. Only the USD/Standard-pallet bucket is seeded: this SKU's own
+# catalog pallet_size is 'Standard', and there's no sheet reference for a
+# Euro-pallet variant of this override to model truthfully (see
+# cost_engine._PACKAGING_GROUP_SUFFIXES's note -- a Euro-pallet quote line
+# for this SKU safely falls back to the normal Automatic lookup instead of
+# guessing a EUR total).
+# v113 -- owner confirmed (2026-09-27, after independently verifying via a
+# live quotation PDF that showed 12-micron/350% pricing IDENTICALLY to
+# 12-micron/300% -- 2.15/2.22/2.26 EXW/FOB/CIF at 16kg/46-rolls-per-pallet)
+# that 12-micron/350% Power Plus ALSO gets the roll -> PE bag -> box
+# packaging, not the plain Automatic pallet packaging. This REVERSES the
+# v16 note above ("12-micron/350% is NOT special") -- that was the owner's
+# understanding at the time; this is a later, more specific confirmation
+# for this exact SKU. Reuses the SAME 'box_12m300' pallet_component bucket
+# (identical packaging spec -- same box/PE-bag/pallet, just a different
+# product carrying it), not a new guessed one.
+def _seed_box_packaging_350_12mic_v113(conn):
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='box_packaging_350_12mic_v113_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    conn.execute(
+        "UPDATE product SET packaging_group='box_12m300' "
+        "WHERE stretch_ability LIKE '350%%' AND micron='12' AND packaging_group IS NULL"
+    )
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("box_packaging_350_12mic_v113_seeded", "12m/350% boxed packaging v113 seeded (internal marker)", 1,
+         "Internal marker: 12-micron/350% Power Plus was pointed at the same 'box_12m300' "
+         "packaging bucket as 12-micron/300%, per the owner's 2026-09-27 confirmation. Do not "
+         "delete this row -- it stops the one-time refresh from running again and overwriting "
+         "a manual edit made in Admin > Products."),
+    )
+    conn.commit()
+    from . import cost_engine
+    cost_engine.recalculate_all_products(conn)
+
+
+CORRUGATED_250P40_PACKAGING_KEY = "corrugated_250p40_usd"
+
+
+def _seed_corrugated_packaging_v112(conn):
+    """Adds the dedicated extra-corrugated pallet_component variant for
+    250% Power/40-micron (idempotent, keyed by the unique packing_key) and,
+    ONE TIME ONLY (gated so it never clobbers a manual admin edit on a
+    later restart), points that catalog product's packaging_group at it.
+    """
+    conn.execute(
+        """INSERT OR IGNORE INTO pallet_component
+           (packing_key, label, pallet_size_label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg,
+            stretch_kg, box_qty, rolls_per_box, cartoon_angle_qty, scotch_tape_qty, air_bag_qty, pe_bag_qty)
+           VALUES (?, ?, ?, 1, 2, 1, 3.6, 0.5, 0, 0, 0, 0, 0, 0)""",
+        (CORRUGATED_250P40_PACKAGING_KEY, "250% Power 40mic - Extra Corrugated (USD Pallet)", "120cm x 100cm"),
+    )
+    conn.commit()
+
+    already_seeded = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='corrugated_250p40_v112_seeded'"
+    ).fetchone()
+    if already_seeded:
+        return
+
+    conn.execute(
+        "UPDATE product SET packaging_group='corrugated_250p40' "
+        "WHERE stretch_ability LIKE '250%% Power%%' AND micron='40' AND packaging_group IS NULL"
+    )
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("corrugated_250p40_v112_seeded", "Extra-corrugated packaging v112 seeded (internal marker)", 1,
+         "Internal marker: the 250% Power/40-micron extra-corrugated packaging variant and its "
+         "product.packaging_group have been set. Do not delete this row -- it stops the one-time "
+         "refresh from running again and overwriting a manual edit made in Admin > Pallet/Packaging "
+         "or a product's packaging group."),
     )
     conn.commit()
     from . import cost_engine
