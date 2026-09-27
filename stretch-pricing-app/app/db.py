@@ -1955,15 +1955,54 @@ def _fix_stale_global_settings_v7(conn):
 # simply updating the dict here re-applies the correct values on the very
 # next boot, for every existing deployment, without needing a separate
 # migration.
+# v107 -- owner reported the FOB $/kg for 23-micron/150% Standard was ~2c
+# below H1.36 (render 1.54 vs sheet's 1.56). Diffed two H1.36 uploads
+# (before/after the owner's own edit) cell-by-cell across every cost-input
+# sheet: the ONLY difference anywhere was Material pricing!C15 (Core price),
+# 30 -> 35 EGP/kg -- the owner raised the core/tube price in the sheet after
+# v85 pinned this function to the old 30.
+#
+# v109 -- while investigating a separate "still 2c off" report, found the
+# app's own live /monitoring-report showed Enable=1.49/kg (1490/ton) and
+# Cap=50 EGP -- NOT this dict's old pinned 1290/46 -- meaning the owner (or
+# an older deploy) had them at 1490/50 for real, current reasons this code
+# has no way to know (e.g. a resin price that moved before the sheet was
+# updated). v109 first re-applied 1290/46 to "fix" that -- but the owner
+# explicitly said not to: don't auto-correct material/supply prices on a
+# guess, just flag a mismatch and ask. Enable and Cap are DROPPED from this
+# dict entirely as a result -- only Core, which was directly confirmed by
+# diffing the owner's own two H1.36 uploads (not a guess), still gets its
+# one-time correction. Whatever Enable/Cap are live right now are left
+# completely untouched, forever, same as any other ordinary material.
 STALE_MATERIAL_RATES_V8 = {
-    "core": 30,     # packaging, kilo -- H1.36 current value (was pinned to 35 pre-v85)
-    "enable": 1290,  # resin, ton -- H1.36 current value (was pinned to 1490 pre-v85)
-    "cap": 46,      # packaging, piece ("Cap 1100~1200") -- H1.36 current value (was pinned to 50 pre-v85)
+    "core": 35,     # packaging, kilo -- H1.36 current value (v107: sheet raised 30 -> 35)
 }
+
+MATERIAL_RATE_V8_GATE_KEY = "material_rate_v8_v107_one_time_fix_applied"
 
 
 def _fix_stale_material_rates_v8(conn):
+    """v107 -- this used to run UNCONDITIONALLY every boot (no marker), on
+    the theory that the target value(s) above would never legitimately
+    change again -- but v107 itself proves that's false (the owner raised
+    Core in the sheet), and Render's free tier reboots often (spin-down on
+    idle, every redeploy), so every reboot was silently reverting whatever
+    the owner had most recently corrected in Admin > Settings -> Materials
+    for these keys back to this fixed dict, with no visible error --
+    exactly the kind of "still off by 2 cents, don't know why" symptom the
+    owner keeps hitting. Applies this dict's value(s) ONE more time (see
+    v109 note above on why only Core is still in it), then sets a marker so
+    this NEVER runs again -- from here on, Admin > Settings -> Materials
+    edits to every material (Core included) are permanent, like any other
+    material, and survive reboots/redeploys without this function touching
+    them."""
     from . import cost_engine
+
+    already_applied = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key=?", (MATERIAL_RATE_V8_GATE_KEY,)
+    ).fetchone()
+    if already_applied:
+        return
 
     changed = False
     for key, correct_value in STALE_MATERIAL_RATES_V8.items():
@@ -1971,6 +2010,13 @@ def _fix_stale_material_rates_v8(conn):
         if row is not None and row["value"] != correct_value:
             conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (correct_value, key))
             changed = True
+    conn.execute(
+        "INSERT OR IGNORE INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (MATERIAL_RATE_V8_GATE_KEY, "internal marker -- material_rate v8 one-time fix applied", 1,
+         "Internal marker: the v107 one-time Core correction has run. Once "
+         "set, Admin > Settings -> Materials edits to any material -- "
+         "including Core, Enable, Cap -- are never overwritten again on boot."),
+    )
     conn.commit()
     if changed:
         cost_engine.recalculate_all_products(conn)

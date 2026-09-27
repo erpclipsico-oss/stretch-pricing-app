@@ -1305,6 +1305,12 @@ async function calculateAll() {
     // single ceiling round at the end, matching Stretch!AO's ROUNDUP() in
     // the sheet (see roundUp() above). CFR/CIF still rounds normally --
     // the owner confirmed freight/CFR doesn't need to match the sheet.
+    // v110 -- rc.exwUnitRaw is now ALWAYS the GROSS raw price regardless of
+    // this line's own pricing_basis (see pricing.py's compute_line() v110
+    // note), so fobUnit/cifUnit here are always Gross, sheet-matching
+    // figures -- Net-basis conversion happens further below, AFTER this,
+    // never before (net-converting before building FOB used to tip the
+    // ROUNDUP() a cent low).
     const fobUnit = roundUp(rc.exwUnitRaw + lineFobAddonPerKg, 2);
     const cifUnit = roundHalfUp(fobUnit + lineFreightPerKg, 2);
     // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown --
@@ -1327,23 +1333,36 @@ async function calculateAll() {
     // tag naming which basis it was computed on, not just the dropdown's
     // own option label.
     const basisTag = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg') ? ' (Net)' : ' (Gross)';
+    // v110 -- fobUnit/cifUnit just above are always GROSS $/kg now. For a
+    // Net-basis line, convert to Net $/kg HERE -- after the addon and the
+    // ROUNDUP() are already applied -- the exact same re-divide-the-same-
+    // $-total-over-net-weight method the server already uses for EX-Work
+    // (see pricing.py's compute_line()). This must happen after, never
+    // before, building Gross FOB/CIF (see the v110 comments above and in
+    // pricing.py for why doing it first was a cent short of the owner's
+    // reference: $1.76 vs the $1.74-1.75 the old order produced).
+    const isNetBasis = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg');
+    const netRollWeight = Math.max(rc.rollWeightKg - rc.coreWeightKg, 0);
+    const fobUnitDisp = (isNetBasis && netRollWeight > 0)
+      ? roundHalfUp(fobUnit * rc.rollWeightKg / netRollWeight, 2) : fobUnit;
+    const cifUnitDisp = (isNetBasis && netRollWeight > 0)
+      ? roundHalfUp(cifUnit * rc.rollWeightKg / netRollWeight, 2) : cifUnit;
     // v105 -- EX-Work $/kg column, same basis handling (Gross/Net/per-roll)
     // as FOB/CIF just below -- exwUnit is already this line's own EX-Work
-    // $/kg (2dp-rounded, discount already applied -- see rowCalc.push()).
+    // $/kg (2dp-rounded, discount already applied -- see rowCalc.push()),
+    // already Net-converted server-side when this line's basis is Net.
     if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
-      const rollWeight = (rc.pricingBasis === 'net')
-        ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
-        : rc.rollWeightKg;
+      const rollWeight = (rc.pricingBasis === 'net') ? netRollWeight : rc.rollWeightKg;
       const exwRoll = rc.exwUnit * rollWeight;
-      const fobRoll = fobUnit * rollWeight;
-      const cifRoll = cifUnit * rollWeight;
+      const fobRoll = fobUnitDisp * rollWeight;
+      const cifRoll = cifUnitDisp * rollWeight;
       rc.tr.querySelector('.f-exw').textContent = roundHalfUp(exwRoll, 2).toFixed(2) + '/roll' + basisTag;
       rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll' + basisTag;
       rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll' + basisTag;
     } else {
       rc.tr.querySelector('.f-exw').textContent = roundHalfUp(rc.exwUnit, 2).toFixed(2) + basisTag;
-      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2) + basisTag;
-      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2) + basisTag;
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnitDisp, 2).toFixed(2) + basisTag;
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnitDisp, 2).toFixed(2) + basisTag;
     }
   }
 
