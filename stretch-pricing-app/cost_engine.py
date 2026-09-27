@@ -408,6 +408,36 @@ def pallet_component_total_usd(conn, packing_key):
     return total
 
 
+# v112 -- not every packaging_group override is gated by roll weight the
+# same way. 'box_12m300' (12-micron/300%, see the docstring below) is a
+# case where the sheet reads the special bucket ONLY for that SKU's
+# standard (<25kg) rolls and falls back to the plain bucket at jumbo
+# weight. The extra-corrugated bucket for 250% Power/40-micron is the
+# opposite situation: that SKU's own catalog roll weight IS jumbo (50kg),
+# and the sheet's Stretch!AD formula for that row reads its special bucket
+# ('Pallet component'!$Q$32) unconditionally -- there's no standard-weight
+# row of this SKU in the sheet at all, so there's nothing to "fall back to"
+# at a different weight. Only a packaging_group listed here is skipped at
+# roll_weight_kg>=25; any other packaging_group always applies regardless
+# of weight.
+_WEIGHT_GATED_PACKAGING_GROUPS = {"box_12m300"}
+
+# v112 -- which pallet-size suffixes ('usd'/'eur') actually have seeded
+# pallet_component data for a given packaging_group. 'box_12m300' has both
+# (owner-confirmed, both verified against the sheet). The extra-corrugated
+# bucket for 250% Power/40-micron was only ever confirmed against the
+# sheet's USD/Standard-pallet row (that SKU's own catalog pallet_size is
+# 'Standard') -- there is no sheet reference for a Euro-pallet variant of
+# this override, so it is deliberately NOT seeded rather than guessed. If a
+# quotation line ever overrides this SKU onto a Euro pallet, this falls
+# through to the normal Automatic/Manual lookup below (the correct, safe
+# behavior -- never a silently-zeroed packaging cost from a missing row).
+_PACKAGING_GROUP_SUFFIXES = {
+    "box_12m300": {"usd", "eur"},
+    "corrugated_250p40": {"usd"},
+}
+
+
 def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None):
     """auto_manual: 'Automatic' | 'Manual(5kg)' | 'Manual(2.3~3.5kg)' |
     'Manual(2.2kg)' | 'Manual(1.5kg)'. pallet_size: 'Standard' (USD/120x100)
@@ -428,11 +458,20 @@ def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_
     through to the normal Automatic/Manual lookup below. Verified against
     the recalculated sheet: this closed a consistent ~$0.017-0.018/kg
     EX-Work gap that showed up ONLY at 50/55/60kg roll weights for 12m/300%,
-    never at 16kg."""
+    never at 16kg.
+
+    v112 -- generalized so a second packaging_group override (see
+    _WEIGHT_GATED_PACKAGING_GROUPS / _PACKAGING_GROUP_SUFFIXES above) can
+    apply UNconditionally (250% Power/40-micron's extra-corrugated bucket)
+    instead of being gated the same way 12m/300%'s box override is -- these
+    are two independently-confirmed sheet quirks, not one general rule."""
     is_eur = "euro" in (pallet_size or "").lower()
     suffix = "eur" if is_eur else "usd"
-    if packaging_group and (roll_weight_kg or 0) < 25:
-        return f"{packaging_group}_{suffix}"
+    if packaging_group:
+        weight_gates_out = packaging_group in _WEIGHT_GATED_PACKAGING_GROUPS and (roll_weight_kg or 0) >= 25
+        suffix_available = suffix in _PACKAGING_GROUP_SUFFIXES.get(packaging_group, {"usd", "eur"})
+        if not weight_gates_out and suffix_available:
+            return f"{packaging_group}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
         # v86 -- order matters: "Manual(2.3~3.5kg)" also contains the
@@ -515,6 +554,45 @@ def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet
     return product["rolls_per_pallet"] or 0
 
 
+# v111/v112 -- full-catalog audit against H1.36's own Stretch!AD formula
+# text found exactly two rows whose formula reads a DIFFERENT 'Pallet
+# component' bucket than every other row in their own ability block, even
+# though every other row shares the same auto/manual, pallet size and
+# roll weight: ("250% Power", 40 micron -- the LAST row of that block)
+# reads 'Pallet component'!$Q$32 (Pallet + Cardboard + Cap + 3.6kg
+# Corrugated sheets + 0.5kg Stretch wrap) instead of the standard $D$11
+# (same items but 0.4kg Corrugated + 1kg Stretch wrap); ("300% (Power
+# plus)", 12 micron) reads $Q$22 (Pallet + Cardboard + Cap + a 46kg
+# weight-based "Box 25*53cm" + 2.3kg PE Bag + 0.5kg Stretch wrap) instead
+# of $D$11 -- this second one was already correctly modeled, pre-existing,
+# as the 'box_12m300' packaging_group.
+#
+# v111 tried pinning both rows' packaging total to frozen sheet numbers
+# directly -- the owner explicitly rejected that: she wants the PRICE to
+# come out of correct BOM/cost/material-rate/packaging inputs, not a
+# final number hand-patched in. Reverted.
+#
+# v112 -- owner confirmed 250% Power/40-micron genuinely ships with the
+# extra corrugated wrap (matches the sheet). Modeled the same way the
+# pre-existing 12m/300% box case is: a real pallet_component row
+# ('corrugated_250p40_usd' -- see db.py's _seed_corrugated_packaging_v112)
+# with live-rate-linked quantities (pallet=1, cardboard=2, cap=1,
+# corrugated=3.6kg, stretch=0.5kg), wired via
+# product.packaging_group='corrugated_250p40'. Verified this reproduces
+# the sheet's own frozen $Q$32 total (18.0888) to the cent using this
+# app's default packaging material rates -- 1x540 + 2x22 + 1x46 +
+# 3.6x40 + 0.5x80, all /45 = 18.0888 -- confirming these are the right
+# component quantities, not a guess. Unlike 12m/300%'s box override
+# (which the sheet only reads at STANDARD <25kg weight, falling back to
+# the plain bucket at jumbo), this SKU's own catalog roll weight IS
+# jumbo (50kg) and the sheet reads its special bucket unconditionally --
+# see _pallet_key_for()'s _WEIGHT_GATED_PACKAGING_GROUPS note. From here
+# on, packaging_cost_per_roll_usd() prices both rows the normal way:
+# live component quantities x live material rates, same as every other
+# product -- the difference is only which pallet_component bucket their
+# packaging_group points at.
+
+
 def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
     per pallet. Rolls/pallet comes from the Details-sheet packing_tier
@@ -532,7 +610,15 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
     total/rolls_per_pallet division for every Automatic pallet size,
     jumbo or standard. The exclusion was understating packaging cost by
     exactly one Pallet unit ($12) spread over the pallet's rolls (~$0.75/
-    roll for the common 16-roll jumbo pallet) on every jumbo product."""
+    roll for the common 16-roll jumbo pallet) on every jumbo product.
+
+    v111/v112 -- see the note above this function: both rows of the
+    two-row sheet quirk found there are now wired through the normal
+    packaging_group override mechanism (pre-existing for 12m/300%, added
+    in v112 for 250% Power/40-micron); every product still goes through
+    the same live component-quantity x material-rate calculation below,
+    just against whichever pallet_component bucket its packaging_group
+    (if any) points at."""
     rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
     if rolls_per_pallet <= 0:
         return 0.0
