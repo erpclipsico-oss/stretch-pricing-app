@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Pre-Stretch · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Pre-Stretch — micron &rarr; source SKU mapping</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Pre-Stretch (hand-stretch film) is made-to-order: the rep types in roll weight, core weight,
+    rolls/pallet and packaging type per quotation line. Its material cost is not built from the BOM on
+    its own — each Pre-Stretch micron borrows its <em>source</em> jumbo SKU's current finished, margin-
+    inclusive sales price ($/KG) and multiplies it by the line's entered net weight
+    (Stretch!<code>T79 = AI49*J79</code>). Change which jumbo SKU a Pre-Stretch micron borrows from here.
+    See <a href="{{ url_for('admin_global_settings') }}">Global Settings</a> for the Dollar Rate –
+    Prestretch and <a href="{{ url_for('admin_material_rates') }}">Material Rates</a> for the
+    Core – prestretch and Box rates used in the rest of the formula.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:120px;">Pre-Stretch micron</span>
+      <span style="width:340px;">Source SKU (finished sales $/KG feeds material cost)</span>
+    </div>
+    {% for r in rows %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="product_id" value="{{ r.id }}">
+        <div class="edit-cell" style="width:120px;"><strong>{{ r.micron }}&micro;m</strong></div>
+        <select name="prestretch_source_product_id" style="width:340px;">
+          <option value="">— none —</option>
+          {% for s in sources %}
+          <option value="{{ s.id }}" {% if r.prestretch_source_product_id == s.id %}selected{% endif %}>
+            {{ product_label(s) }} (50kg jumbo)
+          </option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No Pre-Stretch SKUs seeded yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Fixed packaging totals</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Stretch!AD79's two fixed packaging totals ('Pallet component'!Q11 / V11), divided by the line's
+    entered Rolls/Pallet. Edit these on the <a href="{{ url_for('admin_global_settings') }}">Global
+    Settings</a> page — shown here for reference:
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:340px;">Setting</span><span style="width:100px;">Value ($)</span>
+    </div>
+    {% for s in packaging_settings %}
+    <div class="edit-row">
+      <div class="edit-cell" style="width:340px;">{{ s.label }}</div>
+      <span style="width:100px;">${{ '%.2f'|format(s.value) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
