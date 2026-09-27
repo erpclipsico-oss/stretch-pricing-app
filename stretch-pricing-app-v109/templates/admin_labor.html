@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Direct Labor · Stretch Pricing{% endblock %}
+{% block content %}
+{% set sync_table_key = 'labor_employee' %}
+{% set sync_last_upload = last_upload %}
+{% include "_table_sync_widget.html" %}
+<div class="price-note price-note-warn">
+  <div class="price-note-title">⚠️ This page does NOT affect the final price</div>
+  This roster is informational only — its totals are <strong>not</strong> wired into Fixed Costs, so editing
+  a wage or adding/removing an employee here has no effect on any quoted price. This matches the reference
+  Excel workbook exactly: its "Direct Labor" roster tab and its "Fixed" cost tab (the one that actually
+  feeds pricing) are two separately-maintained sheets there too, not formula-linked — confirmed deliberate,
+  not a gap in this app. To change what production labor actually costs in a price, edit the "Direct Labor
+  wages" / "Direct Labor overtime" lines on the <a href="{{ url_for('admin_fixed_costs') }}">Fixed Costs</a> page directly.
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Direct Labor — اجور مباشرة</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Production-floor roster from the workbook's 'اجور مباشرة' (Direct Labor) sheet, kept here for reference
+    and headcount/wage tracking. Each employee's 2024 base wage = 2023 base × (1 + increase rate); overtime
+    pool = (2024 base / 8) × 4. These totals currently match the roster's own sheet total exactly, but (see
+    the notice above) they do not flow into the Fixed Costs totals that pricing actually uses.
+  </p>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:220px;">Name</span><span style="width:150px;">Role</span>
+      <span style="width:110px;">2023 base (EGP)</span><span style="width:90px;">Increase %</span>
+      <span style="width:60px;">Active</span>
+    </div>
+    {% for e in employees %}
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="employee_id" value="{{ e.id }}">
+        <input type="text" name="name" value="{{ e.name }}" style="width:220px;">
+        <input type="text" name="role" value="{{ e.role or '' }}" style="width:150px;">
+        <input type="number" step="any" name="base_2023_egp" value="{{ e.base_2023_egp }}" style="width:110px;">
+        <input type="number" step="any" name="increase_rate" value="{{ e.increase_rate }}" style="width:90px;">
+        <input type="checkbox" name="active" {% if e.active %}checked{% endif %} style="width:20px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_labor_delete', eid=e.id) }}" onsubmit="return confirm('Remove this employee?');">
+        <button type="submit" class="btn-remove" title="Delete">✕</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty">No employees yet.</p>
+    {% endfor %}
+  </div>
+  <p class="hint" style="margin-top:14px;">
+    Fixed wage pool (active employees, 2024 base): <strong>{{ "%.0f"|format(fixed_total) }} EGP/month</strong> ·
+    Variable overtime pool: <strong>{{ "%.0f"|format(variable_total) }} EGP/month</strong>
+  </p>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add employee</h2></div>
+  <form method="post" class="grid grid-4">
+    <input type="hidden" name="action" value="add">
+    <div class="field"><label>Name</label><input type="text" name="name" required></div>
+    <div class="field"><label>Role</label><input type="text" name="role"></div>
+    <div class="field"><label>2023 base (EGP)</label><input type="number" step="any" name="base_2023_egp" required></div>
+    <div class="field"><label>Increase rate (e.g. 0.3)</label><input type="number" step="any" name="increase_rate" value="0.3"></div>
+    <div class="field" style="align-self:end;"><button type="submit" class="btn btn-primary">Add employee</button></div>
+  </form>
+</div>
+{% endblock %}

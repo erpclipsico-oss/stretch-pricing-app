@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}PET/PP Strap Costing · Stretch Pricing{% endblock %}
+{% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">✅ Verified against both reference workbooks (PET_Export_pricing / PP_Export_pricing)</div>
+  Every input on this page listens and matches its sheet: Dollar Rate, every resin/packaging
+  material rate, BOM composition/profit/waste %, Electricity, Fixed cost, Direct labor, FOB cost
+  per container, and the Freight rate (shared table, own destination pick). Box vs No-Box, Pallet
+  vs No-Pallet and 20ft vs 40ft container all correctly switch the packaging/container-share
+  formula. <strong>Fixed as part of this check:</strong> Fixed cost / Direct labor used to be
+  entered as an already-converted $/kg figure that stayed frozen when the Dollar Rate changed
+  (Electricity never had this problem — it was always EGP-based). Both reference sheets' own Fixed
+  Cost / Direct Labor cells are live EGP-÷-Dollar-Rate formulas, so this page now takes them the
+  same way — enter the EGP/ton figure below and it re-converts every time the Dollar Rate changes,
+  exactly like Electricity already did. <strong>Also changed:</strong> the Dollar Rate below is now
+  Strap's own — it no longer shares a row with Stretch Film's Dollar Rate (Global Cost Settings);
+  editing one no longer moves the other.
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>PET / PP Strap — Costing</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Everything that prices the PET Strap and PP Strap lines, in one place: their own dollar rate,
+    their own Max Discount cap, material prices, BOM recipes (composition/profit/waste), per-line
+    fixed cost/electricity/direct labor, FOB cost per container, and the credit-term surcharge.
+    Nothing on this page affects Stretch Film pricing.
+    <strong>The shipping/freight rate is no longer set here</strong> — it's pulled from the same
+    Freight table Stretch Film uses, under
+    <a href="{{ url_for('admin_freight') }}">Catalog &amp; Rates &gt; Freight</a> (picked by the
+    quotation's own Destination). FOB cost per container below stays Strap's own separate setting.
+  </p>
+  <form method="post">
+
+    <div class="panel-header" style="margin-top:8px;"><h2>Dollar Rate</h2></div>
+    <p class="hint" style="margin-bottom:10px;">
+      PET/PP Strap's own Dollar Rate — independent of Stretch Film's (Global Cost Settings page).
+      Used to convert every EGP-priced material/electricity/fixed-cost/direct-labor figure below
+      into $.
+    </p>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Dollar Rate (EGP per $1)</span>
+        <input type="number" step="any" name="strap_dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
+      </div>
+    </div>
+
+    <div class="panel-header" style="margin-top:28px;"><h2>Max Discount</h2></div>
+    <div class="price-note price-note-strap">
+      <div class="price-note-title">🟣 PET/PP Strap's own cap — separate from Stretch Film's</div>
+      A rep's Line Discount % + the quotation's Global Discount % are added together and silently
+      capped at this number before they ever touch a Strap price (see the discount note above: it
+      comes off the BOM's own Profit % here, floored so a Strap price can never drop below its real
+      cost). <strong>This used to be one shared setting with Stretch Film</strong> (Global Cost
+      Settings page) — the two are now independent, so changing this one only ever moves Strap;
+      Stretch Film's own cap lives on the Global Cost Settings page instead (shown there with a
+      matching 🔵 blue highlight so the two don't get mixed up).
+    </div>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Max Discount allowed (% points off margin)</span>
+        <input type="number" step="any" name="value_strap_max_discount_pct" value="{{ max_discount }}" style="width:100px;">
+      </div>
+    </div>
+
+    {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
+    <div class="panel-header" style="margin-top:28px;"><h2>{{ line_label }}</h2></div>
+
+    <h3 style="margin:14px 0 6px;">Material pricing — resin</h3>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">Rate</span></div>
+      {% for m in material_rates[line_key ~ '_resin'] %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <span style="width:80px;">{{ m.unit }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 style="margin:14px 0 6px;">Material pricing — packaging (EGP/unit)</h3>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+      {% for m in material_rates[line_key ~ '_packaging'] %}
+      <div class="edit-row">
+        <span style="width:220px;">{{ m.label }}</span>
+        <span style="width:80px;">{{ m.unit }}</span>
+        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 style="margin:14px 0 6px;">BOM recipes</h3>
+    <p class="hint" style="margin-bottom:10px;">
+      Composition %, profit % and waste % per material class. Component % values should add up
+      to 100% within each recipe.
+    </p>
+    {% for bom in boms[line_key] %}
+    <div class="edit-grid" style="margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #eee;">
+      <div class="edit-row header-row"><span style="width:220px;">{{ bom.label }}</span></div>
+      {% for comp_key, comp_pct in bom.components %}
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">— {{ comp_key }} %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_comp_{{ comp_key }}" value="{{ '%.3f'|format(comp_pct) }}" style="width:100px;">
+      </div>
+      {% endfor %}
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">Profit %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_profit" value="{{ '%.3f'|format(bom.profit_pct) }}" style="width:100px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px; padding-left:12px;">Waste %</span>
+        <input type="number" step="any" name="bom_{{ bom.id }}_waste" value="{{ '%.3f'|format(bom.waste_pct) }}" style="width:100px;">
+      </div>
+    </div>
+    {% endfor %}
+
+    <h3 style="margin:14px 0 6px;">Fixed inputs</h3>
+    <div class="edit-grid">
+      <div class="edit-row">
+        <span style="width:220px;">Electricity (EGP/ton)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_electricity"
+               value="{{ line_configs[line_key].electricity_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px;">Fixed cost (EGP/ton)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_fixed_cost"
+               value="{{ line_configs[line_key].fixed_cost_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px;">Direct labor (EGP/ton)</span>
+        <input type="number" step="any" name="linecfg_{{ line_key }}_direct_labor"
+               value="{{ line_configs[line_key].direct_labor_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="panel-header" style="margin-top:28px;"><h2>FOB &amp; credit terms</h2></div>
+    <p class="hint" style="margin-bottom:10px;">
+      Shared by PET Strap and PP Strap (per-container cost, split across whatever fits in the
+      container). Independent of Stretch Film's own Loading-Port settings. (The shipping/freight
+      rate moved to the shared Freight table -- see the note above.)
+    </p>
+    <div class="edit-grid">
+      <div class="edit-row header-row"><span style="width:340px;">Setting</span><span style="width:100px;">Value</span></div>
+      {% for s in freight %}
+      <div class="edit-row">
+        <span style="width:340px;">{{ s.label }}</span>
+        <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;">
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin-top:20px;"><button type="submit" class="btn btn-primary">Save all</button></div>
+  </form>
+</div>
+{% endblock %}
