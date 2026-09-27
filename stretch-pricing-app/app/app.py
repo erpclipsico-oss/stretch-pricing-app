@@ -747,18 +747,24 @@ def create_app():
                 # show a real per-line FOB column for strap lines -- see
                 # the fob_price_usd_kg column's comment in db._migrate().
                 fob_price_usd_kg = calc["fob_price_kg"]
+                # v105 -- freeze this line's own EX-Work $/kg too (see the
+                # ex_work_price_usd_kg column's comment in db._migrate()),
+                # same pattern as fob_price_usd_kg above.
+                ex_work_price_usd_kg = calc["ex_work_price_kg"]
                 if is_custom:
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg, total_kg,
+                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg,
+                            ex_work_price_usd_kg, total_kg,
                             line_discount_pct, pricing_basis, product_line, strap_custom_bom_key,
                             strap_custom_width_mm, strap_custom_thickness_mm, strap_custom_meters_per_coil,
                             strap_custom_core_weight_kg, strap_custom_has_box, strap_custom_ctr20,
                             strap_custom_ctr40, strap_custom_has_pallet)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, None, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg, total_kg,
+                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg,
+                         ex_work_price_usd_kg, total_kg,
                          line_discount_pct, "per_coil", line_product_line, strap_product["bom_key"],
                          strap_product["width_mm"], strap_product["thickness_mm"],
                          strap_product["meters_per_coil"], strap_product["core_weight_kg"],
@@ -769,11 +775,13 @@ def create_app():
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg, total_kg,
+                            unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg,
+                            ex_work_price_usd_kg, total_kg,
                             line_discount_pct, pricing_basis, product_line)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
-                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg, total_kg,
+                         qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg,
+                         ex_work_price_usd_kg, total_kg,
                          line_discount_pct, "per_coil", line_product_line),
                     )
                 continue
@@ -1150,6 +1158,10 @@ def create_app():
             # all, so Pallets/Container is left blank for them; Rolls/Pallet
             # is still the rep's own saved figure.
             rolls_per_pallet_display = pallets_per_container_display = None
+            # v104 -- reset fresh every line iteration (see the FOB/CIF block
+            # below): a full-container kg figure for this SPECIFIC line only,
+            # never left over from a previous line in this same loop.
+            line_full_container_kg = None
             if line_pl in ("pet", "pp"):
                 if stuffing:
                     rolls_per_pallet_display = stuffing["rolls_per_pallet"]
@@ -1171,6 +1183,14 @@ def create_app():
                     chosen = chosen or c40 or c20  # fall back if the preferred size has no figure at all
                     if chosen:
                         pallets_per_container_display = f"{chosen:g} ({line_container_pref})"
+                        # v104 -- this line's own FULL CONTAINER weight (pallets
+                        # this container size holds x rolls/pallet x roll weight),
+                        # used below so FOB/CIF $/KG is a fixed per-SKU rate
+                        # matching the reference sheet, not diluted by however
+                        # many pallets this particular quote line happens to
+                        # order -- see the FOB/CIF block's own v104 comment.
+                        if rolls_per_pallet_display and eff_roll_weight:
+                            line_full_container_kg = chosen * rolls_per_pallet_display * eff_roll_weight
             else:
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
 
@@ -1192,6 +1212,13 @@ def create_app():
                 fob_kg = (l["fob_price_usd_kg"] if ("fob_price_usd_kg" in l.keys()
                                                       and l["fob_price_usd_kg"] is not None) else None)
                 cif_kg = l["unit_price_usd_kg"]  # frozen, freight-inclusive CFR $/kg
+                # v105 -- this line's own frozen EX-Work $/kg (NULL on a
+                # quote saved before the column existed -- see db._migrate()'s
+                # comment), converted to $/Roll the same way FOB/CIF are.
+                exw_kg = (l["ex_work_price_usd_kg"] if ("ex_work_price_usd_kg" in l.keys()
+                                                          and l["ex_work_price_usd_kg"] is not None) else None)
+                exw_unit = (cost_engine.round_half_up(exw_kg * roll_wt, 2)
+                            if (exw_kg is not None and roll_wt) else None)
                 fob_unit = (cost_engine.round_half_up(fob_kg * roll_wt, 2)
                             if (fob_kg is not None and roll_wt) else None)
                 cif_unit = (cost_engine.round_half_up(cif_kg * roll_wt, 2)
@@ -1204,16 +1231,45 @@ def create_app():
                 # fall back to the rounded price for old rows.
                 raw_base = (l["unit_price_usd_kg_raw"] if ("unit_price_usd_kg_raw" in l.keys()
                             and l["unit_price_usd_kg_raw"] is not None) else l["unit_price_usd_kg"])
+                # v105 -- Stretch Film's EX-Work $/KG is simply this same
+                # raw_base, rounded for display -- no separate frozen column
+                # needed (unlike Strap, see the exw_kg branch above): a
+                # Stretch line's unit_price_usd_kg/_raw already ARE its
+                # EX-Work price (the FOB/CIF port add-on is spread on top of
+                # it below, never baked into unit_price_usd_kg itself).
+                exw_unit = cost_engine.round_half_up(raw_base, 2)
+                # v104 -- owner-requested change (Arabic: "خليها زي الشيت"):
+                # the flat FOB Cost/Container ($1500 at Alexandria, etc.) is
+                # now spread over this line's own FULL CONTAINER weight
+                # (line_full_container_kg, set above -- pallets/container x
+                # rolls/pallet x roll weight for THIS SKU) whenever that's
+                # known, so FOB/CIF $/KG is a fixed per-SKU rate matching the
+                # reference Excel sheet's own Stretch!AO/AP columns exactly,
+                # regardless of how many pallets this specific quote line
+                # orders. Confirmed with the owner: at a full-container
+                # quantity the app already matched the sheet (e.g. $1.54/kg
+                # for 23mic/150%/16kg/46 rolls-per-pallet at 34 pallets), but
+                # at a smaller quantity (1 or 5 pallets) it was showing
+                # $3.52/$1.89 instead of the sheet's fixed $1.54, because the
+                # $1500 was being divided by this line's own (smaller)
+                # total_kg. This REPLACES the old v67 "spread over this
+                # line's own total_kg" design (which had been confirmed
+                # against a different reference app, not this Excel sheet).
+                # Falls back to this line's own total_kg only when no
+                # packing_tier / container match exists at all (Pre-Stretch,
+                # or an edge case with no known container capacity) so
+                # nothing crashes or shows a blank FOB/CIF.
+                fob_denom_kg = line_full_container_kg if line_full_container_kg else l["total_kg"]
                 fob_unit = cost_engine.round_up(
-                    raw_base + (fob_addon / l["total_kg"] if l["total_kg"] else 0), 2)
+                    raw_base + (fob_addon / fob_denom_kg if fob_denom_kg else 0), 2)
                 cif_unit = cost_engine.round_half_up(
-                    fob_unit + (freight_amt / l["total_kg"] if l["total_kg"] else 0), 2)
+                    fob_unit + (freight_amt / fob_denom_kg if fob_denom_kg else 0), 2)
 
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
                                pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,
                                spec=spec, spec_note=spec_note,
                                strap_pallet_display=strap_pallet_display, strap_packing_display=strap_packing_display,
-                               fob_unit_usd_kg=fob_unit, cif_unit_usd_kg=cif_unit,
+                               exw_unit_usd_kg=exw_unit, fob_unit_usd_kg=fob_unit, cif_unit_usd_kg=cif_unit,
                                rolls_per_pallet_display=rolls_per_pallet_display,
                                pallets_per_container_display=pallets_per_container_display))
         totals = compute_totals(db, q, lines)
@@ -2413,7 +2469,8 @@ def build_pdf(q, lines, totals):
         header = [Paragraph(t, header_style) for t in
                   ["#", "Product", "Pallet", "Packing", "Basis",
                    "Roll Weight<br/>(kg)", "Core Weight<br/>(kg)", "Rolls/<br/>Pallet",
-                   "Pallets/<br/>Container", f"FOB Price<br/>({dollar_unit})",
+                   "Pallets/<br/>Container", f"EX-Work Price<br/>({dollar_unit})",
+                   f"FOB Price<br/>({dollar_unit})",
                    f"CIF Price<br/>({dollar_unit})"]]
         rows = [header]
         span_commands = []
@@ -2433,6 +2490,7 @@ def build_pdf(q, lines, totals):
             # too wide for their column at this font size, and a plain string
             # overflows into the next column instead of wrapping, the same
             # collision bug the Product column had.
+            exw_unit = line.get("exw_unit_usd_kg")
             fob_unit = line.get("fob_unit_usd_kg")
             cif_unit = line.get("cif_unit_usd_kg")
             spec = line.get("spec") or {}
@@ -2449,6 +2507,7 @@ def build_pdf(q, lines, totals):
                 f"{core_wt:g}" if core_wt else "-",
                 f"{rpp:g}" if rpp else "-",
                 Paragraph(ppc, basis_style) if ppc else "-",
+                f"{exw_unit:.2f}" if exw_unit is not None else "-",
                 f"{fob_unit:.2f}" if fob_unit is not None else "-",
                 f"{cif_unit:.2f}" if cif_unit is not None else "-",
             ])
@@ -2460,7 +2519,7 @@ def build_pdf(q, lines, totals):
             spec_note = line.get("spec_note")
             if spec_note:
                 row_idx = len(rows)
-                rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", ""])
+                rows.append(["", Paragraph(spec_note, stuffing_style), "", "", "", "", "", "", "", "", "", ""])
                 span_commands.append(("SPAN", (1, row_idx), (-1, row_idx)))
         return rows, span_commands, num
     # v69 -- widened (was [14, 86, 40, 40, 44, 28, 38, 40, 40, 40, 48], sum
@@ -2497,7 +2556,12 @@ def build_pdf(q, lines, totals):
     # across the new physical/packing columns for a touch more breathing
     # room.
     def _make_table(rows, span_commands):
-        t = Table(rows, colWidths=[14, 93, 63, 76, 58, 32, 30, 32, 46, 33, 33])
+        # v105 -- EX-Work Price column added (12 columns now, was 11) --
+        # Product/Pallet/Packing/Basis trimmed a little to make room while
+        # still comfortably clearing their own longest single-line value
+        # (see the v75/v76.1 comments above for how those minimums were
+        # measured), sum still exactly PAGE_CONTENT_WIDTH (510pt).
+        t = Table(rows, colWidths=[14, 78, 56, 69, 54, 32, 30, 32, 46, 33, 33, 33])
         t.hAlign = "LEFT"
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
@@ -2632,7 +2696,8 @@ def build_xlsx(q, lines, totals):
     def _write_header_row(hdr_row, dollar_unit):
         headers = ["#", "Product", "Pallet", "Packing", "Basis",
                    "Roll Weight\n(kg)", "Core Weight\n(kg)", "Rolls/Pallet",
-                   "Pallets/Container", f"FOB Price\n({dollar_unit})",
+                   "Pallets/Container", f"EX-Work Price\n({dollar_unit})",
+                   f"FOB Price\n({dollar_unit})",
                    f"CIF Price\n({dollar_unit})"]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=hdr_row, column=col, value=h)
@@ -2652,6 +2717,7 @@ def build_xlsx(q, lines, totals):
             # Pallet/Packing choice -- these use the line's own saved Pallet/
             # Box checkboxes instead (strap_pallet_display/strap_packing_display).
             is_strap_line = line.get("product_line") in ("pet", "pp")
+            exw_unit = line.get("exw_unit_usd_kg")
             fob_unit = line.get("fob_unit_usd_kg")
             cif_unit = line.get("cif_unit_usd_kg")
             spec = line.get("spec") or {}
@@ -2667,6 +2733,7 @@ def build_xlsx(q, lines, totals):
                 core_wt if core_wt else "-",
                 rpp if rpp else "-",
                 ppc if ppc else "-",
+                cost_engine.round_half_up(exw_unit, 2) if exw_unit is not None else "-",
                 cost_engine.round_half_up(fob_unit, 2) if fob_unit is not None else "-",
                 cost_engine.round_half_up(cif_unit, 2) if cif_unit is not None else "-",
             ]
@@ -2687,7 +2754,7 @@ def build_xlsx(q, lines, totals):
             if spec_note:
                 cell = ws.cell(row=r, column=2, value=spec_note)
                 cell.font = stuffing_font
-                ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=11)
+                ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=12)
                 r += 1
         return r, num
 
@@ -2726,7 +2793,8 @@ def build_xlsx(q, lines, totals):
     # v76.1 -- 12 columns then (Qty(Pallets) dropped, Rolls/Pallet +
     # Pallets/Container added). v76.2 -- 11 columns now (Total Qty (KG)
     # dropped too).
-    widths = [5, 36, 15, 17, 14, 12, 12, 12, 16, 13, 13]
+    # v105 -- EX-Work Price column added (12 columns now, was 11).
+    widths = [5, 36, 15, 17, 14, 12, 12, 12, 16, 13, 13, 13]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 

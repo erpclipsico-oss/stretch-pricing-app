@@ -603,6 +603,25 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation_line ADD COLUMN unit_price_usd_kg_raw REAL")
         conn.commit()
 
+    # ---- v105 -- owner-requested: an EX-Work price column back on the
+    # saved-quotation view/PDF/Excel and the live pricing sheet, for BOTH
+    # Stretch Film and Strap (v76 had removed it, on the owner's request at
+    # the time, from everywhere except the live per-line Roll Weight/Core
+    # Weight columns -- FOB/CIF alone were said to be enough back then).
+    # For a Stretch Film line, unit_price_usd_kg (and unit_price_usd_kg_raw
+    # above) already ARE the line's EX-Work $/KG -- see api_calculate_line's
+    # comment -- so no new figure is needed for that family. Strap is the
+    # one that only ever froze FOB $/KG (fob_price_usd_kg, v67) and CIF
+    # $/KG (unit_price_usd_kg, confusingly reused for Strap's CIF) -- its
+    # own EX-Work $/KG (strap_pricing.compute_strap_line()'s
+    # ex_work_price_kg) was computed live but never frozen at save time, so
+    # this column freezes it, same pattern as fob_price_usd_kg. NULL on
+    # quotes saved before this column existed -- load_quotation() simply
+    # shows no EX-Work figure for those old Strap lines, never a guess.
+    if "ex_work_price_usd_kg" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN ex_work_price_usd_kg REAL")
+        conn.commit()
+
     # ---- Multi product-line (v30): PET Strap / PP Strap alongside Stretch
     # Film. Existing rows are all Stretch Film, hence the default.
     if "product_line" not in line_cols:

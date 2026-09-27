@@ -134,6 +134,7 @@
         <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering">Pallets/container</th>
         <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
         <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_exw_kg">EX-Work $/kg</th>
         <th data-i18n="col_fob_kg">FOB $/kg</th>
         <th data-i18n="col_cif_kg">CIF $/kg</th>
         <th></th>
@@ -157,6 +158,7 @@
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_thickness_mm">Thickness (mm)</th>
         <th data-i18n="col_gm" data-i18n-title="tip_gm" title="Updates instantly as Width/Thickness/Material change">g/m</th>
+        <th data-i18n="col_breaking_strength" data-i18n-title="tip_breaking_strength" title="Auto-computed from Width/Thickness (Ultimate breaking force). Type your own value here instead to see the equivalent g/m -- this field is informational only and never changes the priced g/m/weight.">Breaking Strength (kg)</th>
         <th data-i18n="col_meters_coil">Meters/coil</th>
         <th data-i18n="col_core_size">Core size</th>
         <th data-i18n="col_roll_weight_kg" data-i18n-title="tip_roll_weight_kg" title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
@@ -166,6 +168,7 @@
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
         <th data-i18n="col_qty_pallets">Qty (pallets)</th>
         <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_exw_roll">EX-Work $/Roll</th>
         <th data-i18n="col_fob_roll" data-i18n-title="tip_fob_roll" title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
         <!-- v99 -- owner-reported: relabeled "CFR" to "CIF" here to match
              what every other screen already calls this same figure (the
@@ -279,11 +282,14 @@ const I18N = {
     col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV',
     col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
-    col_container: 'Container', col_discount_pct: 'Discount %', col_fob_kg: 'FOB $/kg',
+    col_container: 'Container', col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
+    col_fob_kg: 'FOB $/kg',
     col_cif_kg: 'CIF $/kg', col_material: 'Material', col_thickness_mm: 'Thickness (mm)',
-    col_gm: 'g/m', col_meters_coil: 'Meters/coil', col_core_size: 'Core size',
+    col_gm: 'g/m', col_breaking_strength: 'Breaking Strength (kg)',
+    col_meters_coil: 'Meters/coil', col_core_size: 'Core size',
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
-    col_qty_pallets: 'Qty (pallets)', col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
+    col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
+    col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
     prestretch_details: 'Pre-Stretch details', ps_roll_wt: 'Roll wt (KG)',
     ps_core_wt: 'Core wt (KG)', ps_rolls_pallet: 'Rolls/Pallet', ps_packaging: 'Packaging',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
@@ -294,6 +300,7 @@ const I18N = {
     tip_roll_weight_kg: 'Computed gross weight per roll (net strap weight + core weight)',
     tip_fob_roll: 'Ex-Work + per-container FOB share, priced per roll (not per kg)',
     tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
+    tip_breaking_strength: 'Auto-computed from Width/Thickness (Ultimate breaking force). Type your own value here instead to see the equivalent g/m -- this field is informational only and never changes the priced g/m/weight.',
     discount_capped_tooltip: 'Discount capped at {max}% (the maximum allowed) because the entered value was higher than allowed',
     discount_capped_notice: '⚠️ On one or more lines, the entered discount was higher than allowed, so it was automatically capped at {max}% (the maximum allowed from Admin > Global Cost Settings). The affected line is outlined in orange.',
     gross_weight_notice: "🚫 {line}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.",
@@ -312,11 +319,14 @@ const I18N = {
     col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV',
     col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
-    col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_fob_kg: 'FOB $/كجم',
+    col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
+    col_fob_kg: 'FOB $/كجم',
     col_cif_kg: 'CIF $/كجم', col_material: 'الخامة', col_thickness_mm: 'السمك (مم)',
-    col_gm: 'جم/م', col_meters_coil: 'متر/كويل', col_core_size: 'مقاس الكور',
+    col_gm: 'جم/م', col_breaking_strength: 'قوة الشد (كجم)',
+    col_meters_coil: 'متر/كويل', col_core_size: 'مقاس الكور',
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
-    col_qty_pallets: 'الكمية (بالتة)', col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
+    col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
+    col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
     prestretch_details: 'تفاصيل البري-ستريتش', ps_roll_wt: 'وزن الرول (كجم)',
     ps_core_wt: 'وزن الكور (كجم)', ps_rolls_pallet: 'رول/بالتة', ps_packaging: 'التعبئة',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
@@ -327,6 +337,7 @@ const I18N = {
     tip_roll_weight_kg: 'الوزن الإجمالي المحسوب للرول (وزن الشريط + وزن الكور)',
     tip_fob_roll: 'EX-Work + نصيب الكونتينر من الـ FOB، بالسعر للرول الواحد (مش للكيلو)',
     tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
+    tip_breaking_strength: 'بيتحسب تلقائيًا من العرض/السمك (قوة الشد القصوى). اكتبي رقم بنفسك بدل كده عشان تشوفي الجرام/متر المعادل ليه -- الحقل ده للمعلومة بس ومش بيغيّر الجرام/الوزن المستخدم في التسعير.',
     discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح',
     discount_capped_notice: '⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند {max}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.',
     gross_weight_notice: '🚫 {line}: وزن الرول تجاوز الحد الأقصى المسموح -- قلّلي المتر/الكويل في السطر المتعلّم باللون الأحمر. عرض السعر مش هيتحفظ لحد ما ده يتصلح.',
@@ -545,12 +556,13 @@ function addLine(prefill) {
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="Pallets per container -- how many pallets of this line"></td>
     <td>
-      <select class="f-container" title="Which container size the printed Pallets/Container figure should show for this line -- doesn't affect price">
+      <select class="f-container" title="Which container size (40ft/20ft) this line's Pallets/Container figure AND its FOB/CIF $/KG full-container spread are based on (v104)">
         <option value="40ft" selected>40ft</option>
         <option value="20ft">20ft</option>
       </select>
     </td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
+    <td class="f-exw num">0.000</td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
@@ -574,7 +586,7 @@ function addLine(prefill) {
   pr.innerHTML = `
     <td></td>
     <td colspan="4" style="font-size:0.8rem; color:#666;"><span data-i18n="prestretch_details">Pre-Stretch details</span> &rarr;</td>
-    <td colspan="13">
+    <td colspan="14">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <label style="font-size:0.78rem;"><span data-i18n="ps_roll_wt">Roll wt (KG)</span>
           <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
@@ -743,6 +755,18 @@ function addStrapLine() {
     <td><input type="number" class="f-strap-width compact-input" min="0" step="0.1" style="width:70px;"></td>
     <td><input type="number" class="f-strap-thickness compact-input" min="0" step="0.001" style="width:80px;"></td>
     <td><input type="text" class="f-strap-gm compact-input" readonly style="width:65px; background:#f3f3f3;" value="0.00"></td>
+    <td>
+      <span style="display:inline-flex; flex-direction:column; gap:2px;">
+        <input type="number" class="f-strap-strength compact-input" min="0" step="0.1" style="width:70px;"
+               title="Auto-computed from Width/Thickness. Type your own value to see the equivalent g/m instead -- informational only, never changes the priced g/m.">
+        <select class="f-strap-machine compact-input" style="width:80px; display:none; font-size:0.7rem;" title="Machine type (PP only) -- which Breaking Strength/g/m ratio to use for this conversion">
+          <option value="auto">Auto</option>
+          <option value="semi">Semi Auto</option>
+          <option value="manual">Manual</option>
+        </select>
+        <small class="f-strap-strength-hint" style="color:#888; white-space:nowrap;"></small>
+      </span>
+    </td>
     <td><input type="number" class="f-strap-meters compact-input" min="0" step="10" placeholder="auto" style="width:75px;" title="Leave blank/0 to auto-fit the target gross weight"></td>
     <td>
       <select class="f-strap-core compact-input" style="width:100px;">
@@ -759,6 +783,7 @@ function addStrapLine() {
     <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable" style="width:70px;"></td>
     <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5" style="width:60px;"></td>
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
+    <td class="f-strap-exw num">0.00</td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
@@ -794,6 +819,7 @@ function addStrapLine() {
     const gm = calcGmPerM(lineKey, bomKey, width, thick);
     tr.querySelector('.f-strap-gm').value = roundHalfUp(gm, 2).toFixed(2);
     updateRollWeightLive();
+    updateStrengthLive();
   }
   tr.querySelector('.f-strap-width').addEventListener('input', updateGmLive);
   tr.querySelector('.f-strap-thickness').addEventListener('input', updateGmLive);
@@ -801,9 +827,79 @@ function addStrapLine() {
   tr.querySelector('.f-strap-meters').addEventListener('input', updateRollWeightLive);
   tr.querySelector('.f-strap-core').addEventListener('change', updateRollWeightLive);
 
+  // v106 -- Breaking Strength <-> g/m converter (owner-provided reference:
+  // Specification_Calculator.xlsx). Purely informational -- never feeds
+  // back into the priced g/m/weight, per the owner's own choice ("حقل
+  // تحويل إضافي بس"). The file's own Ultimate Force formulas share the
+  // SAME width/thickness "area" term as its own Meter Weight (g/m)
+  // formula for every strap type (PET Embossed, PET Smooth, PP Auto/Semi
+  // Auto/Manual) -- only the multiplier differs (density vs a fixed
+  // tensile-strength constant), so g/m and Breaking Force are always
+  // exactly proportional for a GIVEN type, regardless of the actual
+  // width/thickness: g/m = ForceKg × GM_PER_KGF[type]. PET's Embossed vs
+  // Smooth variants happen to share one ratio (the -0.12mm embossing
+  // correction appears identically in both that file's g/m and Force
+  // formulas, so it cancels) -- PP's 3 machine types do NOT share one
+  // ratio (their own Thickness-netting factor differs between the g/m and
+  // Force formulas), so PP needs the small Machine-type picker below.
+  //
+  // NOTE for whoever edits this later: these ratios come from the
+  // reference file's own formulas, not from this app's own (already
+  // sheet-verified) meter_weight_g_per_m()/calcGmPerM() -- for PET this
+  // app's own width>12 branch has an extra -0.5mm width correction the
+  // reference file doesn't, so a Breaking Strength you type here converts
+  // to g/m via the REFERENCE file's own ratio, which can read a touch
+  // different from this line's own priced g/m for the same physical
+  // strap. That's expected and fine for an informational conversion
+  // field; it's never written into the priced g/m/weight.
+  const GM_PER_KGF = {
+    pet: 9.8 * 1.385 / 370,                          // Embossed and Smooth share this ratio
+    pp_auto: 9.8 * 0.91 / 360,                        // same 0.7 thickness-net factor both sides -> cancels
+    pp_semi: 9.8 * (0.91 * 0.68) / (380 * 0.66),      // g/m uses ×0.68, Force uses ×0.66 -- doesn't cancel
+    pp_manual: 9.8 * (0.91 * 0.64) / (400 * 0.72),    // g/m uses ×0.64, Force uses ×0.72 -- doesn't cancel
+  };
+  function currentGmPerKgf() {
+    const sel = tr.querySelector('.f-strap-product');
+    const lineKey = sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.line : null;
+    if (lineKey === 'pet') return GM_PER_KGF.pet;
+    if (lineKey === 'pp') {
+      const machine = tr.querySelector('.f-strap-machine').value;
+      return GM_PER_KGF['pp_' + machine] || GM_PER_KGF.pp_auto;
+    }
+    return null;
+  }
+  function updateStrengthLive() {
+    // Auto-fills the Breaking Strength field FROM the current (width/
+    // thickness-driven) g/m, unless the rep is actively typing their own
+    // value into it right now (same "don't clobber while typing" pattern
+    // used elsewhere on this page for g/m/meters-per-coil).
+    if (document.activeElement === tr.querySelector('.f-strap-strength')) return;
+    const ratio = currentGmPerKgf();
+    const gm = parseFloat(tr.querySelector('.f-strap-gm').value || 0);
+    const hint = tr.querySelector('.f-strap-strength-hint');
+    if (!ratio || !gm) {
+      tr.querySelector('.f-strap-strength').value = '';
+      hint.textContent = '';
+      return;
+    }
+    tr.querySelector('.f-strap-strength').value = roundHalfUp(gm / ratio, 1).toFixed(1);
+    hint.textContent = '';
+  }
+  tr.querySelector('.f-strap-strength').addEventListener('input', () => {
+    const ratio = currentGmPerKgf();
+    const strength = parseFloat(tr.querySelector('.f-strap-strength').value || 0);
+    const hint = tr.querySelector('.f-strap-strength-hint');
+    if (!ratio || !strength) { hint.textContent = ''; return; }
+    hint.textContent = '≈ ' + roundHalfUp(strength * ratio, 2).toFixed(2) + ' g/m';
+  });
+  tr.querySelector('.f-strap-strength').addEventListener('blur', updateStrengthLive);
+  tr.querySelector('.f-strap-machine').addEventListener('change', updateStrengthLive);
+
   function syncMaterialOptions() {
     const sel = tr.querySelector('.f-strap-product');
-    populateBomOptions(sel.selectedOptions[0].dataset.line);
+    const lineKey = sel.selectedOptions[0].dataset.line;
+    populateBomOptions(lineKey);
+    tr.querySelector('.f-strap-machine').style.display = (lineKey === 'pp') ? '' : 'none';
     updateGmLive();
   }
   tr.querySelector('.f-strap-product').addEventListener('change', syncMaterialOptions);
@@ -1010,6 +1106,14 @@ async function calculateAll() {
       totalKg: data.total_kg,
       pricingBasis: pricing_basis, rollWeightKg: data.roll_weight_kg || 0,
       coreWeightKg: data.core_weight_kg || 0, isPrestretchLine: isPrestretch(product_id),
+      // v104 -- this line's own rolls/pallet + pallets/container (40ft/20ft)
+      // figures, so the FOB/CIF pass below can build a fixed per-SKU FULL
+      // CONTAINER kg instead of this line's own (possibly much smaller)
+      // ordered quantity -- see that loop's own v104 comment.
+      rollsPerPallet: data.rolls_per_pallet || 0,
+      pallets40: data.pallets_per_container40 || 0,
+      pallets20: data.pallets_per_container20 || 0,
+      containerPref: tr.querySelector('.f-container') ? tr.querySelector('.f-container').value : '40ft',
     });
   }
 
@@ -1092,6 +1196,7 @@ async function calculateAll() {
     const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
+    tr.querySelector('.f-strap-exw').textContent = roundHalfUp(data.ex_work_price_roll, 2).toFixed(2);
     tr.querySelector('.f-strap-fob').textContent = roundHalfUp(data.fob_price_roll, 2).toFixed(2);
     tr.querySelector('.f-strap-cfr').textContent = roundHalfUp(data.cfr_price_roll, 2).toFixed(2);
     // v96 -- no more "Total KG"/"Line total $" cells to write into (removed
@@ -1165,17 +1270,37 @@ async function calculateAll() {
   const cifTotal = fobTotal + freightAmt;
 
   // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
-  // EACH LINE'S OWN total KG (not the quote's combined total KG across
-  // every line) -- matches the reference app (Hesham Natora's) exactly,
-  // confirmed against it directly: a multi-line quote's per-line FOB/CIF
-  // $/kg is what that line alone would cost per kg carrying the flat
-  // port/freight add-on, not its proportional share of a shared quote
-  // total. The lump-sum FOB Total / CIF Total below are unaffected by
-  // this -- they still add each add-on exactly once, matching a real
-  // invoice, not once per line.
+  // this line's own FULL CONTAINER weight (pallets/container x rolls/
+  // pallet x roll weight for THIS SKU), NOT however many pallets this
+  // particular quote line happens to order.
+  //
+  // v104 -- owner-requested change (Arabic: "خليها زي الشيت"), REPLACING
+  // the old v67 design below this comment used to describe (spreading over
+  // "EACH LINE'S OWN total KG", confirmed then against a different
+  // reference app, not this Excel sheet). Confirmed directly against the
+  // H1.36 sheet with the owner: the sheet's Stretch!AO/AP price-list
+  // columns assume a FULL CONTAINER of that exact SKU every time (e.g.
+  // 34 pallets for 23mic/150%/16kg/46-rolls-per-pallet), so FOB/CIF $/KG
+  // must be a FIXED per-SKU rate, not one that rises when a quote line
+  // orders less than a full container -- confirmed the app matched the
+  // sheet exactly ($1.54/kg) at a full-container quantity, but at 1 or 5
+  // pallets it was showing $3.52/$1.89 instead, because the flat FOB
+  // Cost/Container was being divided by this line's own (smaller) total
+  // kg. Falls back to this line's own totalKg only for lines with no known
+  // container capacity (Pre-Stretch), same as app.py's matching v104 fix
+  // for the saved-quotation view/PDF/Excel. The lump-sum FOB Total / CIF
+  // Total above are unaffected by this -- they still add each add-on
+  // exactly once, matching a real invoice, not once per line.
   for (const rc of rowCalc) {
-    const lineFobAddonPerKg = rc.totalKg > 0 ? fobAddon / rc.totalKg : 0;
-    const lineFreightPerKg = rc.totalKg > 0 ? freightAmt / rc.totalKg : 0;
+    let fobDenomKg = rc.totalKg;
+    if (!rc.isPrestretchLine) {
+      const pallets = (rc.containerPref === '20ft') ? (rc.pallets20 || rc.pallets40) : (rc.pallets40 || rc.pallets20);
+      if (pallets && rc.rollsPerPallet && rc.rollWeightKg) {
+        fobDenomKg = pallets * rc.rollsPerPallet * rc.rollWeightKg;
+      }
+    }
+    const lineFobAddonPerKg = fobDenomKg > 0 ? fobAddon / fobDenomKg : 0;
+    const lineFreightPerKg = fobDenomKg > 0 ? freightAmt / fobDenomKg : 0;
     // v70.2 -- FOB $/KG built from the RAW unrounded EX-Work price with a
     // single ceiling round at the end, matching Stretch!AO's ROUNDUP() in
     // the sheet (see roundUp() above). CFR/CIF still rounds normally --
@@ -1202,15 +1327,21 @@ async function calculateAll() {
     // tag naming which basis it was computed on, not just the dropdown's
     // own option label.
     const basisTag = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg') ? ' (Net)' : ' (Gross)';
+    // v105 -- EX-Work $/kg column, same basis handling (Gross/Net/per-roll)
+    // as FOB/CIF just below -- exwUnit is already this line's own EX-Work
+    // $/kg (2dp-rounded, discount already applied -- see rowCalc.push()).
     if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
       const rollWeight = (rc.pricingBasis === 'net')
         ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
         : rc.rollWeightKg;
+      const exwRoll = rc.exwUnit * rollWeight;
       const fobRoll = fobUnit * rollWeight;
       const cifRoll = cifUnit * rollWeight;
+      rc.tr.querySelector('.f-exw').textContent = roundHalfUp(exwRoll, 2).toFixed(2) + '/roll' + basisTag;
       rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll' + basisTag;
       rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll' + basisTag;
     } else {
+      rc.tr.querySelector('.f-exw').textContent = roundHalfUp(rc.exwUnit, 2).toFixed(2) + basisTag;
       rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2) + basisTag;
       rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2) + basisTag;
     }
