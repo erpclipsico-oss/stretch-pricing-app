@@ -290,8 +290,7 @@ const I18N = {
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
-    prestretch_details: 'Pre-Stretch details', ps_roll_wt: 'Roll wt (KG)',
-    ps_core_wt: 'Core wt (KG)', ps_rolls_pallet: 'Rolls/Pallet', ps_packaging: 'Packaging',
+    prestretch_packaging_note: 'Pre-Stretch packaging:',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
     tip_pallets_container: 'How many pallets of this line the customer is ordering',
@@ -327,8 +326,7 @@ const I18N = {
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
-    prestretch_details: 'تفاصيل البري-ستريتش', ps_roll_wt: 'وزن الرول (كجم)',
-    ps_core_wt: 'وزن الكور (كجم)', ps_rolls_pallet: 'رول/بالتة', ps_packaging: 'التعبئة',
+    prestretch_packaging_note: 'تعبئة البري-ستريتش:',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
     tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
@@ -580,33 +578,28 @@ function addLine(prefill) {
   // made-to-order and has no fixed catalog roll weight -- shown as a second
   // row directly under the line, revealed only when a Pre-Stretch product
   // is selected.
+  // v114 -- owner-confirmed: Pre-Stretch should be entered exactly like
+  // every other product -- same Width/Roll wt/Core wt/Rolls-per-pallet
+  // fields on the main row, typed in directly, matching the Natura/Excel
+  // sheet's data-entry pattern. Only the pricing math differs for
+  // Pre-Stretch (Net-weight based, its own packaging cost, its own margin
+  // table, sourced from a prior Power-stage product) -- see pricing.py's
+  // compute_prestretch_line(); the data entry itself is now identical.
+  // The one genuinely different input Pre-Stretch needs is "Packaging"
+  // (Boxes / No Boxes -- a different cost component to the regular
+  // Packing type dropdown, which doesn't apply to Pre-Stretch at all), so
+  // that's the only thing still shown in this small row underneath.
   const pr = document.createElement('tr');
   pr.className = 'prestretch-row';
   pr.style.display = 'none';
   pr.innerHTML = `
     <td></td>
-    <td colspan="4" style="font-size:0.8rem; color:#666;"><span data-i18n="prestretch_details">Pre-Stretch details</span> &rarr;</td>
-    <td colspan="14">
-      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <label style="font-size:0.78rem;"><span data-i18n="ps_roll_wt">Roll wt (KG)</span>
-          <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
-        <label style="font-size:0.78rem;"><span data-i18n="ps_core_wt">Core wt (KG)</span>
-          <input type="number" class="f-ps-corewt" min="0" step="0.01" style="width:70px;"></label>
-        <label style="font-size:0.78rem;"><span data-i18n="ps_rolls_pallet">Rolls/Pallet</span>
-          <input type="number" class="f-ps-rpp" min="0" step="1" style="width:70px;"></label>
-        <label style="font-size:0.78rem;"><span data-i18n="ps_packaging">Packaging</span>
-          <!-- v99 -- owner-reported: this select had no explicit width, so
-               the page-wide "select { width:100%; }" rule (style.css) made
-               it stretch to the full row width and wrap onto its own line
-               below the label instead of sitting right next to it like
-               Roll wt/Core wt/Rolls per Pallet above (those are <input>s
-               with their own inline width:70px, which already overrides
-               that same rule -- this select just never had the matching
-               override). -->
-          <select class="f-ps-packaging" style="width:150px;">
-            ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
-          </select>
-        </label>
+    <td colspan="18">
+      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:0.8rem; color:#666;">
+        <span data-i18n="prestretch_packaging_note">Pre-Stretch packaging:</span>
+        <select class="f-ps-packaging" style="width:150px;">
+          ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
+        </select>
       </span>
     </td>
   `;
@@ -615,6 +608,11 @@ function addLine(prefill) {
   function prefillRollSpec() {
     const p = PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value));
     if (!p) return;
+    // Pre-Stretch products have no catalog roll_weight_kg/core_weight_kg/
+    // width_mm/rolls_per_pallet (made-to-order -- see product table), so
+    // this naturally leaves the fields blank for a freshly-picked
+    // Pre-Stretch product, same as before, but now the rep types straight
+    // into these same fields instead of a separate locked-looking row.
     tr.querySelector('.f-rollwt').value = p.roll_weight_kg || '';
     tr.querySelector('.f-corewt').value = p.core_weight_kg || '';
     tr.querySelector('.f-width').value = p.width_mm || '';
@@ -672,21 +670,12 @@ function addLine(prefill) {
     // Pallets/Container figure is always blank for them -- this selector
     // has nothing to pick from.
     tr.querySelector('.f-container').disabled = show;
-    // Pre-Stretch already has its own dedicated roll wt / core wt inputs
-    // (made-to-order, no catalog default, no Width field) -- the generic
-    // per-line roll-spec inputs on the main row don't apply to it.
-    tr.querySelector('.f-rollwt').disabled = show;
-    tr.querySelector('.f-corewt').disabled = show;
-    tr.querySelector('.f-width').disabled = show;
-    tr.querySelector('.f-rpp').disabled = show;
-    if (show) {
-      tr.querySelector('.f-rollwt').value = '';
-      tr.querySelector('.f-corewt').value = '';
-      tr.querySelector('.f-width').value = '';
-      tr.querySelector('.f-rpp').value = '';
-    } else {
-      prefillRollSpec();
-    }
+    // v114 -- Width/Roll wt/Core wt/Rolls-per-pallet stay enabled and are
+    // typed in directly here for Pre-Stretch too, exactly like every other
+    // product (owner-confirmed). prefillRollSpec() already blanks them out
+    // for a Pre-Stretch product on its own (no catalog default), so no
+    // separate disable/clear branch is needed any more.
+    prefillRollSpec();
   }
   tr.querySelector('.f-product').addEventListener('change', syncPrestretchVisibility);
   tr.querySelector('.f-product').addEventListener('change', scheduleRecalc);
@@ -701,12 +690,7 @@ function addLine(prefill) {
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
-  ['.f-ps-packaging'].forEach(sel => {
-    pr.querySelector(sel).addEventListener('change', scheduleRecalc);
-  });
-  ['.f-ps-rollwt', '.f-ps-corewt', '.f-ps-rpp'].forEach(sel => {
-    pr.querySelector(sel).addEventListener('input', scheduleRecalc);
-  });
+  pr.querySelector('.f-ps-packaging').addEventListener('change', scheduleRecalc);
   // v100 -- newly-created rows must reflect the currently active language
   // immediately (option text especially), not just elements present at
   // initial page load.
@@ -972,10 +956,14 @@ function readLines() {
       container_pref: tr.querySelector('.f-container').value,
     };
     if (isPrestretch(line.product_id)) {
+      // v114 -- Roll wt/Core wt/Rolls-per-pallet now come from the SAME
+      // main-row fields every other product uses (see syncPrestretchVisibility()),
+      // not a separate duplicate row -- only "Packaging" (Boxes/No Boxes)
+      // still has no equivalent on the main row.
       const pr = tr.nextElementSibling;
-      line.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
-      line.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
-      line.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      line.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
+      line.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
+      line.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
       line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
@@ -1040,10 +1028,11 @@ async function calculateAll() {
       preview_as_user_id: previewAsUserId(),
     };
     if (isPrestretch(product_id)) {
+      // v114 -- same main-row fields as every other product; see readLines().
       const pr = tr.nextElementSibling;
-      payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
-      payload.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
-      payload.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      payload.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
+      payload.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
+      payload.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
       payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
