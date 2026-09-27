@@ -38,6 +38,7 @@
         <input type="text" name="full_name" value="{{ u.full_name or '' }}">
         <select name="role">
           <option value="sales_rep" {% if u.role=='sales_rep' %}selected{% endif %}>Sales rep</option>
+          <option value="sub_admin" {% if u.role=='sub_admin' %}selected{% endif %}>Sub-admin (Margin Factors &amp; Material Rates only)</option>
           <option value="admin" {% if u.role=='admin' %}selected{% endif %}>Admin</option>
         </select>
         <input type="text" name="region" value="{{ u.region or '' }}" placeholder="Egypt / Foreign">
@@ -86,6 +87,7 @@
     <div class="field"><label>Role</label>
       <select name="role">
         <option value="sales_rep">Sales rep</option>
+        <option value="sub_admin">Sub-admin (Margin Factors &amp; Material Rates only)</option>
         <option value="admin">Admin</option>
       </select>
     </div>

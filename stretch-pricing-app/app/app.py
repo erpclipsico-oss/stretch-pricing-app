@@ -68,6 +68,45 @@ def create_app():
             return view(*args, **kwargs)
         return wrapped
 
+    # v102 -- owner-requested restricted role: "sub_admin" can sign in and
+    # use Pricing/Quotations exactly like a sales rep, but ALSO gets access
+    # to Margin Factors and Material Rates ONLY -- every other back-office
+    # screen (Products, Freight, Users, Strap Costing, Labor, BOM, etc.)
+    # stays 'admin'-only, same as before. Applied ONLY to admin_margin_factors
+    # and admin_material_rates below; every other @admin_required route is
+    # untouched and still 403s a sub_admin exactly like it would a plain
+    # sales_rep.
+    def factors_admin_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["role"] not in ("admin", "sub_admin"):
+                abort(403)
+            return view(*args, **kwargs)
+        return wrapped
+
+    # v102 -- same idea as factors_admin_required, for the shared per-table
+    # Excel round-trip routes (table_sync_download/upload/apply) that Margin
+    # Factors' and Material Rates' own pages embed. A sub_admin may use
+    # these ONLY for table_key in {margin_factor, material_rate} -- any
+    # other table_key (products, freight, labor, ...) still 403s for them,
+    # same as a plain sales_rep, even though the route itself is shared
+    # across every Admin > Costing page's sync buttons.
+    SUB_ADMIN_TABLE_KEYS = {"margin_factor", "material_rate"}
+
+    def table_sync_access_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["role"] == "admin":
+                return view(*args, **kwargs)
+            if g.user["role"] == "sub_admin" and kwargs.get("table_key") in SUB_ADMIN_TABLE_KEYS:
+                return view(*args, **kwargs)
+            abort(403)
+        return wrapped
+
     # v59 -- browsers (Safari especially) request GET /favicon.ico directly
     # on some navigations/reloads regardless of the <link rel="icon"> tag
     # in base.html's <head>, and cache whatever that returns (a 404 -> the
@@ -1461,7 +1500,7 @@ def create_app():
         return redirect(url_for("admin_products"))
 
     @app.route("/admin/cost/margin-factors", methods=["GET", "POST"])
-    @admin_required
+    @factors_admin_required
     def admin_margin_factors():
         db = g.db
         if request.method == "POST":
@@ -1507,7 +1546,7 @@ def create_app():
         return render_template("admin_margin_factors.html", rows=rows, last_upload=last_upload)
 
     @app.route("/admin/factors", methods=["GET", "POST"])
-    @admin_required
+    @factors_admin_required
     def admin_factors():
         # v19: the old Country/Customer Classification margin screen is
         # retired -- margin now comes entirely from Margin Factors (Micron x
@@ -1618,7 +1657,7 @@ def create_app():
         return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
 
     @app.route("/admin/cost/materials", methods=["GET", "POST"])
-    @admin_required
+    @factors_admin_required
     def admin_material_rates():
         db = g.db
         # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on
@@ -2040,7 +2079,7 @@ def create_app():
 
     # ---------- Admin: per-table Excel round-trip (download/upload/review) ----------
     @app.route("/admin/table-sync/<table_key>/download")
-    @admin_required
+    @table_sync_access_required
     def table_sync_download(table_key):
         if table_key not in table_sync.TABLE_CONFIGS:
             abort(404)
@@ -2052,7 +2091,7 @@ def create_app():
         )
 
     @app.route("/admin/table-sync/<table_key>/upload", methods=["POST"])
-    @admin_required
+    @table_sync_access_required
     def table_sync_upload(table_key):
         if table_key not in table_sync.TABLE_CONFIGS:
             abort(404)
@@ -2083,7 +2122,7 @@ def create_app():
         )
 
     @app.route("/admin/table-sync/<table_key>/apply", methods=["POST"])
-    @admin_required
+    @table_sync_access_required
     def table_sync_apply(table_key):
         if table_key not in table_sync.TABLE_CONFIGS:
             abort(404)

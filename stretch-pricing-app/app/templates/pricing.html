@@ -192,9 +192,22 @@
 </div>
 
 <script>
+// v100.1 -- owner-reported (audit of every micron x Stretch Ability
+// against the reference Excel sheet): about a third of the catalog
+// (22 of 59 regular products, e.g. most "150% Standard"/"REGID Film"
+// micron values other than the one or two the sheet actually prices)
+// has NO matching row in the reference sheet at all -- no FOB/CFR
+// figure was ever filled in for them in Admin > Products, so their
+// price is a first-party cost-engine calculation with nothing to
+// verify it against, same risk as this update's new Net figure but
+// for the base Gross price too. `verified` (fob_usd_kg present in the
+// catalog) drives a ⚠ marker in the dropdown and a warning note under
+// the row, so a rep never quotes one of these with the same
+// confidence as a sheet-verified product without at least seeing the
+// flag -- see syncPrestretchVisibility()'s sibling syncVerifiedWarning().
 const PRODUCTS = [
   {% for p in products %}
-  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}},
+  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
   {% endfor %}
 ];
 const PALLET_TYPES = {{ pallet_types|tojson }};
@@ -243,6 +256,14 @@ let currentLang = (function () {
   try { return localStorage.getItem('pricingLang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; }
 })();
 
+// v100.2 -- last-known state for each dynamic notice (see tf() above), kept
+// outside calculateAll() so applyLanguage() can re-render an already-visible
+// notice in the new language the instant the toggle is clicked, instead of
+// waiting for the next recalc/act-as change to refresh it.
+let lastDiscountCapPct = null;    // null when no notice is showing
+let lastGrossWeightLine = null;   // null when no notice is showing
+let lastActAsName = null;         // null when no "Act as" note is showing
+
 const I18N = {
   en: {
     new_quotation: 'New quotation', new_quotation_btn: 'New quotation', save: 'Save',
@@ -272,6 +293,10 @@ const I18N = {
     tip_roll_weight_kg: 'Computed gross weight per roll (net strap weight + core weight)',
     tip_fob_roll: 'Ex-Work + per-container FOB share, priced per roll (not per kg)',
     tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
+    discount_capped_tooltip: 'Discount capped at {max}% (the maximum allowed) because the entered value was higher than allowed',
+    discount_capped_notice: '⚠️ On one or more lines, the entered discount was higher than allowed, so it was automatically capped at {max}% (the maximum allowed from Admin > Global Cost Settings). The affected line is outlined in orange.',
+    gross_weight_notice: "🚫 {line}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.",
+    act_as_note: "Prices below reflect {name}'s own pricing.",
   },
   ar: {
     new_quotation: 'عرض سعر جديد', new_quotation_btn: 'عرض سعر جديد', save: 'حفظ',
@@ -301,11 +326,34 @@ const I18N = {
     tip_roll_weight_kg: 'الوزن الإجمالي المحسوب للرول (وزن الشريط + وزن الكور)',
     tip_fob_roll: 'EX-Work + نصيب الكونتينر من الـ FOB، بالسعر للرول الواحد (مش للكيلو)',
     tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
+    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح',
+    discount_capped_notice: '⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند {max}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.',
+    gross_weight_notice: '🚫 {line}: وزن الرول تجاوز الحد الأقصى المسموح -- قلّلي المتر/الكويل في السطر المتعلّم باللون الأحمر. عرض السعر مش هيتحفظ لحد ما ده يتصلح.',
+    act_as_note: 'الأسعار اللي تحت دي بتعكس أسعار {name}.',
   },
 };
 
 function t(key) {
   return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
+}
+
+// v100.2 -- owner-reported: the dynamic, JS-generated notices (discount-cap
+// tooltip/banner, gross-weight alarm, "Act as" note) were hardcoded in one
+// fixed language each (some Arabic, some English) regardless of the
+// currently active language -- so on the English screen the discount-cap
+// banner still showed Arabic text, and vice versa. tf(key, vars) is t()
+// plus {placeholder} substitution, so every notice now follows the same
+// currentLang/applyLanguage() switch as the rest of the page's static
+// chrome. Each notice-producing spot below now rebuilds its text (not just
+// once, but on every applyLanguage() call too -- see the tracked-state
+// pattern in calculateAll() and setLanguage()) so a language switch updates
+// an already-visible notice immediately, not just newly-created ones.
+function tf(key, vars) {
+  let s = t(key);
+  for (const k in (vars || {})) {
+    s = s.split('{' + k + '}').join(vars[k]);
+  }
+  return s;
 }
 
 // English label <-> Arabic label, keyed by the option's own `value`
@@ -350,6 +398,25 @@ function applyLanguage() {
     .forEach(opt => { opt.textContent = codeLabel(opt.value); });
   const btn = document.getElementById('langToggleBtn');
   if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
+
+  // v100.2 -- re-render any dynamic notice that's currently showing, in the
+  // now-active language, instead of leaving it stuck in whatever language
+  // it was first generated in until the next recalc.
+  const capNotice = document.getElementById('discountCapNotice');
+  if (capNotice && lastDiscountCapPct != null) {
+    capNotice.textContent = tf('discount_capped_notice', {max: lastDiscountCapPct});
+  }
+  document.querySelectorAll('.f-discount, .f-strap-discount').forEach(el => {
+    if (el.title) el.title = tf('discount_capped_tooltip', {max: lastDiscountCapPct});
+  });
+  const weightNotice = document.getElementById('grossWeightNotice');
+  if (weightNotice && lastGrossWeightLine != null) {
+    weightNotice.textContent = tf('gross_weight_notice', {line: lastGrossWeightLine});
+  }
+  const actAsNote = document.getElementById('actAsNote');
+  if (actAsNote && lastActAsName != null) {
+    actAsNote.textContent = tf('act_as_note', {name: lastActAsName});
+  }
 }
 
 function setLanguage(lang) {
@@ -903,7 +970,7 @@ async function calculateAll() {
       anyDiscountCapped = true;
       cappedMaxPct = data.discount_pct_applied;
       discInput.style.outline = '2px solid #d97706';
-      discInput.title = `تم تقييد الخصم عند ${data.discount_pct_applied}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح`;
+      discInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
     } else {
       discInput.style.outline = '';
       discInput.title = '';
@@ -1006,7 +1073,7 @@ async function calculateAll() {
       anyDiscountCapped = true;
       cappedMaxPct = data.discount_pct_applied;
       strapDiscInput.style.outline = '2px solid #d97706';
-      strapDiscInput.title = `تم تقييد الخصم عند ${data.discount_pct_applied}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح`;
+      strapDiscInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
     } else {
       strapDiscInput.style.outline = '';
       strapDiscInput.title = '';
@@ -1158,18 +1225,22 @@ async function calculateAll() {
   // see the .f-discount/.f-strap-discount outlines set above.
   const capNotice = document.getElementById('discountCapNotice');
   if (anyDiscountCapped) {
+    lastDiscountCapPct = cappedMaxPct;
     capNotice.style.display = '';
-    capNotice.textContent = `⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند ${cappedMaxPct}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.`;
+    capNotice.textContent = tf('discount_capped_notice', {max: cappedMaxPct});
   } else {
+    lastDiscountCapPct = null;
     capNotice.style.display = 'none';
   }
 
   // v96: page-level alarm for the gross-weight-over-max check above.
   const weightNotice = document.getElementById('grossWeightNotice');
   if (anyGrossWeightExceeded) {
+    lastGrossWeightLine = exceededLineLabel;
     weightNotice.style.display = '';
-    weightNotice.textContent = `🚫 ${exceededLineLabel}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.`;
+    weightNotice.textContent = tf('gross_weight_notice', {line: exceededLineLabel});
   } else {
+    lastGrossWeightLine = null;
     weightNotice.style.display = 'none';
   }
 }
@@ -1251,9 +1322,11 @@ if (actAsUserEl) {
   actAsUserEl.addEventListener('change', () => {
     const note = document.getElementById('actAsNote');
     if (actAsUserEl.value) {
+      lastActAsName = actAsUserEl.selectedOptions[0].textContent;
       note.style.display = '';
-      note.textContent = `Prices below reflect ${actAsUserEl.selectedOptions[0].textContent}'s own pricing.`;
+      note.textContent = tf('act_as_note', {name: lastActAsName});
     } else {
+      lastActAsName = null;
       note.style.display = 'none';
     }
     calculateAll();

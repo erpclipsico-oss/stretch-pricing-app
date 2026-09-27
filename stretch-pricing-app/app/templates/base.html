@@ -22,6 +22,18 @@
       <nav class="nav-links" id="navLinks">
         <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
         <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
+        {% if current_user.role == 'sub_admin' %}
+        <span class="nav-sep">|</span>
+        <!-- v102 -- owner-requested restricted role: this user can see
+             Margin Factors and Material Rates ONLY -- no Catalog & Rates,
+             no other Costing pages, no Strap Costing, no Admin > Users.
+             Both routes are still gated server-side by
+             factors_admin_required, so this is purely what's shown, not
+             the only thing enforced -- someone typing another /admin/...
+             URL directly still gets a 403. -->
+        <a href="{{ url_for('admin_margin_factors') }}" class="nav-link">Margin Factors</a>
+        <a href="{{ url_for('admin_material_rates') }}" class="nav-link">Material Rates</a>
+        {% endif %}
         {% if current_user.role == 'admin' %}
         <span class="nav-sep">|</span>
 
