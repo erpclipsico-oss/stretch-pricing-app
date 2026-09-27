@@ -515,6 +515,49 @@ def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet
     return product["rolls_per_pallet"] or 0
 
 
+# v111 -- full-catalog audit against H1.36's own Stretch!AD formula text
+# (not a guess) found exactly two rows whose formula reads a DIFFERENT
+# 'Pallet component' bucket than every other row in their own ability
+# block, even though every other row shares the same auto/manual, pallet
+# size and roll weight: ("250% Power", 40 micron -- the LAST row of that
+# block) reads 'Pallet component'!$Q$32 instead of the standard $D$11;
+# ("300% (Power plus)", 12 micron) reads $Q$22 instead of $D$11. No other
+# row in either block does this (confirmed row-by-row), so it is not a
+# general jumbo/roll-weight rule -- just these two specific rows, almost
+# certainly a copy/paste artifact in the source workbook rather than a
+# deliberate design (there's no other row anywhere that shares the
+# pattern). Both special buckets are themselves STATIC dollar totals in
+# the sheet, not live formulas off the Material pricing tab -- e.g. Q22's
+# PE-Bag line implies an approx. $95/ton PE-Bag rate, while both the
+# Material pricing tab and this app's live PE Bag rate are different --
+# so they will NOT track future material-rate changes the way every
+# other product's packaging cost does. The owner explicitly asked for an
+# exact match to the reference sheet's current numbers for these two
+# rows over live-rate consistency, so they're pinned here rather than
+# computed from today's rates.
+PACKAGING_TOTAL_OVERRIDE_USD_PER_PALLET_V111 = {
+    ("250% Power", "40"): 18.088888888888889,       # 'Pallet component'!Q32
+    ("300% (Power plus)", "12"): 49.388888888888886,  # 'Pallet component'!Q22
+}
+
+
+def _packaging_override_total_usd(product, pallet_type):
+    """Returns the pinned sheet total for the two rows above, or None if
+    this product/pallet combo isn't one of them. Only applies to the
+    Automatic / Standard-pallet / USD-export case the sheet's own
+    override formula itself is gated on (C=1, D=1) -- a Euro-pallet or
+    Manual line for the same micron falls back to the normal live calc."""
+    key = (product["stretch_ability"], str(product["micron"]).strip())
+    if key not in PACKAGING_TOTAL_OVERRIDE_USD_PER_PALLET_V111:
+        return None
+    size = (pallet_type or product["pallet_size"] or "").strip()
+    if size not in ("", "Standard", "Standard Pallet"):
+        return None
+    if (product["auto_manual"] or "").strip() != "Automatic":
+        return None
+    return PACKAGING_TOTAL_OVERRIDE_USD_PER_PALLET_V111[key]
+
+
 def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
     per pallet. Rolls/pallet comes from the Details-sheet packing_tier
@@ -532,10 +575,17 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
     total/rolls_per_pallet division for every Automatic pallet size,
     jumbo or standard. The exclusion was understating packaging cost by
     exactly one Pallet unit ($12) spread over the pallet's rolls (~$0.75/
-    roll for the common 16-roll jumbo pallet) on every jumbo product."""
+    roll for the common 16-roll jumbo pallet) on every jumbo product.
+
+    v111 -- see PACKAGING_TOTAL_OVERRIDE_USD_PER_PALLET_V111 above: two
+    specific rows pin their packaging total to the sheet's own frozen
+    number instead of computing it from live material rates."""
     rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
     if rolls_per_pallet <= 0:
         return 0.0
+    override_total = _packaging_override_total_usd(product, pallet_type)
+    if override_total is not None:
+        return override_total / rolls_per_pallet
     packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
     key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group,
                            product["roll_weight_kg"])
