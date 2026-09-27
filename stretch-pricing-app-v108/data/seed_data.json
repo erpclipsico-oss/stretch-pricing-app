@@ -1,0 +1,611 @@
+{
+  "products": [
+    {
+      "stretch_ability": "150% Standard",
+      "micron": 12,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.3695,
+      "fob_usd_kg": 1.4,
+      "cfr_usd_kg": 1.43
+    },
+    {
+      "stretch_ability": "150% Standard",
+      "micron": 17,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.3087,
+      "fob_usd_kg": 1.34,
+      "cfr_usd_kg": 1.37
+    },
+    {
+      "stretch_ability": "150% Standard",
+      "micron": 20,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.2947,
+      "fob_usd_kg": 1.33,
+      "cfr_usd_kg": 1.36
+    },
+    {
+      "stretch_ability": "150% Standard",
+      "micron": 23,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.2876,
+      "fob_usd_kg": 1.32,
+      "cfr_usd_kg": 1.35
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 17,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4207,
+      "fob_usd_kg": 1.45,
+      "cfr_usd_kg": 1.49
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 20,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4049,
+      "fob_usd_kg": 1.44,
+      "cfr_usd_kg": 1.47
+    },
+    {
+      "stretch_ability": "200% Power",
+      "micron": 23,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.399,
+      "fob_usd_kg": 1.43,
+      "cfr_usd_kg": 1.46
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 17,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4437,
+      "fob_usd_kg": 1.47,
+      "cfr_usd_kg": 1.51
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 20,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4254,
+      "fob_usd_kg": 1.46,
+      "cfr_usd_kg": 1.49
+    },
+    {
+      "stretch_ability": "250% Power",
+      "micron": 23,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4195,
+      "fob_usd_kg": 1.45,
+      "cfr_usd_kg": 1.48
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 17,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4877,
+      "fob_usd_kg": 1.52,
+      "cfr_usd_kg": 1.55
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 20,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4553,
+      "fob_usd_kg": 1.49,
+      "cfr_usd_kg": 1.52
+    },
+    {
+      "stretch_ability": "300% (Power plus)",
+      "micron": 23,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4488,
+      "fob_usd_kg": 1.48,
+      "cfr_usd_kg": 1.51
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 12,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.654,
+      "fob_usd_kg": 1.6799,
+      "cfr_usd_kg": 1.7139
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 15,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4976,
+      "fob_usd_kg": 1.5235,
+      "cfr_usd_kg": 1.5575
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 17,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4877,
+      "fob_usd_kg": 1.52,
+      "cfr_usd_kg": 1.55
+    },
+    {
+      "stretch_ability": "350% (Power plus)",
+      "micron": 23,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.4488,
+      "fob_usd_kg": 1.48,
+      "cfr_usd_kg": 1.51
+    },
+    {
+      "stretch_ability": "REGID Film",
+      "micron": 10,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.6432,
+      "fob_usd_kg": 1.67,
+      "cfr_usd_kg": 1.71
+    },
+    {
+      "stretch_ability": "REGID Film",
+      "micron": 12,
+      "pallet_size": "Standard",
+      "auto_manual": "Automatic",
+      "color": "Transparent",
+      "rolls_per_pallet": 46,
+      "roll_weight_kg": 16,
+      "core_weight_kg": 1.8,
+      "ex_work_usd_kg": 1.598,
+      "fob_usd_kg": 1.63,
+      "cfr_usd_kg": 1.66
+    }
+  ],
+  "factors": [
+    {
+      "country_class": "High",
+      "customer_class": "A",
+      "roll_size": "standard",
+      "automatic_standard": 0.07,
+      "automatic_power": 0.17,
+      "automatic_power_plus": 0.17,
+      "uvi_standard": 0.07,
+      "uvi_power": 0.17,
+      "uvi_power_plus": 0.17,
+      "regid": 0.17,
+      "uv_regid": 0.07
+    },
+    {
+      "country_class": "High",
+      "customer_class": "A",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.07,
+      "automatic_power": 0.17,
+      "automatic_power_plus": 0.17,
+      "uvi_standard": 0.07,
+      "uvi_power": 0.17,
+      "uvi_power_plus": 0.17,
+      "regid": 0.17,
+      "uv_regid": 0.07
+    },
+    {
+      "country_class": "High",
+      "customer_class": "A",
+      "roll_size": "manual",
+      "automatic_standard": 0.07,
+      "automatic_power": 0.07,
+      "automatic_power_plus": 0.07,
+      "uvi_standard": 0.07,
+      "uvi_power": 0.07,
+      "uvi_power_plus": 0.07,
+      "regid": 0.13,
+      "uv_regid": 0.06
+    },
+    {
+      "country_class": "High",
+      "customer_class": "B",
+      "roll_size": "standard",
+      "automatic_standard": 0.06,
+      "automatic_power": 0.17,
+      "automatic_power_plus": 0.17,
+      "uvi_standard": 0.06,
+      "uvi_power": 0.17,
+      "uvi_power_plus": 0.17,
+      "regid": 0.17,
+      "uv_regid": 0.06
+    },
+    {
+      "country_class": "High",
+      "customer_class": "B",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.06,
+      "automatic_power": 0.17,
+      "automatic_power_plus": 0.17,
+      "uvi_standard": 0.06,
+      "uvi_power": 0.17,
+      "uvi_power_plus": 0.17,
+      "regid": 0.17,
+      "uv_regid": 0.06
+    },
+    {
+      "country_class": "High",
+      "customer_class": "B",
+      "roll_size": "manual",
+      "automatic_standard": 0.06,
+      "automatic_power": 0.06,
+      "automatic_power_plus": 0.06,
+      "uvi_standard": 0.06,
+      "uvi_power": 0.06,
+      "uvi_power_plus": 0.06,
+      "regid": 0.12,
+      "uv_regid": 0.06
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "A",
+      "roll_size": "standard",
+      "automatic_standard": 0.06,
+      "automatic_power": 0.16,
+      "automatic_power_plus": 0.16,
+      "uvi_standard": 0.06,
+      "uvi_power": 0.16,
+      "uvi_power_plus": 0.16,
+      "regid": 0.16,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "A",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.06,
+      "automatic_power": 0.16,
+      "automatic_power_plus": 0.16,
+      "uvi_standard": 0.06,
+      "uvi_power": 0.16,
+      "uvi_power_plus": 0.16,
+      "regid": 0.16,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "A",
+      "roll_size": "manual",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.05,
+      "automatic_power_plus": 0.05,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.05,
+      "uvi_power_plus": 0.05,
+      "regid": 0.11,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "B",
+      "roll_size": "standard",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.15,
+      "automatic_power_plus": 0.15,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.15,
+      "uvi_power_plus": 0.15,
+      "regid": 0.15,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "B",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.15,
+      "automatic_power_plus": 0.15,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.15,
+      "uvi_power_plus": 0.15,
+      "regid": 0.15,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Moderate",
+      "customer_class": "B",
+      "roll_size": "manual",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.05,
+      "automatic_power_plus": 0.05,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.05,
+      "uvi_power_plus": 0.05,
+      "regid": 0.1,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "A",
+      "roll_size": "standard",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.14,
+      "automatic_power_plus": 0.14,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.14,
+      "uvi_power_plus": 0.14,
+      "regid": 0.13,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "A",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.14,
+      "automatic_power_plus": 0.14,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.14,
+      "uvi_power_plus": 0.14,
+      "regid": 0.13,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "A",
+      "roll_size": "manual",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.05,
+      "automatic_power_plus": 0.05,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.05,
+      "uvi_power_plus": 0.05,
+      "regid": 0.09,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "B",
+      "roll_size": "standard",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.11,
+      "automatic_power_plus": 0.11,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.13,
+      "uvi_power_plus": 0.13,
+      "regid": 0.11,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "B",
+      "roll_size": "jumbo",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.11,
+      "automatic_power_plus": 0.11,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.13,
+      "uvi_power_plus": 0.13,
+      "regid": 0.11,
+      "uv_regid": 0.05
+    },
+    {
+      "country_class": "Low",
+      "customer_class": "B",
+      "roll_size": "manual",
+      "automatic_standard": 0.05,
+      "automatic_power": 0.05,
+      "automatic_power_plus": 0.05,
+      "uvi_standard": 0.05,
+      "uvi_power": 0.05,
+      "uvi_power_plus": 0.05,
+      "regid": 0.08,
+      "uv_regid": 0.05
+    }
+  ],
+  "details": {
+    "hand_stretch_standard_pallet": [
+      {
+        "box_size": "Manual(5kg)",
+        "rolls_per_box": 4,
+        "boxes_per_pallet": 64,
+        "rolls_per_pallet": 256,
+        "pallets_per_40ft": 20,
+        "pallets_per_20ft": 10
+      },
+      {
+        "box_size": "Manual(2.3~3.5kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 60,
+        "rolls_per_pallet": 360
+      },
+      {
+        "box_size": "Manual(2.2kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 80,
+        "rolls_per_pallet": 480
+      },
+      {
+        "box_size": "Manual(1.5kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 112,
+        "rolls_per_pallet": 672
+      }
+    ],
+    "hand_stretch_euro_pallet": [
+      {
+        "box_size": "Manual(5kg)",
+        "rolls_per_box": 4,
+        "boxes_per_pallet": 48,
+        "rolls_per_pallet": 192,
+        "pallets_per_40ft": 24,
+        "pallets_per_20ft": 10
+      },
+      {
+        "box_size": "Manual(2.3~3.5kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 36,
+        "rolls_per_pallet": 216
+      },
+      {
+        "box_size": "Manual(2.2kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 64,
+        "rolls_per_pallet": 384
+      },
+      {
+        "box_size": "Manual(1.5kg)",
+        "rolls_per_box": 6,
+        "boxes_per_pallet": 84,
+        "rolls_per_pallet": 504
+      }
+    ],
+    "automatic_standard_pallet": [
+      {
+        "roll_size": "Jumbo Roll (50 kg)",
+        "rolls_per_pallet": 16,
+        "pallets_per_40ft": 31,
+        "pallets_per_20ft": 20
+      },
+      {
+        "roll_size": "Jumbo Roll (55 kg)",
+        "rolls_per_pallet": 16,
+        "pallets_per_40ft": 28
+      },
+      {
+        "roll_size": "Standard Roll (16 kg)",
+        "rolls_per_pallet": 46,
+        "pallets_per_40ft": 34
+      }
+    ],
+    "automatic_euro_pallet": [
+      {
+        "roll_size": "Jumbo Roll (50 kg)",
+        "rolls_per_pallet": 16
+      },
+      {
+        "roll_size": "Jumbo Roll (55 kg)",
+        "rolls_per_pallet": 16
+      },
+      {
+        "roll_size": "Standard Roll (16 kg)",
+        "rolls_per_pallet": 45,
+        "pallets_per_40ft": 24,
+        "pallets_per_20ft": 11
+      },
+      {
+        "roll_size": "Standard Roll (16 kg)",
+        "rolls_per_pallet": 30,
+        "pallets_per_40ft": 48,
+        "pallets_per_20ft": 22
+      }
+    ]
+  },
+  "freight": [
+    {
+      "country": "Italy",
+      "shipping_rate_usd": 450
+    },
+    {
+      "country": "Spain",
+      "shipping_rate_usd": "550-600"
+    },
+    {
+      "country": "Germany",
+      "shipping_rate_usd": 600
+    },
+    {
+      "country": "Greece",
+      "shipping_rate_usd": 600
+    },
+    {
+      "country": "UK",
+      "shipping_rate_usd": "700-900"
+    },
+    {
+      "country": "Poland - Bulgaria - Portugal",
+      "shipping_rate_usd": 900
+    }
+  ]
+}
