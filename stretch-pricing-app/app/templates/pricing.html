@@ -819,7 +819,7 @@ function addStrapLine() {
       <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
       <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
     </td>
-    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable" style="width:70px;"></td>
+    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" readonly title="Rolls per pallet -- fixed by core size (not editable)" style="width:70px; background:#f0f0f0;"></td>
     <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5" style="width:60px;"></td>
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
     <td class="f-strap-exw num">0.00</td>
@@ -951,8 +951,11 @@ function addStrapLine() {
    '.f-strap-ctr40', '.f-strap-ctr20'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
+  // v124 -- .f-strap-rpp is now readonly (server-fixed by core size), so it
+  // no longer needs its own 'input' listener; it's refreshed unconditionally
+  // by calculateAll() below whenever any of the fields above changes.
   ['.f-strap-width', '.f-strap-thickness', '.f-strap-meters',
-   '.f-strap-rpp', '.f-strap-qty-pallets', '.f-strap-discount'].forEach(sel => {
+   '.f-strap-qty-pallets', '.f-strap-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
   applyLanguage();
@@ -1240,16 +1243,18 @@ async function calculateAll() {
       strapDiscInput.style.outline = '';
       strapDiscInput.title = '';
     }
-    // Rolls/pallet is pre-filled from the server's suggestion on the row's
-    // very first calculate -- when that happens, quantity_coils above was
-    // sent as 0 (the field was still empty), so total_kg/line_gross in
-    // this response are 0 too. Recompute them here from the now-known
-    // rolls/pallet instead of firing a second round trip.
-    let effectiveRolls = rollsPerPalletField.value ? parseFloat(rollsPerPalletField.value) : 0;
-    if (!effectiveRolls) {
-      effectiveRolls = data.suggested_rolls_per_pallet;
-      rollsPerPalletField.value = effectiveRolls;
-    }
+    // v124 -- Rolls/pallet is now fixed by core size (owner-confirmed: 150mm
+    // core->72, 200mm core->60, 400mm core->56, independent of Box/No-Box),
+    // and the field is readonly -- so it's ALWAYS unconditionally overwritten
+    // from the server's suggestion on every recalculate, not just filled once
+    // when empty. This is what makes it follow a Core size change instead of
+    // showing a stale value from a previous selection. quantity_coils above
+    // was computed from whatever value the field held BEFORE this response
+    // (possibly stale or 0 on the row's very first calculate), so total_kg/
+    // line_gross below are recomputed here from the now-current rolls/pallet
+    // instead of firing a second round trip.
+    const effectiveRolls = data.suggested_rolls_per_pallet;
+    rollsPerPalletField.value = effectiveRolls;
     const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
