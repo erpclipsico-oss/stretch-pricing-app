@@ -127,6 +127,18 @@
         <th data-i18n="col_price_basis">Price basis</th>
         <th data-i18n="col_colored" data-i18n-title="tip_colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
         <th data-i18n="col_uv" data-i18n-title="tip_uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
+        <!-- v119 -- owner-requested (Arabic: "اعمل باكجينج وبعدين فوق زي
+             التايتلز ... وبوكس تحت تبقى تشيك بوكس زيها زي كولر دو اليو"):
+             a proper "Packaging" column, same position/style as Colored/UV,
+             instead of the old inline text+checkbox tucked under the row.
+             Functional (Box/No Box, price-affecting) for Pre-Stretch --
+             same as before, just relocated. For Manual/Automatic it's
+             shown-but-disabled for now: Manual packing's box cost is
+             currently ALWAYS included (baked into the manual_*box_* packing
+             key lookup -- see cost_engine._pallet_key_for()), and there's
+             no confirmed "Manual, no box" cost anywhere in the sheet to
+             switch to yet -- asked the owner rather than guessing one. -->
+        <th data-i18n="col_packaging" data-i18n-title="tip_packaging" title="Box packaging. Pre-Stretch: choose Box/No Box, changes the price. Manual: currently always includes box cost (ask to make this switchable).">Packaging</th>
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll kg</th>
         <th data-i18n="col_core_kg">Core kg</th>
@@ -279,7 +291,7 @@ const I18N = {
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
-    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV',
+    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_packaging: 'Packaging',
     col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
     col_container: 'Container', col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
@@ -315,7 +327,7 @@ const I18N = {
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
-    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV',
+    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_packaging: 'التعبئة',
     col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
     col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
@@ -406,11 +418,10 @@ function applyLanguage() {
     .forEach(opt => { opt.textContent = textLabel(opt.value); });
   document.querySelectorAll('.f-basis option')
     .forEach(opt => { opt.textContent = codeLabel(opt.value); });
-  // v118 -- "Pre-Stretch packaging" is a plain checkbox now (Box/No Box),
-  // not a <select>, so its label text needs its own re-translation here on
-  // a language switch instead of the option-refresh loop above.
-  document.querySelectorAll('.f-ps-packaging-label')
-    .forEach(el => { el.textContent = t('prestretch_packaging_note'); });
+  // v119 -- Packaging is now a plain "Packaging" <th data-i18n="col_packaging">
+  // column header (handled by the generic [data-i18n] loop above), so the
+  // old special-cased ".f-ps-packaging-label" re-translation block that
+  // used to live here is gone -- nothing extra needed.
   const btn = document.getElementById('langToggleBtn');
   if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
 
@@ -553,6 +564,7 @@ function addLine(prefill) {
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from this product's own Stretch Ability"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-box" title="Box packaging"></td>
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
@@ -578,65 +590,24 @@ function addLine(prefill) {
     renumber();
   });
 
-  // Pre-Stretch lines need three extra typed-in inputs (roll wt, core wt,
-  // rolls/pallet) plus a packaging-type choice, since Pre-Stretch is
-  // made-to-order and has no fixed catalog roll weight -- shown as a second
-  // row directly under the line, revealed only when a Pre-Stretch product
-  // is selected.
-  // v114 -- owner-confirmed: Pre-Stretch should be entered exactly like
-  // every other product -- same Width/Roll wt/Core wt/Rolls-per-pallet
-  // fields on the main row, typed in directly, matching the Natura/Excel
-  // sheet's data-entry pattern. Only the pricing math differs for
-  // Pre-Stretch (Net-weight based, its own packaging cost, its own margin
-  // table, sourced from a prior Power-stage product) -- see pricing.py's
-  // compute_prestretch_line(); the data entry itself is now identical.
-  // The one genuinely different input Pre-Stretch needs is "Packaging"
-  // (Boxes / No Boxes -- a different cost component to the regular
-  // Packing type dropdown, which doesn't apply to Pre-Stretch at all), so
-  // that's the only thing still shown in this small row underneath.
-  const pr = document.createElement('tr');
-  pr.className = 'prestretch-row';
-  pr.style.display = 'none';
-  pr.innerHTML = `
-    <td></td>
-    <td colspan="18">
-      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:0.8rem; color:#666;">
-        <!-- v118 -- owner-requested (Arabic: "خليها تشاك بوكس ليه اعملها
-             دروب داون"): only 2 packaging options ever existed (Box / No
-             Box -- see app.py's prestretch_packaging_types), so a checkbox
-             takes less room than a dropdown. Checked = "boxes", unchecked =
-             "no_boxes" (same 2 values the server has always expected in
-             prestretch_packaging_type -- see readLines()/calculateAll()
-             below, only the .checked/.value read changed). -->
-        <label style="font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;">
-          <input type="checkbox" class="f-ps-packaging">
-          <span class="f-ps-packaging-label" data-i18n="prestretch_packaging_note">Pre-Stretch packaging (Box)</span>
-        </label>
-        <!-- v114 -- owner-confirmed, matched against the H1.36 sheet's
-             Stretch!AK118 ("Pallet Per Container"): Pre-Stretch's FOB/CIF
-             must be a FIXED per-SKU rate too, same as every other product,
-             not one that rises when this specific order is smaller than a
-             full container. AK118 is itself a blank, hand-typed cell in the
-             sheet (Pre-Stretch has no packing-tier lookup, made-to-order),
-             so this is typed in per line here too, exactly like Roll wt/
-             Core wt/Rolls-per-pallet already are. Left blank, FOB/CIF falls
-             back to spreading the add-on over this line's own order size
-             (the old behaviour) rather than guessing a number.
-             v118 -- owner-requested rename (Arabic: "ليه كتب لي باليتس بير
-             كونتينر مرتين ... تبقى فيها لغبطة"): this field used the exact
-             same label as the main row's own "Pallets/Container" column
-             (that one is the ORDER quantity; this one is the fixed
-             per-SKU container-capacity figure from the sheet) -- two
-             identical labels on screen at once was genuinely confusing,
-             so this one is now named distinctly. -->
-        <label style="font-size:0.78rem;"><span data-i18n="ps_pallets_container">Pallets/Container (Fixed)</span>
-          <input type="number" class="f-ps-pallets-container" min="0" step="1" style="width:70px;"
-                 title="This Pre-Stretch SKU's Pallets-per-Container (Stretch!AK118 in the reference sheet) -- used to build a fixed FOB/CIF $/KG regardless of how many pallets this quote orders. NOT the same as this line's own 'Pallets/Container' order-quantity column above. Leave blank to spread FOB/CIF over this line's own order size instead."></label>
-      </span>
-    </td>
-  `;
-  tr.after(pr);
-
+  // v119 -- owner-requested (Arabic: "ليه كتب لي باليتس بير كونتينر مرتين"
+  // + "اعمل باكجينج وبعدين فوق زي التايتلز ... تشيك بوكس زيها زي كولر دو
+  // اليو"): this whole separate "Pre-Stretch details" sub-row is GONE.
+  // Its two fields are folded into the main row instead:
+  //   - Packaging (Box/No Box) is now the ".f-box" checkbox in its own
+  //     "Packaging" column (see addLine()'s <td> block above), same
+  //     position/style as Colored/UV -- see syncPrestretchVisibility()
+  //     below for how it's wired per product type.
+  //   - The separate "Pallets/Container (Fixed)" figure (Stretch!AK118)
+  //     is GONE too -- owner-confirmed her own Pre-Stretch workflow never
+  //     needs it to differ from this line's own "Pallets/Container" order
+  //     quantity (both were always being typed as the same number
+  //     anyway), so FOB/CIF for Pre-Stretch now always spreads over this
+  //     line's own order quantity (rc.totalKg in the FOB loop below) --
+  //     this is exactly the v114 "Pallets/Container" field left blank,
+  //     which app.py's/pricing.py's own fallback already handles
+  //     correctly (fob_denom_kg falls back to total_kg when no separate
+  //     figure is sent), so no backend change was needed for this part.
   function prefillRollSpec() {
     const p = PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value));
     if (!p) return;
@@ -691,11 +662,43 @@ function addLine(prefill) {
       : (show ? 'net_per_kg' : 'per_kg');
   }
 
+  // v119 -- owner-requested: the "Packaging" column's checkbox (".f-box")
+  // is real and price-affecting ONLY for Pre-Stretch (Box/No Box, same
+  // mechanism as before, just relocated into this column). For a Manual-
+  // packed regular line it's shown CHECKED but DISABLED -- Manual packing
+  // already always includes box cost today (baked into the
+  // manual_*box_*_usd/eur packing-tier lookup, not a separate toggle --
+  // see cost_engine._pallet_key_for()) and there's no confirmed "Manual,
+  // no box" price anywhere in the reference sheet to switch to instead, so
+  // this stays a fixed, informational checkmark until that's confirmed
+  // rather than silently guessing a different price. For Automatic it's
+  // shown unchecked+disabled (no box concept applies there at all).
+  function syncBoxCheckbox() {
+    const boxCb = tr.querySelector('.f-box');
+    const isPs = isPrestretch(tr.querySelector('.f-product').value);
+    if (isPs) {
+      boxCb.disabled = false;
+      // default unchanged from the old dropdown's own default
+      // ("no_boxes" was PRESTRETCH_PACKAGING_TYPES[0], unselected) --
+      // only set it the FIRST time this line becomes Pre-Stretch, never
+      // stomp a choice the rep already made.
+      if (!boxCb.dataset.psInit) {
+        boxCb.checked = false;
+        boxCb.dataset.psInit = '1';
+      }
+    } else {
+      delete boxCb.dataset.psInit;
+      const isManual = (tr.querySelector('.f-packing').value || '').toLowerCase().includes('manual');
+      boxCb.checked = isManual;
+      boxCb.disabled = true;
+    }
+  }
+
   function syncPrestretchVisibility() {
     const show = isPrestretch(tr.querySelector('.f-product').value);
     syncBasisOptions(show);
-    pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
+    syncBoxCheckbox();
     // v115 -- owner-confirmed: Pallet Type (Standard/Euro) and Container
     // (20ft/40ft) stay selectable for Pre-Stretch too, exactly like every
     // other product -- the sheet's own Pre-Stretch row has a "Pallet size"
@@ -724,14 +727,17 @@ function addLine(prefill) {
   // v44 -- see scheduleRecalc()'s comment: every field that feeds the
   // price now auto-recalculates instead of requiring a manual Calculate
   // click, most importantly Packing type and Pricing basis.
-  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv'].forEach(sel => {
+  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv', '.f-box'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
-  pr.querySelector('.f-ps-packaging').addEventListener('change', scheduleRecalc);
-  pr.querySelector('.f-ps-pallets-container').addEventListener('input', scheduleRecalc);
+  // v119 -- Packing type also drives the Packaging checkbox's own
+  // checked/disabled state for a non-Pre-Stretch line (see
+  // syncBoxCheckbox() above), so it needs its own listener here too, not
+  // just on product change.
+  tr.querySelector('.f-packing').addEventListener('change', syncBoxCheckbox);
   // v100 -- newly-created rows must reflect the currently active language
   // immediately (option text especially), not just elements present at
   // initial page load.
@@ -997,17 +1003,21 @@ function readLines() {
       container_pref: tr.querySelector('.f-container').value,
     };
     if (isPrestretch(line.product_id)) {
-      // v114 -- Roll wt/Core wt/Rolls-per-pallet now come from the SAME
-      // main-row fields every other product uses (see syncPrestretchVisibility()),
-      // not a separate duplicate row -- only "Packaging" (Boxes/No Boxes)
-      // still has no equivalent on the main row.
-      const pr = tr.nextElementSibling;
+      // v114 -- Roll wt/Core wt/Rolls-per-pallet come from the SAME
+      // main-row fields every other product uses (see
+      // syncPrestretchVisibility()). v119 -- Packaging (Box/No Box) now
+      // comes from the same main-row "Packaging" column every product has
+      // (".f-box") too -- no more separate sub-row. The separate "Pallets/
+      // Container (Fixed)" figure is gone entirely (owner-confirmed it
+      // always duplicated this line's own quantity_pallets in her real
+      // usage) -- prestretch_pallets_per_container is simply never sent
+      // any more, so app.py's/pricing.html's own existing fallback (spread
+      // FOB/CIF over this line's own order quantity) applies every time,
+      // consistently on both the live calculator and the saved quotation.
       line.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
       line.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
       line.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').checked ? 'boxes' : 'no_boxes';
-      const psPalletsContainer = pr.querySelector('.f-ps-pallets-container').value;
-      line.prestretch_pallets_per_container = psPalletsContainer !== '' ? parseFloat(psPalletsContainer) : null;
+      line.prestretch_packaging_type = tr.querySelector('.f-box').checked ? 'boxes' : 'no_boxes';
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1071,12 +1081,12 @@ async function calculateAll() {
       preview_as_user_id: previewAsUserId(),
     };
     if (isPrestretch(product_id)) {
-      // v114 -- same main-row fields as every other product; see readLines().
-      const pr = tr.nextElementSibling;
+      // v114/v119 -- same main-row fields as every other product,
+      // including Packaging (".f-box") now; see readLines().
       payload.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
       payload.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
       payload.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').checked ? 'boxes' : 'no_boxes';
+      payload.prestretch_packaging_type = tr.querySelector('.f-box').checked ? 'boxes' : 'no_boxes';
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1146,14 +1156,6 @@ async function calculateAll() {
       pallets40: data.pallets_per_container40 || 0,
       pallets20: data.pallets_per_container20 || 0,
       containerPref: tr.querySelector('.f-container') ? tr.querySelector('.f-container').value : '40ft',
-      // v114 -- the rep's own typed Pallets/Container for this Pre-Stretch
-      // line (see addLine()'s matching v114 comment); used below the same
-      // way pallets40/pallets20 are for every other product, so Pre-Stretch
-      // also gets a FIXED per-SKU FOB/CIF $/KG instead of one that rises
-      // when this order is smaller than a full container.
-      prestretchPalletsPerContainer: isPrestretch(product_id)
-        ? parseFloat((tr.nextElementSibling.querySelector('.f-ps-pallets-container').value) || 0)
-        : 0,
     });
   }
 
@@ -1332,20 +1334,20 @@ async function calculateAll() {
   // Total above are unaffected by this -- they still add each add-on
   // exactly once, matching a real invoice, not once per line.
   for (const rc of rowCalc) {
+    // v119 -- Pre-Stretch no longer has its own separate "Pallets/Container
+    // (Fixed)" figure (owner-confirmed it always duplicated this line's own
+    // order quantity in her real usage -- removed per her explicit ask).
+    // rc.totalKg IS already qty_pallets x rolls/pallet x NET weight for a
+    // Pre-Stretch line (see pricing.py's compute_prestretch_line() --
+    // roll_weight is net-converted before total_kg is built), so it's the
+    // exact same figure the old fixed field used to produce whenever the
+    // rep typed the same number into both -- just with one field instead
+    // of two now.
     let fobDenomKg = rc.totalKg;
     if (!rc.isPrestretchLine) {
       const pallets = (rc.containerPref === '20ft') ? (rc.pallets20 || rc.pallets40) : (rc.pallets40 || rc.pallets20);
       if (pallets && rc.rollsPerPallet && rc.rollWeightKg) {
         fobDenomKg = pallets * rc.rollsPerPallet * rc.rollWeightKg;
-      }
-    } else if (rc.prestretchPalletsPerContainer && rc.rollsPerPallet) {
-      // v114 -- same fixed-per-SKU idea as above, for Pre-Stretch: use the
-      // rep's own typed Pallets/Container x Rolls/Pallet x NET weight
-      // (Pre-Stretch is always Net -- see compute_prestretch_line()'s v99
-      // comment), matching Stretch!AK118*G118*J118 in the sheet exactly.
-      const netWt = Math.max((rc.rollWeightKg || 0) - (rc.coreWeightKg || 0), 0);
-      if (netWt) {
-        fobDenomKg = rc.prestretchPalletsPerContainer * rc.rollsPerPallet * netWt;
       }
     }
     const lineFobAddonPerKg = fobDenomKg > 0 ? fobAddon / fobDenomKg : 0;
