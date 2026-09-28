@@ -590,7 +590,13 @@ def create_app():
 
         if q_id:
             existing = db.execute("SELECT * FROM quotation WHERE id=?", (q_id,)).fetchone()
-            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]):
+            # v121 -- also allow whoever actually saved this quotation last
+            # (existing["saved_by_id"]), not just 'admin' or the pricing-
+            # attributed created_by_id -- see db.py's matching v121 comment
+            # (quotation.saved_by_id) for the "Act as" bug this fixes.
+            existing_saved_by = existing["saved_by_id"] if existing and "saved_by_id" in existing.keys() else None
+            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]
+                                 and existing_saved_by != g.user["id"]):
                 abort(403)
 
         quotation_no = data.get("quotation_no") or None
@@ -620,13 +626,16 @@ def create_app():
                 "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
             ).fetchone()
 
+        # v121 -- saved_by_id: the REAL logged-in person doing this save,
+        # always g.user regardless of "Act as" -- see db.py's matching
+        # v121 comment (quotation.saved_by_id).
         if q_id:
             db.execute(
                 """UPDATE quotation SET quotation_no=?, customer_name=?, loading_port=?, destination=?,
                    payment_term=?, customer_class=?, country_class=?, seller_type=?, global_discount_pct=?,
-                   status='saved' WHERE id=?""",
+                   status='saved', saved_by_id=? WHERE id=?""",
                 (quotation_no, customer_name, loading_port, destination, payment_term,
-                 customer_class, country_class, seller_type, global_discount_pct, q_id),
+                 customer_class, country_class, seller_type, global_discount_pct, g.user["id"], q_id),
             )
             db.execute("DELETE FROM quotation_line WHERE quotation_id=?", (q_id,))
             quotation_id = q_id
@@ -635,10 +644,11 @@ def create_app():
             cur = db.execute(
                 """INSERT INTO quotation
                    (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
-                    country_class, seller_type, global_discount_pct, status, created_by_id, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?, ?)""",
+                    country_class, seller_type, global_discount_pct, status, created_by_id, saved_by_id,
+                    created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?,?,?)""",
                 (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
-                 country_class, seller_type, global_discount_pct, new_created_by_id,
+                 country_class, seller_type, global_discount_pct, new_created_by_id, g.user["id"],
                  datetime.now(timezone.utc).isoformat()),
             )
             quotation_id = cur.lastrowid
@@ -966,11 +976,17 @@ def create_app():
                    ORDER BY q.created_at DESC"""
             ).fetchall()
         else:
+            # v121 -- also list whatever this person actually saved
+            # (q.saved_by_id), not just quotations attributed to them as
+            # created_by_id -- see db.py's matching v121 comment
+            # (quotation.saved_by_id): otherwise a quotation saved while
+            # "Act as"-previewing someone else never showed up in the
+            # actual saver's own history at all.
             rows = db.execute(
                 """SELECT q.*, u.username as creator_username, u.full_name as creator_name
                    FROM quotation q LEFT JOIN user u ON u.id = q.created_by_id
-                   WHERE q.created_by_id=? ORDER BY q.created_at DESC""",
-                (g.user["id"],),
+                   WHERE q.created_by_id=? OR q.saved_by_id=? ORDER BY q.created_at DESC""",
+                (g.user["id"], g.user["id"]),
             ).fetchall()
         quotations = [dict(r, total=compute_totals(db, r)["total"]) for r in rows]
         return render_template("history.html", quotations=quotations)
@@ -1004,7 +1020,14 @@ def create_app():
         q = db.execute("SELECT * FROM quotation WHERE id=?", (qid,)).fetchone()
         if not q:
             abort(404)
-        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"]:
+        # v121 -- also allow whoever actually saved this quotation
+        # (q["saved_by_id"]), not just 'admin' or the pricing-attributed
+        # created_by_id -- see db.py's matching v121 comment
+        # (quotation.saved_by_id) for the "Act as" 403 bug this fixes
+        # (owner-reported: a sub_admin who saved a quote while previewing
+        # as another rep got 403 opening/exporting their own quotation).
+        q_saved_by = q["saved_by_id"] if "saved_by_id" in q.keys() else None
+        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"] and q_saved_by != g.user["id"]:
             abort(403)
         line_rows = db.execute(
             """SELECT ql.*, p.stretch_ability, p.micron, p.is_prestretch,
@@ -1848,11 +1871,13 @@ def create_app():
         strap_pricing._dollar_rate()'s docstring)."""
         db = g.db
         if request.method == "POST":
-            # v88 -- Strap's own independent Dollar Rate (no longer shared
-            # with Stretch Film's Global Settings row).
-            val = request.form.get("strap_dollar_rate")
-            if val is not None and val != "":
-                db.execute("UPDATE global_setting SET value=? WHERE key='strap_dollar_rate'", (float(val),))
+            # v122 -- PET and PP now each have their own independent Dollar
+            # Rate (no longer shared strap_dollar_rate -- see
+            # strap_pricing._dollar_rate()'s matching v122 comment).
+            for key in ("pet_dollar_rate", "pp_dollar_rate"):
+                val = request.form.get(key)
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
 
             # Material prices (pet_*/pp_* rows only).
             for row in db.execute(
@@ -1913,8 +1938,11 @@ def create_app():
             flash("PET/PP Strap costing updated.", "success")
             return redirect(url_for("admin_strap_costing"))
 
-        # v88 -- Strap's own Dollar Rate (independent from Stretch Film's).
-        dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='strap_dollar_rate'").fetchone()
+        # v122 -- PET/PP each have their own Dollar Rate now (independent
+        # from Stretch Film's AND from each other -- see
+        # strap_pricing._dollar_rate()'s matching v122 comment).
+        pet_dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='pet_dollar_rate'").fetchone()
+        pp_dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='pp_dollar_rate'").fetchone()
         material_rates = {
             "pet_resin": db.execute(
                 "SELECT * FROM material_rate WHERE material_key LIKE 'pet_%' AND category='resin' ORDER BY label"
@@ -1979,7 +2007,8 @@ def create_app():
         max_discount = db.execute("SELECT value FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
         return render_template(
             "admin_strap_costing.html",
-            dollar_rate=dollar_rate["value"] if dollar_rate else 45,
+            pet_dollar_rate=pet_dollar_rate["value"] if pet_dollar_rate else 47,
+            pp_dollar_rate=pp_dollar_rate["value"] if pp_dollar_rate else 47,
             material_rates=material_rates,
             boms=boms,
             line_configs=line_configs,

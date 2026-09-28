@@ -108,8 +108,10 @@ CREATE TABLE IF NOT EXISTS quotation (
     global_discount_pct REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
     created_by_id INTEGER,
+    saved_by_id INTEGER,
     created_at TEXT,
-    FOREIGN KEY (created_by_id) REFERENCES user(id)
+    FOREIGN KEY (created_by_id) REFERENCES user(id),
+    FOREIGN KEY (saved_by_id) REFERENCES user(id)
 );
 
 CREATE TABLE IF NOT EXISTS quotation_line (
@@ -423,6 +425,7 @@ def init_db():
     _seed_super_rigid_dynamic_microns_v83(conn)
     _seed_super_rigid_dynamic_micron8_v84(conn)
     _fix_super_rigid_auto_manual_v85(conn)
+    _fix_v122_owner_requested_updates(conn)
     conn.close()
 
 
@@ -586,6 +589,31 @@ def _migrate(conn):
         # column existed keeps reading as the box-packed price it was
         # actually priced and saved as.
         conn.execute("ALTER TABLE quotation_line ADD COLUMN box_packaging INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
+
+    quotation_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation)").fetchall()}
+    if "saved_by_id" not in quotation_cols:
+        # v121 -- bugfix: a sub_admin/admin using "Act as [salesperson]"
+        # (ACT_AS_ROLES) to preview and save a BRAND-NEW quotation gets it
+        # attributed to the impersonated rep's own id (created_by_id -- see
+        # api_save_quotation()'s v99/v102 comments; this is correct and
+        # unchanged, it's what makes future pricing/markup resolve exactly
+        # as that rep would get). But load_quotation()'s own access check
+        # (view/PDF/Excel) and history()'s own listing query both only ever
+        # allowed 'admin' OR created_by_id==g.user -- so a sub_admin (not
+        # 'admin') who actually clicked Save while acting as someone else
+        # got 403 Forbidden trying to open/export/even just SEE in their
+        # own history the very quotation they just made (owner-reported,
+        # screenshot: /quotations/3/excel -> 403). saved_by_id records the
+        # REAL logged-in person who last saved it (always g.user, never the
+        # impersonated rep), independent of created_by_id's own pricing-
+        # attribution meaning, so the three permission checks can also
+        # allow "whoever actually saved this" through -- without changing
+        # who it's priced/attributed as at all. NULL on every quotation
+        # saved before this column existed (no old quotation gets narrower
+        # access than it already had -- 'admin' or the original
+        # created_by_id keep working exactly as before).
+        conn.execute("ALTER TABLE quotation ADD COLUMN saved_by_id INTEGER REFERENCES user(id)")
         conn.commit()
 
     # ---- Per-line custom roll spec for EVERY product, not just Pre-Stretch
@@ -1187,6 +1215,36 @@ def _fix_prestretch_extra_v117(conn):
     if row is not None and row["value"] == 0.12:
         conn.execute("UPDATE global_setting SET value=0.10 WHERE key='extra_prestretch_usd_kg'")
         conn.commit()
+    conn.commit()
+
+
+def _fix_v122_owner_requested_updates(conn):
+    """One-time, owner-requested live-data updates (2026-09-28, Arabic:
+    "غير سعر الانيبل لالف ربعمية وتسعين وحط العمولة بتاعة مانوال 1.5%
+    للستراب و 0.75% للستراتش وسيم اون لباسكوالي"). Same defensive pattern
+    as _fix_prestretch_extra_v117 above: each value is only touched while
+    it is still EXACTLY its old seeded default -- if the owner has since
+    edited it to something else in Admin, that edit is left alone.
+
+    - Enable (Stretch Film resin, material_rate.material_key='enable'):
+      1290 -> 1490 $/ton.
+    - Manuel's and Pasquale's own hidden Stretch Film markup
+      (user.stretch_markup_value, 'percent' mode): 1.5 -> 0.75. Their Strap
+      markup (user.strap_markup_value) is UNCHANGED -- the owner's own
+      1.5% figure for Strap is the same value already seeded, she just
+      named it again for clarity when giving the new Stretch figure."""
+    row = conn.execute("SELECT value FROM material_rate WHERE material_key='enable'").fetchone()
+    if row is not None and row["value"] == 1290:
+        conn.execute("UPDATE material_rate SET value=1490 WHERE material_key='enable'")
+
+    for username in ("manuel", "pasquale"):
+        row = conn.execute(
+            "SELECT stretch_markup_mode, stretch_markup_value FROM user WHERE username=?", (username,)
+        ).fetchone()
+        if row is not None and row["stretch_markup_mode"] == "percent" and row["stretch_markup_value"] == 1.5:
+            conn.execute(
+                "UPDATE user SET stretch_markup_value=0.75 WHERE username=?", (username,)
+            )
     conn.commit()
 
 
@@ -3078,6 +3136,33 @@ def _seed_strap_data(conn):
              "every EGP-priced Strap material/electricity/fixed-cost/direct-labor figure into $. "
              "Edit it from the PET/PP Strap Costing page."),
         )
+    conn.commit()
+
+    # v122 -- owner-requested further split (Arabic: "ما تربطش سعر الدولار
+    # بتاع البولي بروبولين والبي اي تي ببعض ... خلي كل واحد فيهم يبقى ليه
+    # سعر دولار لوحده"): PET and PP no longer share strap_dollar_rate
+    # either -- each gets its own row (pet_dollar_rate / pp_dollar_rate),
+    # editable independently on the PET/PP Strap Costing page (see
+    # strap_pricing._dollar_rate()'s matching v122 comment). Unlike the
+    # v88/v94 splits above, this one is NOT seeded from "whatever the
+    # shared value is worth right now" -- the owner gave an explicit new
+    # figure to set both to immediately (47), so both are seeded directly
+    # at that value rather than carrying over strap_dollar_rate's old one.
+    # strap_dollar_rate itself is left in the DB, untouched and simply no
+    # longer read by any code path, rather than deleted.
+    for key, label in (
+        ("pet_dollar_rate", "PET Strap: Dollar Rate (EGP per $1)"),
+        ("pp_dollar_rate", "PP Strap: Dollar Rate (EGP per $1)"),
+    ):
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+                (key, label, 47,
+                 "Independent of the other Strap line's own Dollar Rate and of Stretch Film's -- "
+                 "converts this line's own EGP-priced material/electricity/fixed-cost/direct-labor "
+                 "figures into $. Edit it from the PET/PP Strap Costing page."),
+            )
     conn.commit()
 
     # v94 -- owner-requested split: PET/PP Strap now has its OWN Max

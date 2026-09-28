@@ -177,11 +177,16 @@ def _material_rate(conn, line_key, suffix):
     return row["value"] if row else 0.0
 
 
-def _dollar_rate(conn):
+def _dollar_rate(conn, line_key):
     # v88 -- owner-requested split: independent from Stretch Film's own
-    # "dollar_rate" (Global Cost Settings) -- see db.py's strap_dollar_rate
-    # seed note. Editable on the PET/PP Strap Costing page.
-    return _get_setting(conn, "strap_dollar_rate", 45)
+    # "dollar_rate" (Global Cost Settings).
+    # v122 -- owner-requested further split: PET and PP no longer share one
+    # Dollar Rate either -- each line now has its own ("pet_dollar_rate" /
+    # "pp_dollar_rate"), set independently on the PET/PP Strap Costing
+    # page. Replaces the single shared "strap_dollar_rate" row (left in
+    # place in the DB, unused, rather than deleted -- see db.py's matching
+    # v122 seed comment).
+    return _get_setting(conn, f"{line_key}_dollar_rate", 47)
 
 
 def _get_bom(conn, line_key, bom_key):
@@ -303,13 +308,33 @@ def _packaging_addons(conn, line_key, dollar_rate, core_weight_kg, has_box, has_
 
 
 def suggest_rolls_per_pallet(core_weight_kg, has_box):
-    """The rolls/pallet figure implicit in each sheet's own container-share
-    formula (the "72"/"66"/"52" divisors), surfaced as its own value so a
-    rep can see -- and override -- it directly instead of it staying
-    buried inside the FOB/CFR math. Purely a quantity-conversion default
-    (Qty (pallets) x Rolls/pallet -> total coils); overriding it does not
-    change the container-freight math itself, which keeps using the
-    verified per-sheet formula in _container_share below."""
+    """The rolls/pallet figure shown to a rep/customer (quote builder live
+    preview + the printed PDF/Excel/view page) and used to convert Qty
+    (pallets) -> total coils. Purely a quantity-conversion default;
+    overriding it does not change the container-freight math itself, which
+    keeps using the verified per-sheet formula in _container_share below
+    (same relationship suggest_pallets_per_container has to that function
+    -- see its own docstring).
+
+    v120 -- owner-confirmed, explicit fixed figures by core size, no
+    longer split by Box/No-Box (Arabic: "عايزاك تثبت دول ... مافيهاش تغير"):
+    core 150mm (0.25kg) -> 72, core 200mm (0.5kg) -> 60, core 400mm
+    (1.0kg) -> 56, for every line regardless of has_box. This REPLACES the
+    old has_box-dependent 72/66/52 split (which also treated 150mm and
+    200mm core identically) -- has_box is kept as a parameter only because
+    both existing call sites (api_calculate_strap_line, load_quotation)
+    already pass it; it no longer affects the return value."""
+    if core_weight_kg == 0.25:
+        return 72
+    if core_weight_kg == 0.5:
+        return 60
+    if core_weight_kg == 1.0:
+        return 56
+    # Fallback for a core weight outside the three owner-confirmed sizes
+    # above (shouldn't happen -- CORE_SIZES_MM only ever produces 0.25/0.5/
+    # 1.0 -- see app.py's api_calculate_strap_line). Keeps the old
+    # has_box-based behavior rather than guessing a new fixed figure for a
+    # core size the owner hasn't confirmed one for.
     small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
     if small:
         return 72 if has_box else 66
@@ -405,7 +430,7 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     line_numbers = _get_line_config(conn, line_key)
     bom = _get_bom(conn, line_key, product["bom_key"])
     components = bom["components"]
-    dollar_rate = _dollar_rate(conn)
+    dollar_rate = _dollar_rate(conn, line_key)
 
     net_weight_g_per_m = meter_weight_g_per_m(line_key, product, components)
     roll_net_kg = product["meters_per_coil"] * net_weight_g_per_m / 1000.0

@@ -32,14 +32,18 @@
 
     <div class="panel-header" style="margin-top:8px;"><h2>Dollar Rate</h2></div>
     <p class="hint" style="margin-bottom:10px;">
-      PET/PP Strap's own Dollar Rate — independent of Stretch Film's (Global Cost Settings page).
-      Used to convert every EGP-priced material/electricity/fixed-cost/direct-labor figure below
-      into $.
+      PET and PP Strap each have their own independent Dollar Rate — separate from Stretch Film's
+      (Global Cost Settings page) and from each other. Used to convert every EGP-priced
+      material/electricity/fixed-cost/direct-labor figure below into $, for that line only.
     </p>
     <div class="edit-grid">
       <div class="edit-row">
-        <span style="width:220px;">Dollar Rate (EGP per $1)</span>
-        <input type="number" step="any" name="strap_dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
+        <span style="width:220px;">PET Dollar Rate (EGP per $1)</span>
+        <input type="number" step="any" name="pet_dollar_rate" value="{{ pet_dollar_rate }}" style="width:100px;">
+      </div>
+      <div class="edit-row">
+        <span style="width:220px;">PP Dollar Rate (EGP per $1)</span>
+        <input type="number" step="any" name="pp_dollar_rate" value="{{ pp_dollar_rate }}" style="width:100px;">
       </div>
     </div>
 
