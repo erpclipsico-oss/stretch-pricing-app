@@ -248,7 +248,8 @@ const FREIGHT = [
 ];
 const STRAP_PRODUCTS = [
   {% for p in strap_products %}
-  {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }}},
+  {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }},
+   has_box: {{ (p.has_box or 0)|tojson }}},
   {% endfor %}
 ];
 const STRAP_BOM_LABELS = {{ strap_bom_labels|tojson }};
@@ -326,8 +327,7 @@ const I18N = {
     tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
     tip_breaking_strength: 'Auto-computed from Width/Thickness (Ultimate breaking force). Type your own value here instead to see the equivalent g/m -- this field is informational only and never changes the priced g/m/weight.',
     discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
-    discount_capped_notice_prefix: '⚠️ Discount capped — ',
-    discount_capped_notice_admin_suffix: ' The entered discount (line + global, added together) was higher than the max allowed for that category, so it was automatically capped before pricing. Affected lines are outlined in orange. Edit each category\'s own cap in Admin.',
+    discount_capped_notice_prefix: '⚠️ Max Discount allowed — ',
     gross_weight_notice: "🚫 {line}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.",
     act_as_note: "Prices below reflect {name}'s own pricing.",
   },
@@ -366,8 +366,7 @@ const I18N = {
     tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
     tip_breaking_strength: 'بيتحسب تلقائيًا من العرض/السمك (قوة الشد القصوى). اكتبي رقم بنفسك بدل كده عشان تشوفي الجرام/متر المعادل ليه -- الحقل ده للمعلومة بس ومش بيغيّر الجرام/الوزن المستخدم في التسعير.',
     discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
-    discount_capped_notice_prefix: '⚠️ الخصم اتقفل — ',
-    discount_capped_notice_admin_suffix: ' الخصم المدخل (السطر + العام، مجموعين) كان أعلى من الحد الأقصى المسموح لهذه الفئة، فاتقفل تلقائيًا قبل التسعير. السطر المتأثر متعلّم باللون البرتقالي. تقدري تعدّلي حد كل فئة من الأدمن.',
+    discount_capped_notice_prefix: '⚠️ الحد الأقصى للخصم — ',
     gross_weight_notice: '🚫 {line}: وزن الرول تجاوز الحد الأقصى المسموح -- قلّلي المتر/الكويل في السطر المتعلّم باللون الأحمر. عرض السعر مش هيتحفظ لحد ما ده يتصلح.',
     act_as_note: 'الأسعار اللي تحت دي بتعكس أسعار {name}.',
   },
@@ -396,18 +395,18 @@ function tf(key, vars) {
   return s;
 }
 
-// v128 -- owner-requested: the discount-capped warning must stay SHORT for
-// a regular user -- just which category(ies) got capped and their max %,
-// nothing else -- and only an admin/sub_admin should see the fuller
-// explanation on top of that. `categories` is [{label, max}, ...],
-// deduplicated by the caller so each category only appears once even if
-// several lines hit the same cap.
+// v129 -- owner-requested (after seeing v128's admin-only long explanation
+// live -- too much even for her): the discount-capped warning stays SHORT
+// for EVERYONE now, admin included -- just "Max Discount allowed --
+// <Category>: <max>%" per capped category, nothing else. No more separate
+// admin-only sentence. `categories` is [{label, max}, ...], deduplicated by
+// the caller so each category only appears once even if several lines hit
+// the same cap. IS_ADMIN is kept (see its const above) in case a future
+// admin-only addition is wanted again, but nothing currently uses it here.
 function buildDiscountCapNotice(categories) {
   if (!categories || !categories.length) return '';
-  const list = categories.map(c => `${c.label} ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
-  let msg = tf('discount_capped_notice_prefix') + list;
-  if (IS_ADMIN) msg += tf('discount_capped_notice_admin_suffix');
-  return msg;
+  const list = categories.map(c => `${c.label}: ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
+  return tf('discount_capped_notice_prefix') + list;
 }
 
 // English label <-> Arabic label, keyed by the option's own `value`
@@ -600,10 +599,13 @@ function addLine(prefill) {
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher"></td>
     <td>
-      <select class="f-container" title="Which container size (40ft/20ft) the printed Pallets/Container reference figure should show (v127 -- doesn't affect price; FOB/CIF $/KG is driven by the Pallets/container quantity field instead)">
-        <option value="40ft" selected>40ft</option>
-        <option value="20ft">20ft</option>
-      </select>
+      <span style="display:inline-flex; flex-direction:column; gap:2px;">
+        <select class="f-container" title="Which container size (40ft/20ft) the printed Pallets/Container reference figure should show (v127 -- doesn't affect price; FOB/CIF $/KG is driven by the Pallets/container quantity field instead)">
+          <option value="40ft" selected>40ft</option>
+          <option value="20ft">20ft</option>
+        </select>
+        <small class="f-container-hint" style="color:#888; white-space:nowrap;"></small>
+      </span>
     </td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-exw num">0.000</td>
@@ -774,6 +776,27 @@ function addLine(prefill) {
   ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv', '.f-box'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
+  // v132 -- owner-reported: picking 40ft/20ft here did NOTHING visible at
+  // all -- not even a recalculate -- because .f-container was missing from
+  // this same recalc-trigger list every other price-affecting field is in
+  // (compare the v44 comment above). It still doesn't change the price
+  // itself (that's the deliberate v127 design, unchanged -- FOB/CIF $/KG is
+  // driven by the Pallets (Qty) field, not by this reference size), but the
+  // rep needs to SEE her pick was registered -- so this also instantly
+  // flips the small Pallets/Container hint under the dropdown (from the
+  // rolls_per_pallet-based figures the last recalculate already returned,
+  // no extra round trip needed) in addition to firing a fresh recalculate.
+  tr.querySelector('.f-container').addEventListener('change', () => {
+    updateContainerHint();
+    scheduleRecalc();
+  });
+  function updateContainerHint() {
+    const hint = tr.querySelector('.f-container-hint');
+    const pref = tr.querySelector('.f-container').value;
+    const p40 = tr.dataset.pallets40, p20 = tr.dataset.pallets20;
+    const val = pref === '20ft' ? p20 : p40;
+    hint.textContent = (val !== undefined && val !== '') ? `Pallets/Ctr: ${val}` : '';
+  }
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
@@ -1167,6 +1190,15 @@ async function calculateAll() {
       product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
       line_discount_pct, global_discount_pct: globalDiscountPct,
       preview_as_user_id: previewAsUserId(),
+      // v130 -- owner-reported: the live calculator never sent Payment Term
+      // at all for Stretch Film/Pre-Stretch lines, so the on-screen $/kg
+      // never reflected the Credit payment terms extra (Extras > Credit
+      // payment terms extra -- cost_engine.credit_term_extra_usd_kg()) when
+      // switching from Cash to 30/60/90 days -- it only ever applied once
+      // the quote was actually saved (api_save_quotation() already reads
+      // this correctly). Strap's own live-calc payload already sent this
+      // (see the strap-lines loop below) -- Stretch's just never did.
+      payment_term: document.getElementById('payment_term').value,
     };
     if (isPrestretch(product_id)) {
       // v114/v119 -- same main-row fields as every other product,
@@ -1250,6 +1282,19 @@ async function calculateAll() {
       pallets20: data.pallets_per_container20 || 0,
       containerPref: tr.querySelector('.f-container') ? tr.querySelector('.f-container').value : '40ft',
     });
+    // v132 -- see this row's own '.f-container' change-listener comment:
+    // stash the fresh Pallets/Container(40ft/20ft) figures on the row so a
+    // later Container toggle can flip the on-screen hint instantly, and
+    // refresh the hint right now too (e.g. after the roll/product changed
+    // and the figures moved).
+    if (tr.querySelector('.f-container')) {
+      tr.dataset.pallets40 = data.pallets_per_container40 || '';
+      tr.dataset.pallets20 = data.pallets_per_container20 || '';
+      const hint = tr.querySelector('.f-container-hint');
+      const pref = tr.querySelector('.f-container').value;
+      const val = pref === '20ft' ? tr.dataset.pallets20 : tr.dataset.pallets40;
+      hint.textContent = val ? `Pallets/Ctr: ${val}` : '';
+    }
   }
 
   // Strap lines (PET/PP): each line already returns its own final CFR

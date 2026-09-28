@@ -522,6 +522,19 @@ def create_app():
             ).fetchone()
             if not product:
                 return jsonify({"error": "Unknown strap product"}), 400
+            # v132 -- owner-reported: the Box/No Box checkbox never changed
+            # the price for a CATALOG strap line -- only a Custom strap line
+            # ever sent its own strap_has_box (pricing.html only included it
+            # inside the "if (custom)" branch of both the live-calc and
+            # save-quotation payloads), so a catalog line always priced off
+            # the catalog product's own fixed has_box column no matter what
+            # the rep ticked. Fixed in pricing.html to send strap_has_box
+            # for every strap line now, catalog included; here, that value
+            # (when present) overrides this one line's own has_box before
+            # pricing/stuffing, same as a Custom line's checkbox already did.
+            product = dict(product)
+            if "strap_has_box" in data:
+                product["has_box"] = bool(data.get("strap_has_box"))
         qty_coils = float(data.get("quantity_coils") or 0)
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
@@ -724,6 +737,14 @@ def create_app():
                     if not strap_product:
                         continue
                     strap_product_id = strap_product["id"]
+                    # v132 -- same catalog-line Box/No Box override as
+                    # api_calculate_line()'s matching v132 comment -- applied
+                    # again here at save time so the frozen saved price
+                    # matches whatever the rep last saw on screen, not the
+                    # catalog product's own fixed has_box.
+                    strap_product = dict(strap_product)
+                    if "strap_has_box" in l:
+                        strap_product["has_box"] = bool(l.get("strap_has_box"))
                 # v33 -- quantity is now entered as Qty (pallets) x an
                 # editable Rolls/pallet (like Stretch Film), not typed
                 # directly as a coil count. The client computes the coil
@@ -819,17 +840,24 @@ def create_app():
                          int(strap_product["ctr40"]), int(strap_product["has_pallet"])),
                     )
                 else:
+                    # v132 -- strap_custom_has_box is reused here (NULL-able,
+                    # unchanged column) to freeze this catalog line's own
+                    # effective Box/No Box choice (catalog default, possibly
+                    # overridden above) -- see load_quotation()'s matching
+                    # v132 comment for why display/PDF/Excel read it back the
+                    # same way for a catalog line as for a Custom one now.
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
                             unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg,
                             ex_work_price_usd_kg, total_kg,
-                            line_discount_pct, pricing_basis, product_line)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            line_discount_pct, pricing_basis, product_line, strap_custom_has_box)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
                          qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg,
                          ex_work_price_usd_kg, total_kg,
-                         line_discount_pct, "per_coil", line_product_line),
+                         line_discount_pct, "per_coil", line_product_line,
+                         int(bool(strap_product["has_box"]))),
                     )
                 continue
 
@@ -1070,7 +1098,8 @@ def create_app():
                       p.width_mm AS p_width_mm, p.rolls_per_pallet AS p_rolls_per_pallet,
                       sp.code AS strap_code, sp.bom_key AS sp_bom_key, sp.width_mm AS sp_width_mm,
                       sp.thickness_mm AS sp_thickness_mm, sp.core_weight_kg AS sp_core_weight_kg,
-                      sp.meters_per_coil AS sp_meters_per_coil
+                      sp.meters_per_coil AS sp_meters_per_coil, sp.has_box AS sp_has_box,
+                      sp.has_pallet AS sp_has_pallet, sp.ctr20 AS sp_ctr20, sp.ctr40 AS sp_ctr40
                FROM quotation_line ql
                LEFT JOIN product p ON p.id = ql.product_id
                     AND (ql.product_line IS NULL OR ql.product_line = 'stretch_film')
@@ -1146,14 +1175,41 @@ def create_app():
             # core-weight/box/container-type inputs and shown on the
             # exported PDF/Excel, right under each strap line, rather than
             # being a separate manual data-entry field anywhere.
+            # v132 -- owner-reported: the Box/No Box checkbox never changed
+            # the price for a CATALOG strap line (only ever wired up for a
+            # Custom strap line -- see api_calculate_line()/api_save_
+            # quotation()'s matching v132 comments). Fixed there by letting
+            # the rep's checkbox OVERRIDE the catalog product's own has_box
+            # for that one line, saved into this SAME strap_custom_has_box
+            # column regardless of custom vs catalog (nullable, so an old
+            # quotation saved before this fix -- where it's NULL for a
+            # catalog line -- still falls back to that catalog product's own
+            # has_box below, unchanged). This block picks up that same
+            # effective value for the stuffing/box/pallet display, instead
+            # of only ever reading it for Custom lines and silently
+            # defaulting every catalog line to "No Box"/no stuffing figures.
+            core_weight_kg = (l["strap_custom_core_weight_kg"]
+                               if "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]
+                               else (l["sp_core_weight_kg"] if "sp_core_weight_kg" in l.keys() else None))
+            has_box = (bool(l["strap_custom_has_box"])
+                       if "strap_custom_has_box" in l.keys() and l["strap_custom_has_box"] is not None
+                       else (bool(l["sp_has_box"]) if "sp_has_box" in l.keys() and l["sp_has_box"] is not None
+                             else False))
+            has_pallet_val = (bool(l["strap_custom_has_pallet"])
+                               if "strap_custom_has_pallet" in l.keys() and l["strap_custom_has_pallet"] is not None
+                               else (bool(l["sp_has_pallet"])
+                                     if "sp_has_pallet" in l.keys() and l["sp_has_pallet"] is not None else True))
+            ctr20 = (bool(l["strap_custom_ctr20"])
+                     if "strap_custom_ctr20" in l.keys() and l["strap_custom_ctr20"] is not None
+                     else (bool(l["sp_ctr20"]) if "sp_ctr20" in l.keys() and l["sp_ctr20"] is not None else False))
+            ctr40 = (bool(l["strap_custom_ctr40"])
+                     if "strap_custom_ctr40" in l.keys() and l["strap_custom_ctr40"] is not None
+                     else (bool(l["sp_ctr40"]) if "sp_ctr40" in l.keys() and l["sp_ctr40"] is not None else False))
+            if not (ctr20 or ctr40):
+                ctr40 = True
+
             stuffing = None
-            if line_pl in ("pet", "pp") and "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]:
-                core_weight_kg = l["strap_custom_core_weight_kg"]
-                has_box = bool(l["strap_custom_has_box"]) if "strap_custom_has_box" in l.keys() else False
-                ctr20 = bool(l["strap_custom_ctr20"]) if "strap_custom_ctr20" in l.keys() else False
-                ctr40 = bool(l["strap_custom_ctr40"]) if "strap_custom_ctr40" in l.keys() else False
-                if not (ctr20 or ctr40):
-                    ctr40 = True
+            if line_pl in ("pet", "pp") and core_weight_kg:
                 stuffing = {
                     "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
                         db, line_pl, core_weight_kg, has_box),
@@ -1169,14 +1225,8 @@ def create_app():
             # on a pallet at all, and whether it's boxed.
             strap_pallet_display = strap_packing_display = None
             if line_pl in ("pet", "pp"):
-                has_pallet_val = (bool(l["strap_custom_has_pallet"])
-                                   if "strap_custom_has_pallet" in l.keys() and l["strap_custom_has_pallet"] is not None
-                                   else True)
-                has_box_val = (bool(l["strap_custom_has_box"])
-                                if "strap_custom_has_box" in l.keys() and l["strap_custom_has_box"] is not None
-                                else False)
                 strap_pallet_display = "Pallet" if has_pallet_val else "No Pallet"
-                strap_packing_display = "Box" if has_box_val else "No Box"
+                strap_packing_display = "Box" if has_box else "No Box"
 
             # v68 -- physical roll-spec details (Width, Roll weight, Core
             # weight -- Thickness and Meters/coil too for Strap) shown as a
@@ -2762,7 +2812,25 @@ def build_pdf(q, lines, totals):
         # still comfortably clearing their own longest single-line value
         # (see the v75/v76.1 comments above for how those minimums were
         # measured), sum still exactly PAGE_CONTENT_WIDTH (510pt).
-        t = Table(rows, colWidths=[14, 78, 56, 69, 54, 32, 30, 32, 46, 33, 33, 33])
+        # v131 -- owner-reported: several headers ("Roll Weight", "Core
+        # Weight", "EX-Work Price") and, latently, the Packing column's own
+        # longest value ("Manual(2.3~3.5kg)") were wrapping MID-WORD
+        # ("Weigh"/"t", "EX-Wo"/"rk") instead of only at a space -- because
+        # reportlab's Paragraph treats a hyphenated/parenthesised run with
+        # no space in it (e.g. "EX-Work", "Manual(2.3~3.5kg)") as ONE
+        # unsplittable "word" for line-wrapping, and force-splits it
+        # character-by-character (splitLongWords, on by default) whenever
+        # that whole word doesn't fit the column -- wrapping at a space
+        # between separate words (e.g. "Rolls/" / "Pallet", "Pallets/" /
+        # "Container") is fine and expected, only a split WITHIN one word
+        # is the bug. Every column below is now sized with real
+        # reportlab.pdfmetrics.stringWidth() measurements of its own
+        # longest single unbreakable word/token (at this table's actual
+        # header 7.5pt / body 8pt fonts) plus this row's 8pt of L+R
+        # padding plus a few points of slack, so no word should ever need
+        # to force-split again -- still sums to exactly PAGE_CONTENT_WIDTH
+        # (510pt).
+        t = Table(rows, colWidths=[14, 72, 46, 80, 40, 36, 36, 32, 46, 42, 33, 33])
         t.hAlign = "LEFT"
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),

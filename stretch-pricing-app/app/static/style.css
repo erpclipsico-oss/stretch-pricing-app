@@ -282,8 +282,29 @@ input[type=number] {
    span only: inputs/selects don't show this failure (their text doesn't
    wrap visibly the same way), so their min-width:0 sizing behavior for
    column alignment is untouched. */
+/* v132 -- owner-reported: a handful of label spans across Admin (e.g. the
+   PET/PP Strap "Max Discount allowed (% points off margin)" label, and the
+   Stuffing table's "Pallets/Container (20ft)"/"(40ft)" headers) got LONGER
+   over time than the fixed pixel `style="width:Npx"` a page gave them --
+   nowrap (v73, kept below) refuses to let that text wrap onto a second
+   line, but with no floor on the span's own rendered width, the browser
+   was free to render it at its narrow declared width anyway and let the
+   single-line text physically overflow past that box's right edge,
+   visually drawing OVER whatever sits next to it (the input field, or the
+   next header) -- illegible overlap, not the mid-word wrapping v73 fixed.
+   min-width:max-content is the fix: it puts a FLOOR under the span equal
+   to its own one-line content width, so the browser is never allowed to
+   render it any narrower than that -- a short label (e.g. "Standard")
+   still renders at its normal declared width via `width:Npx` exactly as
+   before (its max-content is smaller than that, so this floor never
+   engages), but a label too long for its declared width now grows to fit
+   its own text instead of overflowing into a neighbor. Combined with
+   .edit-row's own flex-wrap:wrap, an oversized span simply pushes
+   whatever comes after it in the row onto a new line rather than
+   overlapping it -- still never a mid-word break, same as v73's promise. */
 .edit-row span {
   white-space: nowrap;
+  min-width: max-content;
 }
 .edit-row select {
   appearance: none;
