@@ -627,6 +627,13 @@ function addLine(prefill) {
     tr.querySelector('.f-corewt').value = p.core_weight_kg || '';
     tr.querySelector('.f-width').value = p.width_mm || '';
     tr.querySelector('.f-rpp').value = p.rolls_per_pallet || '';
+    // v126 -- owner-reported (Arabic: "ليه لما بغير ستاندرد من يورو ما
+    // بيغيرش في السعر"): a fresh product selection fills Rolls/Pallet from
+    // the catalog default, same as always -- but that's a SYSTEM default,
+    // not the rep's own typed-in override, so clear the "rep edited this"
+    // flag here. See the matching v126 comment on the .f-rpp 'input'
+    // listener below for what this flag is for.
+    delete tr.dataset.rppEdited;
   }
 
   // v97 -- owner-confirmed: "$/Roll (Net)" is only a meaningful, genuinely
@@ -748,6 +755,29 @@ function addLine(prefill) {
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
+  // v126 -- owner-reported bug fix (Arabic: "ليه لما بغير ستاندرد من يورو
+  // ما بيغيرش في السعر ... لما بغير في شكل الباليتة يتغير"): Rolls/Pallet
+  // used to be sent back to the server as a "custom_rolls_per_pallet"
+  // override on EVERY recalculate whenever the field was non-empty --
+  // which it always was, since prefillRollSpec() auto-fills it from the
+  // catalog the moment a product is picked. cost_engine.
+  // effective_rolls_per_pallet() gives an explicit override absolute
+  // priority over its own Standard/Euro packing-tier lookup (by design,
+  // for a rep who genuinely typed a custom rolls/pallet for a non-catalog
+  // roll weight) -- so that auto-filled catalog value was silently
+  // freezing Rolls/Pallet (and the packaging cost built on it) at
+  // whatever the FIRST-selected Pallet Type/Packing type produced,
+  // forever, no matter how many times Pallet Type was switched afterwards.
+  // Only the small, separate Pallet-component $ difference (automatic_usd
+  // vs automatic_eur etc.) still came through, which is why the price
+  // moved by a cent instead of the real amount.
+  // Fix: only genuine rep keystrokes into this field (a real 'input'
+  // event, tracked here) are sent as an override; a value that's still
+  // just sitting there from prefillRollSpec()'s own catalog default is
+  // never sent, so the server's own pallet-type-aware tier lookup always
+  // wins until the rep actually overrides it themselves. See readLines()/
+  // calculateAll()'s matching v126 comments where the flag is read.
+  tr.querySelector('.f-rpp').addEventListener('input', () => { tr.dataset.rppEdited = '1'; });
   // v119 -- Packing type also drives the Packaging checkbox's own
   // checked/disabled state for a non-Pre-Stretch line (see
   // syncBoxCheckbox() above), so it needs its own listener here too, not
@@ -1051,7 +1081,10 @@ function readLines() {
       if (rollwt !== '') line.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') line.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') line.custom_width_mm = parseFloat(width);
-      if (rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
+      // v126 -- only a genuine rep-typed value overrides the server's own
+      // Standard/Euro-aware tier lookup -- see the .f-rpp 'input' listener's
+      // matching v126 comment above for why.
+      if (tr.dataset.rppEdited === '1' && rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
       // v120 -- this line's own "Box" checkbox; only affects price for a
       // Manual packing_type (see cost_engine._pallet_key_for()'s v120
       // comment) -- always sent so a saved Manual line's real choice is
@@ -1125,7 +1158,10 @@ async function calculateAll() {
       if (rollwt !== '') payload.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') payload.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') payload.custom_width_mm = parseFloat(width);
-      if (rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
+      // v126 -- only a genuine rep-typed value overrides the server's own
+      // Standard/Euro-aware tier lookup -- see the .f-rpp 'input' listener's
+      // matching v126 comment above for why.
+      if (tr.dataset.rppEdited === '1' && rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
       // v120 -- see readLines()'s matching v120 comment.
       payload.box_packaging = tr.querySelector('.f-box').checked;
     }
