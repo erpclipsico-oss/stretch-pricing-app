@@ -438,10 +438,26 @@ _PACKAGING_GROUP_SUFFIXES = {
 }
 
 
-def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None):
+def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None, box_packaging=True):
     """auto_manual: 'Automatic' | 'Manual(5kg)' | 'Manual(2.3~3.5kg)' |
     'Manual(2.2kg)' | 'Manual(1.5kg)'. pallet_size: 'Standard' (USD/120x100)
-    or 'Euro' (EUR/120x80). packaging_group: a product-level override (see
+    or 'Euro' (EUR/120x80).
+
+    box_packaging (v120) -- owner-confirmed: a Manual-packed line can be
+    packed two real ways -- into a box (the manual_*box*_usd/eur tiers
+    below, unchanged), or, when box_packaging=False, wrapped without a box
+    -- every 6 rolls stretch-wrapped together instead. The owner pointed
+    directly at the sheet's own 'Pallet component'!N4:Q11 block ("pre-
+    stretch: 1) Packaging for No Boxes") as the exact structure to reuse:
+    Pallet + 5 Cardboard sheets + 1.5kg Corrugated sheets + 0.5kg Stretch
+    wrap, no Box/Cartoon angles/Scotch tape -- already seeded verbatim as
+    the (previously unused) 'automatic_prestretch_usd'/'_eur' pallet_component
+    row (see db.py's cost_seed.json), so this reuses that existing,
+    sheet-verified row rather than inventing a new one. Only changes the
+    Manual branch below -- Automatic and any packaging_group override are
+    unaffected (no box/no-box choice applies to either of those).
+
+    packaging_group: a product-level override (see
     product.packaging_group / db.py's _seed_box_packaging_v3) that bypasses
     the normal Automatic/Manual lookup entirely -- e.g. 12-micron 300%
     film, which is boxed (roll -> PE bag -> box) rather than packed the
@@ -474,6 +490,16 @@ def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_
             return f"{packaging_group}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
+        # v120 -- the sheet only has this "No Boxes" structure confirmed
+        # for the Standard/USD pallet (the sheet's own N4:Q11 block is
+        # headed "Type:1 Export", no Euro/EUR variant anywhere in that
+        # block or the matching Boxes block) -- 'automatic_prestretch_eur'
+        # is deliberately NOT seeded, same "never guess, never silently
+        # zero" pattern as _PACKAGING_GROUP_SUFFIXES above. A no-box Euro-
+        # pallet Manual line falls through to its normal box-tier lookup
+        # below until a real Euro-pallet no-box figure is confirmed.
+        if not box_packaging and suffix == "usd":
+            return f"automatic_prestretch_{suffix}"
         # v86 -- order matters: "Manual(2.3~3.5kg)" also contains the
         # literal substring "5kg" (inside "3.5kg"), so checking the bare
         # "5kg"/"5 kg" pattern first was silently misrouting every
@@ -593,7 +619,8 @@ def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet
 # packaging_group points at.
 
 
-def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None,
+                                 box_packaging=True):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
     per pallet. Rolls/pallet comes from the Details-sheet packing_tier
     lookup (exact gross-weight bucket x pallet type), not a single
@@ -624,7 +651,7 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
         return 0.0
     packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
     key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group,
-                           product["roll_weight_kg"])
+                           product["roll_weight_kg"], box_packaging=box_packaging)
     total = pallet_component_total_usd(conn, key)
     return total / rolls_per_pallet
 
@@ -912,7 +939,7 @@ def conversion_roll_type_for(stretch_ability, micron):
 # ---------------------------------------------------------------- Main EX-Work computation
 
 def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0,
-                            exclude_pallet_from_packaging=False):
+                            exclude_pallet_from_packaging=False, box_packaging=True):
     """Full replication of Stretch!AG (EX-Work Cost (KG) - gross weight)
     for the standard product-row case (covers the great majority of SKUs:
     any roll with a Stretch Ability % and a Micron, Automatic or Manual
@@ -967,10 +994,14 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     # Pre-Stretch's source-material lookup (unit_price_for(...,
     # exclude_pallet_from_packaging=True)); every normal call leaves this
     # False and gets the plain packaging_cost_per_roll_usd() as before.
-    packaging_fn = (packaging_cost_per_roll_usd_excl_pallet if exclude_pallet_from_packaging
-                     else packaging_cost_per_roll_usd)
-    packaging_cost = (packaging_fn(conn, product, pallet_type, rolls_per_pallet_override)
-                       if plastic_weight > 0 else 0.0)
+    if exclude_pallet_from_packaging:
+        packaging_cost = (packaging_cost_per_roll_usd_excl_pallet(conn, product, pallet_type,
+                                                                    rolls_per_pallet_override)
+                           if plastic_weight > 0 else 0.0)
+    else:
+        packaging_cost = (packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override,
+                                                        box_packaging=box_packaging)
+                           if plastic_weight > 0 else 0.0)
 
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate

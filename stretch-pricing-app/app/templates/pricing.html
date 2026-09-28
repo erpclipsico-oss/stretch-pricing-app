@@ -129,16 +129,16 @@
         <th data-i18n="col_uv" data-i18n-title="tip_uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
         <!-- v119 -- owner-requested (Arabic: "اعمل باكجينج وبعدين فوق زي
              التايتلز ... وبوكس تحت تبقى تشيك بوكس زيها زي كولر دو اليو"):
-             a proper "Packaging" column, same position/style as Colored/UV,
-             instead of the old inline text+checkbox tucked under the row.
-             Functional (Box/No Box, price-affecting) for Pre-Stretch --
-             same as before, just relocated. For Manual/Automatic it's
-             shown-but-disabled for now: Manual packing's box cost is
-             currently ALWAYS included (baked into the manual_*box_* packing
-             key lookup -- see cost_engine._pallet_key_for()), and there's
-             no confirmed "Manual, no box" cost anywhere in the sheet to
-             switch to yet -- asked the owner rather than guessing one. -->
-        <th data-i18n="col_packaging" data-i18n-title="tip_packaging" title="Box packaging. Pre-Stretch: choose Box/No Box, changes the price. Manual: currently always includes box cost (ask to make this switchable).">Packaging</th>
+             a proper column, same position/style as Colored/UV, instead of
+             the old inline text+checkbox tucked under the row.
+             v120 -- owner-requested rename (Arabic: "دي المفروض يبقى اسمها
+             بوكس"): column renamed "Box" (was "Packaging"). Now functional
+             (price-affecting) for BOTH Pre-Stretch (Box/No Box, unchanged)
+             AND Manual (Box / no-box-stretch-wrap-of-6, owner-confirmed --
+             see cost_engine._pallet_key_for()'s matching v120 comment).
+             Still shown-but-disabled (forced unchecked) for Automatic,
+             which has no box/no-box choice at all. -->
+        <th data-i18n="col_packaging" data-i18n-title="tip_packaging" title="Box packaging. Checked = packed in a box. Unchecked = Pre-Stretch: No-Box packaging; Manual: every 6 rolls stretch-wrapped together without a box. No effect on Automatic.">Box</th>
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll kg</th>
         <th data-i18n="col_core_kg">Core kg</th>
@@ -291,7 +291,7 @@ const I18N = {
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
-    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_packaging: 'Packaging',
+    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_packaging: 'Box',
     col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
     col_container: 'Container', col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
@@ -327,7 +327,7 @@ const I18N = {
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
-    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_packaging: 'التعبئة',
+    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_packaging: 'بوكس',
     col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
     col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
@@ -662,20 +662,18 @@ function addLine(prefill) {
       : (show ? 'net_per_kg' : 'per_kg');
   }
 
-  // v119 -- owner-requested: the "Packaging" column's checkbox (".f-box")
-  // is real and price-affecting ONLY for Pre-Stretch (Box/No Box, same
-  // mechanism as before, just relocated into this column). For a Manual-
-  // packed regular line it's shown CHECKED but DISABLED -- Manual packing
-  // already always includes box cost today (baked into the
-  // manual_*box_*_usd/eur packing-tier lookup, not a separate toggle --
-  // see cost_engine._pallet_key_for()) and there's no confirmed "Manual,
-  // no box" price anywhere in the reference sheet to switch to instead, so
-  // this stays a fixed, informational checkmark until that's confirmed
-  // rather than silently guessing a different price. For Automatic it's
-  // shown unchecked+disabled (no box concept applies there at all).
+  // v120 -- owner-confirmed: the "Box" column's checkbox (".f-box") is now
+  // real and price-affecting for Pre-Stretch AND Manual, not just
+  // Pre-Stretch. Pre-Stretch: Box/No Box, unchanged mechanism. Manual:
+  // checked = packed into a box (today's price, unchanged); unchecked =
+  // every 6 rolls stretch-wrapped together without a box (reuses the
+  // sheet's own Pre-Stretch "No Boxes" packaging structure -- see
+  // cost_engine._pallet_key_for()'s matching v120 comment). Automatic has
+  // no box/no-box choice at all, so it stays forced unchecked+disabled.
   function syncBoxCheckbox() {
     const boxCb = tr.querySelector('.f-box');
     const isPs = isPrestretch(tr.querySelector('.f-product').value);
+    const isManual = (tr.querySelector('.f-packing').value || '').toLowerCase().includes('manual');
     if (isPs) {
       boxCb.disabled = false;
       // default unchanged from the old dropdown's own default
@@ -686,10 +684,20 @@ function addLine(prefill) {
         boxCb.checked = false;
         boxCb.dataset.psInit = '1';
       }
+    } else if (isManual) {
+      delete boxCb.dataset.psInit;
+      boxCb.disabled = false;
+      // default to checked (box) the FIRST time this line becomes Manual,
+      // matching every quotation saved before this checkbox was wired to
+      // price -- never stomp a choice the rep already made.
+      if (!boxCb.dataset.manualInit) {
+        boxCb.checked = true;
+        boxCb.dataset.manualInit = '1';
+      }
     } else {
       delete boxCb.dataset.psInit;
-      const isManual = (tr.querySelector('.f-packing').value || '').toLowerCase().includes('manual');
-      boxCb.checked = isManual;
+      delete boxCb.dataset.manualInit;
+      boxCb.checked = false;
       boxCb.disabled = true;
     }
   }
@@ -1027,6 +1035,11 @@ function readLines() {
       if (corewt !== '') line.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') line.custom_width_mm = parseFloat(width);
       if (rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
+      // v120 -- this line's own "Box" checkbox; only affects price for a
+      // Manual packing_type (see cost_engine._pallet_key_for()'s v120
+      // comment) -- always sent so a saved Manual line's real choice is
+      // recorded (defaults true/box when the row isn't Manual).
+      line.box_packaging = tr.querySelector('.f-box').checked;
     }
     return line;
   });
@@ -1096,6 +1109,8 @@ async function calculateAll() {
       if (corewt !== '') payload.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') payload.custom_width_mm = parseFloat(width);
       if (rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
+      // v120 -- see readLines()'s matching v120 comment.
+      payload.box_packaging = tr.querySelector('.f-box').checked;
     }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',

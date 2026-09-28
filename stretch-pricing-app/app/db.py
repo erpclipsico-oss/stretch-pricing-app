@@ -572,6 +572,22 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation_line ADD COLUMN prestretch_pallets_per_container REAL")
         conn.commit()
 
+    line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
+    if "box_packaging" not in line_cols:
+        # v120 -- owner-confirmed: a Manual-packed (non-Pre-Stretch) line's
+        # own "Box" checkbox (pricing.html's ".f-box") -- 1 = packed into a
+        # box (unchanged pricing), 0 = every 6 rolls stretch-wrapped
+        # together without a box (see cost_engine._pallet_key_for()'s
+        # matching v120 comment). Stored per line, same pattern as
+        # prestretch_packaging_type, purely for record-keeping on the saved
+        # quotation (the price itself is already frozen into
+        # unit_price_usd_kg/_raw at save time, same as every other line
+        # field). Defaults to 1 (box) so every quotation saved before this
+        # column existed keeps reading as the box-packed price it was
+        # actually priced and saved as.
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN box_packaging INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
+
     # ---- Per-line custom roll spec for EVERY product, not just Pre-Stretch
     # (v9): actual roll weight, core weight and width vary by customer order,
     # so these are left as open/editable fields on each quotation line,

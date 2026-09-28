@@ -345,6 +345,11 @@ def create_app():
         # (see cost_engine.with_overrides()'s auto_manual param) instead of
         # always pricing off the selected product's own catalog Auto/Manual.
         auto_manual_override = data.get("packing_type") or None
+        # v120 -- this line's own "Box" checkbox (see pricing.html/
+        # cost_engine._pallet_key_for()'s matching v120 comment). Only
+        # affects a Manual line's packaging cost; True (default) keeps
+        # today's box-packed price for every other line.
+        box_packaging = bool(data.get("box_packaging", True))
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
                                              price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                              pricing_basis=pricing_basis,
@@ -357,7 +362,7 @@ def create_app():
                                              discount_pct=discount_pct, uv_type=uv_type,
                                              hidden_markup_mode=hidden_markup_mode,
                                              hidden_markup_value=hidden_markup_value,
-                                             credit_term=credit_term)
+                                             credit_term=credit_term, box_packaging=box_packaging)
         unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                            price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                            pricing_basis=pricing_basis,
@@ -370,7 +375,7 @@ def create_app():
                                            discount_pct=0, uv_type=uv_type,
                                            hidden_markup_mode=hidden_markup_mode,
                                            hidden_markup_value=hidden_markup_value,
-                                           credit_term=credit_term)
+                                           credit_term=credit_term, box_packaging=box_packaging)
         # v70.2 -- raw, unrounded EX-Work price so the client can build FOB
         # the same way the sheet's Stretch!AO does (ROUNDUP on the unrounded
         # base), not on the already-2dp-rounded unit_price.
@@ -386,7 +391,7 @@ def create_app():
                                           discount_pct=discount_pct, uv_type=uv_type,
                                           hidden_markup_mode=hidden_markup_mode,
                                           hidden_markup_value=hidden_markup_value,
-                                          credit_term=credit_term,
+                                          credit_term=credit_term, box_packaging=box_packaging,
                                           round_result=False)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
@@ -875,6 +880,9 @@ def create_app():
             auto_manual_override = l.get("packing_type") or None
             # v39 -- UV checkbox (see api_calculate_line's matching comment).
             uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if l.get("uv") else None
+            # v120 -- this line's own "Box" checkbox (see api_calculate_line's
+            # matching v120 comment / pricing.html / cost_engine._pallet_key_for()).
+            box_packaging = bool(l.get("box_packaging", True))
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
@@ -883,7 +891,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -893,7 +901,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=0, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
             )
             # v70.2 -- raw unrounded price, stored so the saved quotation's
             # view/PDF/Excel FOB $/KG can match Stretch!AO exactly (see
@@ -906,7 +914,7 @@ def create_app():
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
                 discount_pct=discount_pct, uv_type=uv_type,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
                 round_result=False,
             )
             # v90 -- which container size (40ft/20ft) this line is quoted
@@ -921,8 +929,8 @@ def create_app():
                     unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg,
                     line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type,
-                    container_pref)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    container_pref, box_packaging)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
                  unit_price, unit_price_raw, unit_price_full, total_kg, line_discount_pct, pricing_basis,
@@ -931,7 +939,7 @@ def create_app():
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
                  (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None),
-                 uv_type, container_pref),
+                 uv_type, container_pref, int(box_packaging)),
             )
 
         db.commit()
