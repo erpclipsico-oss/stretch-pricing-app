@@ -290,7 +290,7 @@ const I18N = {
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
-    prestretch_packaging_note: 'Pre-Stretch packaging:', ps_pallets_container: 'Pallets/Container',
+    prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
     tip_pallets_container: 'How many pallets of this line the customer is ordering',
@@ -326,7 +326,7 @@ const I18N = {
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
-    prestretch_packaging_note: 'تعبئة البري-ستريتش:', ps_pallets_container: 'بالتة/كونتينر',
+    prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
     tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
@@ -404,8 +404,13 @@ function applyLanguage() {
   // -- each option's `value` never changes, only its displayed text does.
   document.querySelectorAll('#payment_term option, .f-pallet option, .f-packing option')
     .forEach(opt => { opt.textContent = textLabel(opt.value); });
-  document.querySelectorAll('.f-basis option, .f-ps-packaging option')
+  document.querySelectorAll('.f-basis option')
     .forEach(opt => { opt.textContent = codeLabel(opt.value); });
+  // v118 -- "Pre-Stretch packaging" is a plain checkbox now (Box/No Box),
+  // not a <select>, so its label text needs its own re-translation here on
+  // a language switch instead of the option-refresh loop above.
+  document.querySelectorAll('.f-ps-packaging-label')
+    .forEach(el => { el.textContent = t('prestretch_packaging_note'); });
   const btn = document.getElementById('langToggleBtn');
   if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
 
@@ -596,10 +601,17 @@ function addLine(prefill) {
     <td></td>
     <td colspan="18">
       <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:0.8rem; color:#666;">
-        <span data-i18n="prestretch_packaging_note">Pre-Stretch packaging:</span>
-        <select class="f-ps-packaging" style="width:150px;">
-          ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
-        </select>
+        <!-- v118 -- owner-requested (Arabic: "خليها تشاك بوكس ليه اعملها
+             دروب داون"): only 2 packaging options ever existed (Box / No
+             Box -- see app.py's prestretch_packaging_types), so a checkbox
+             takes less room than a dropdown. Checked = "boxes", unchecked =
+             "no_boxes" (same 2 values the server has always expected in
+             prestretch_packaging_type -- see readLines()/calculateAll()
+             below, only the .checked/.value read changed). -->
+        <label style="font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;">
+          <input type="checkbox" class="f-ps-packaging">
+          <span class="f-ps-packaging-label" data-i18n="prestretch_packaging_note">Pre-Stretch packaging (Box)</span>
+        </label>
         <!-- v114 -- owner-confirmed, matched against the H1.36 sheet's
              Stretch!AK118 ("Pallet Per Container"): Pre-Stretch's FOB/CIF
              must be a FIXED per-SKU rate too, same as every other product,
@@ -609,10 +621,17 @@ function addLine(prefill) {
              so this is typed in per line here too, exactly like Roll wt/
              Core wt/Rolls-per-pallet already are. Left blank, FOB/CIF falls
              back to spreading the add-on over this line's own order size
-             (the old behaviour) rather than guessing a number. -->
-        <label style="font-size:0.78rem;"><span data-i18n="ps_pallets_container">Pallets/Container</span>
+             (the old behaviour) rather than guessing a number.
+             v118 -- owner-requested rename (Arabic: "ليه كتب لي باليتس بير
+             كونتينر مرتين ... تبقى فيها لغبطة"): this field used the exact
+             same label as the main row's own "Pallets/Container" column
+             (that one is the ORDER quantity; this one is the fixed
+             per-SKU container-capacity figure from the sheet) -- two
+             identical labels on screen at once was genuinely confusing,
+             so this one is now named distinctly. -->
+        <label style="font-size:0.78rem;"><span data-i18n="ps_pallets_container">Pallets/Container (Fixed)</span>
           <input type="number" class="f-ps-pallets-container" min="0" step="1" style="width:70px;"
-                 title="This Pre-Stretch SKU's Pallets-per-Container (Stretch!AK118 in the reference sheet) -- used to build a fixed FOB/CIF $/KG regardless of how many pallets this quote orders. Leave blank to spread FOB/CIF over this line's own order size instead."></label>
+                 title="This Pre-Stretch SKU's Pallets-per-Container (Stretch!AK118 in the reference sheet) -- used to build a fixed FOB/CIF $/KG regardless of how many pallets this quote orders. NOT the same as this line's own 'Pallets/Container' order-quantity column above. Leave blank to spread FOB/CIF over this line's own order size instead."></label>
       </span>
     </td>
   `;
@@ -986,7 +1005,7 @@ function readLines() {
       line.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
       line.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
       line.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+      line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').checked ? 'boxes' : 'no_boxes';
       const psPalletsContainer = pr.querySelector('.f-ps-pallets-container').value;
       line.prestretch_pallets_per_container = psPalletsContainer !== '' ? parseFloat(psPalletsContainer) : null;
     } else {
@@ -1057,7 +1076,7 @@ async function calculateAll() {
       payload.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
       payload.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
       payload.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
+      payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').checked ? 'boxes' : 'no_boxes';
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1373,9 +1392,27 @@ async function calculateAll() {
     // reference: $1.76 vs the $1.74-1.75 the old order produced).
     const isNetBasis = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg');
     const netRollWeight = Math.max(rc.rollWeightKg - rc.coreWeightKg, 0);
-    const fobUnitDisp = (isNetBasis && netRollWeight > 0)
+    // v118 -- BUGFIX (found by directly reproducing the owner's exact
+    // pricing-page inputs in a real browser and tracing the numbers, after
+    // she reported FOB/CIF still not matching the sheet once EX-Work
+    // finally did): for a Pre-Stretch line, fobUnit/cifUnit just above are
+    // ALREADY net-basis -- built from rc.exwUnitRaw, which for Pre-Stretch
+    // falls back to data.unit_price_usd_kg, and that price is ALWAYS
+    // net-converted server-side unconditionally (see
+    // compute_prestretch_line()'s own v99 comment in pricing.py). Every
+    // OTHER product's fobUnit/cifUnit at this point IS still Gross (built
+    // from unit_price_usd_kg_raw, confirmed Gross by pricing.py's v110
+    // note) and genuinely needs this net re-conversion. Applying the
+    // re-conversion to Pre-Stretch too was double-converting an
+    // already-net figure by the gross/net ratio a SECOND time -- verified
+    // against the H1.36 sheet: a 6-micron/1.64kg-roll/0.25kg-core
+    // Pre-Stretch line's correct FOB of $2.48 (matching Stretch!AO119
+    // exactly, with the sheet's own Pallet-Per-Container=20 typed into
+    // "Pallets/Container (Fixed)" below) was coming out as $2.93 before
+    // this fix.
+    const fobUnitDisp = (isNetBasis && netRollWeight > 0 && !rc.isPrestretchLine)
       ? roundHalfUp(fobUnit * rc.rollWeightKg / netRollWeight, 2) : fobUnit;
-    const cifUnitDisp = (isNetBasis && netRollWeight > 0)
+    const cifUnitDisp = (isNetBasis && netRollWeight > 0 && !rc.isPrestretchLine)
       ? roundHalfUp(cifUnit * rc.rollWeightKg / netRollWeight, 2) : cifUnit;
     // v105 -- EX-Work $/kg column, same basis handling (Gross/Net/per-roll)
     // as FOB/CIF just below -- exwUnit is already this line's own EX-Work
