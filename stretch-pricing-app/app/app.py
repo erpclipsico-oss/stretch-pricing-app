@@ -1217,10 +1217,15 @@ def create_app():
             # all, so Pallets/Container is left blank for them; Rolls/Pallet
             # is still the rep's own saved figure.
             rolls_per_pallet_display = pallets_per_container_display = None
-            # v104 -- reset fresh every line iteration (see the FOB/CIF block
-            # below): a full-container kg figure for this SPECIFIC line only,
-            # never left over from a previous line in this same loop.
-            line_full_container_kg = None
+            # v127 -- line_full_container_kg is gone (reverts v104): FOB/CIF
+            # $/KG for Stretch Film now always spreads over THIS LINE'S OWN
+            # ordered quantity (l["total_kg"], used as fob_denom_kg below),
+            # not a fixed catalog full-container figure -- see the FOB/CIF
+            # block's own v127 comment for why. Pallets/Container is still
+            # computed and shown as its own display column just below (purely
+            # informational, matching what Rolls/Pallet x Pallets/Container
+            # this SKU's packing tier suggests), it just no longer feeds the
+            # price.
             if line_pl in ("pet", "pp"):
                 if stuffing:
                     rolls_per_pallet_display = stuffing["rolls_per_pallet"]
@@ -1242,38 +1247,25 @@ def create_app():
                     chosen = chosen or c40 or c20  # fall back if the preferred size has no figure at all
                     if chosen:
                         pallets_per_container_display = f"{chosen:g} ({line_container_pref})"
-                        # v104 -- this line's own FULL CONTAINER weight (pallets
-                        # this container size holds x rolls/pallet x roll weight),
-                        # used below so FOB/CIF $/KG is a fixed per-SKU rate
-                        # matching the reference sheet, not diluted by however
-                        # many pallets this particular quote line happens to
-                        # order -- see the FOB/CIF block's own v104 comment.
-                        if rolls_per_pallet_display and eff_roll_weight:
-                            line_full_container_kg = chosen * rolls_per_pallet_display * eff_roll_weight
+                        # v127 -- Pallets/Container is still shown (this SKU's
+                        # packing-tier suggestion) but no longer used to build
+                        # a fixed line_full_container_kg -- FOB/CIF $/KG now
+                        # always spreads over l["total_kg"] instead (this
+                        # line's own ordered quantity), see the FOB/CIF
+                        # block's v127 comment.
             else:
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
-                # v114 -- owner-confirmed, matched directly against
-                # Stretch!AK118 ("Pallet Per Container") in the H1.36 sheet:
-                # Pre-Stretch's FOB/CIF must also be a FIXED per-SKU rate,
-                # built from the rep's own typed Pallets/Container figure
-                # for this line (see db.py's/api_save_quotation's matching
-                # v114 comments) -- NOT the actual quantity this order
-                # happens to be for. The sheet's AO118/AP118 divide by
-                # AK118*G118*J118, where J118 is the NET (core-excluded)
-                # weight per roll, unlike every other product's AO/AP (those
-                # divide by the GROSS roll weight H -- see the v104 comment
-                # above) -- Pre-Stretch is Net-based throughout, per v99.
+                # v127 -- the old v114 fixed-rate figure (built from a
+                # separate typed "Pallets/Container" field) is gone along with
+                # that field itself (removed per v119 -- it always duplicated
+                # this line's own order quantity in practice). Pre-Stretch's
+                # FOB/CIF now spreads over l["total_kg"] like every other
+                # product, same as the quote-builder's own JS already did.
                 pallets_per_container = (l["prestretch_pallets_per_container"]
                                           if "prestretch_pallets_per_container" in l.keys() else None)
                 if pallets_per_container and rolls_per_pallet_display:
                     ps_container_label = l["container_pref"] if ("container_pref" in l.keys() and l["container_pref"]) else "40ft"
                     pallets_per_container_display = f"{pallets_per_container:g} ({ps_container_label})"
-                    ps_roll_wt = l["prestretch_roll_weight_kg"] if "prestretch_roll_weight_kg" in l.keys() else None
-                    ps_core_wt = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
-                    if ps_roll_wt:
-                        net_wt = max((ps_roll_wt or 0) - (ps_core_wt or 0), 0)
-                        if net_wt:
-                            line_full_container_kg = pallets_per_container * rolls_per_pallet_display * net_wt
 
             if line_pl in ("pet", "pp"):
                 # v81 -- owner-confirmed: Strap is ALWAYS quoted $/Roll, never
@@ -1326,28 +1318,19 @@ def create_app():
                 # frozen unit_price_usd_kg instead (same value the discount/
                 # line-total math above already uses).
                 exw_unit = l["unit_price_usd_kg"]
-                # v104 -- owner-requested change (Arabic: "خليها زي الشيت"):
-                # the flat FOB Cost/Container ($1500 at Alexandria, etc.) is
-                # now spread over this line's own FULL CONTAINER weight
-                # (line_full_container_kg, set above -- pallets/container x
-                # rolls/pallet x roll weight for THIS SKU) whenever that's
-                # known, so FOB/CIF $/KG is a fixed per-SKU rate matching the
-                # reference Excel sheet's own Stretch!AO/AP columns exactly,
-                # regardless of how many pallets this specific quote line
-                # orders. Confirmed with the owner: at a full-container
-                # quantity the app already matched the sheet (e.g. $1.54/kg
-                # for 23mic/150%/16kg/46 rolls-per-pallet at 34 pallets), but
-                # at a smaller quantity (1 or 5 pallets) it was showing
-                # $3.52/$1.89 instead of the sheet's fixed $1.54, because the
-                # $1500 was being divided by this line's own (smaller)
-                # total_kg. This REPLACES the old v67 "spread over this
-                # line's own total_kg" design (which had been confirmed
-                # against a different reference app, not this Excel sheet).
-                # Falls back to this line's own total_kg only when no
-                # packing_tier / container match exists at all (Pre-Stretch,
-                # or an edge case with no known container capacity) so
-                # nothing crashes or shows a blank FOB/CIF.
-                fob_denom_kg = line_full_container_kg if line_full_container_kg else l["total_kg"]
+                # v127 -- REVERTS v104. The flat FOB Cost/Container ($1500 at
+                # Alexandria, etc.) is spread over THIS LINE'S OWN ordered
+                # weight (l["total_kg"] -- qty pallets x rolls/pallet x roll
+                # weight), so FOB/CIF $/KG genuinely rises for a smaller order
+                # and falls for a bigger one. Owner re-checked this against
+                # the H1.36 sheet herself and confirmed that's how it must
+                # work (Arabic: "لازم السعر يتقسم على الكمية ويتغير") -- the
+                # sheet's own Stretch!AK118 ("Pallet Per Container") that AO/
+                # AP divide by is a free-typed cell, not a locked catalog
+                # constant; the master price-list rows just happen to have it
+                # pre-filled with each SKU's usual full-container number. See
+                # pricing.html's matching v127 comment for the full story.
+                fob_denom_kg = l["total_kg"]
                 # v110 -- FOB/CIF must be built from the GROSS raw_base +
                 # addon and ROUNDUP'd in gross terms FIRST (this is what
                 # matches the sheet's own Stretch!AO/AP), then -- only for a

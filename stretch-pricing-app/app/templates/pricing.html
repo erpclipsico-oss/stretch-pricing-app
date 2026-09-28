@@ -143,7 +143,7 @@
         <th data-i18n="col_roll_kg">Roll kg</th>
         <th data-i18n="col_core_kg">Core kg</th>
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
-        <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering">Pallets/container</th>
+        <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher">Pallets/container</th>
         <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
         <th data-i18n="col_discount_pct">Discount %</th>
         <th data-i18n="col_exw_kg">EX-Work $/kg</th>
@@ -309,7 +309,7 @@ const I18N = {
     prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
-    tip_pallets_container: 'How many pallets of this line the customer is ordering',
+    tip_pallets_container: 'How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher',
     tip_container: "Which container size the printed Pallets/Container figure should show (doesn't affect price)",
     tip_gm: 'Updates instantly as Width/Thickness/Material change',
     tip_roll_weight_kg: 'Computed gross weight per roll (net strap weight + core weight)',
@@ -348,7 +348,7 @@ const I18N = {
     prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
-    tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
+    tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده -- وبرضو عليه بيتوزع سعر الـ FOB/CIF لكل كيلو: زودتي العدد السعر بيقل، قللتيه السعر بيزيد',
     tip_container: 'مقاس الكونتينر اللي هيظهر بيه رقم بالتة/كونتينر (مش بيأثر على السعر)',
     tip_gm: 'بيتحدث فورًا مع تغيير العرض/السمك/الخامة',
     tip_roll_weight_kg: 'الوزن الإجمالي المحسوب للرول (وزن الشريط + وزن الكور)',
@@ -576,9 +576,9 @@ function addLine(prefill) {
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
-    <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="Pallets per container -- how many pallets of this line"></td>
+    <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher"></td>
     <td>
-      <select class="f-container" title="Which container size (40ft/20ft) this line's Pallets/Container figure AND its FOB/CIF $/KG full-container spread are based on (v104)">
+      <select class="f-container" title="Which container size (40ft/20ft) the printed Pallets/Container reference figure should show (v127 -- doesn't affect price; FOB/CIF $/KG is driven by the Pallets/container quantity field instead)">
         <option value="40ft" selected>40ft</option>
         <option value="20ft">20ft</option>
       </select>
@@ -1396,44 +1396,30 @@ async function calculateAll() {
   const cifTotal = fobTotal + freightAmt;
 
   // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
-  // this line's own FULL CONTAINER weight (pallets/container x rolls/
-  // pallet x roll weight for THIS SKU), NOT however many pallets this
-  // particular quote line happens to order.
+  // THIS LINE'S OWN ordered quantity (qty pallets x rolls/pallet x roll
+  // weight -- rc.totalKg), so a bigger order genuinely gets a lower $/KG
+  // and a smaller one gets a higher $/KG.
   //
-  // v104 -- owner-requested change (Arabic: "خليها زي الشيت"), REPLACING
-  // the old v67 design below this comment used to describe (spreading over
-  // "EACH LINE'S OWN total KG", confirmed then against a different
-  // reference app, not this Excel sheet). Confirmed directly against the
-  // H1.36 sheet with the owner: the sheet's Stretch!AO/AP price-list
-  // columns assume a FULL CONTAINER of that exact SKU every time (e.g.
-  // 34 pallets for 23mic/150%/16kg/46-rolls-per-pallet), so FOB/CIF $/KG
-  // must be a FIXED per-SKU rate, not one that rises when a quote line
-  // orders less than a full container -- confirmed the app matched the
-  // sheet exactly ($1.54/kg) at a full-container quantity, but at 1 or 5
-  // pallets it was showing $3.52/$1.89 instead, because the flat FOB
-  // Cost/Container was being divided by this line's own (smaller) total
-  // kg. Falls back to this line's own totalKg only for lines with no known
-  // container capacity (Pre-Stretch), same as app.py's matching v104 fix
-  // for the saved-quotation view/PDF/Excel. The lump-sum FOB Total / CIF
-  // Total above are unaffected by this -- they still add each add-on
-  // exactly once, matching a real invoice, not once per line.
+  // v127 -- REVERTS v104. Owner re-checked against the H1.36 sheet herself
+  // and insisted the $/KG must divide by however many pallets she actually
+  // enters, for both Standard and Euro pallet types (Arabic: "لازم السعر
+  // يتقسم على الكمية ويتغير"). Re-reading the sheet's own Stretch!AO formula
+  // confirms AK118 ("Pallet Per Container") IS a free-typed cell, not a
+  // locked catalog constant -- the master price-list rows just happen to
+  // have it filled with each SKU's usual full-container number, but nothing
+  // in the formula itself fixes it there. So AK is exactly this line's own
+  // "Pallets/container" field (the one already on screen), and AO/AP are
+  // meant to move with whatever's typed into it, the same way Pre-Stretch's
+  // fobDenomKg already worked (see the old v119 comment below -- Pre-Stretch
+  // never got the v104 lock at all). The lump-sum FOB Total / CIF Total
+  // above are unaffected -- they still add each add-on exactly once,
+  // matching a real invoice, not once per line.
   for (const rc of rowCalc) {
-    // v119 -- Pre-Stretch no longer has its own separate "Pallets/Container
-    // (Fixed)" figure (owner-confirmed it always duplicated this line's own
-    // order quantity in her real usage -- removed per her explicit ask).
-    // rc.totalKg IS already qty_pallets x rolls/pallet x NET weight for a
-    // Pre-Stretch line (see pricing.py's compute_prestretch_line() --
-    // roll_weight is net-converted before total_kg is built), so it's the
-    // exact same figure the old fixed field used to produce whenever the
-    // rep typed the same number into both -- just with one field instead
-    // of two now.
-    let fobDenomKg = rc.totalKg;
-    if (!rc.isPrestretchLine) {
-      const pallets = (rc.containerPref === '20ft') ? (rc.pallets20 || rc.pallets40) : (rc.pallets40 || rc.pallets20);
-      if (pallets && rc.rollsPerPallet && rc.rollWeightKg) {
-        fobDenomKg = pallets * rc.rollsPerPallet * rc.rollWeightKg;
-      }
-    }
+    // rc.totalKg is qty_pallets x rolls/pallet x roll weight (NET weight
+    // for Pre-Stretch, GROSS for everything else -- see pricing.py's
+    // compute_line()/compute_prestretch_line()), i.e. exactly this line's
+    // own ordered weight, matching the sheet's AK x G x H.
+    const fobDenomKg = rc.totalKg;
     const lineFobAddonPerKg = fobDenomKg > 0 ? fobAddon / fobDenomKg : 0;
     const lineFreightPerKg = fobDenomKg > 0 ? freightAmt / fobDenomKg : 0;
     // v70.2 -- FOB $/KG built from the RAW unrounded EX-Work price with a
