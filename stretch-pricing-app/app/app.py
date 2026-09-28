@@ -483,7 +483,8 @@ def create_app():
         )
         meters_per_coil = float(data.get("strap_meters_per_coil") or 0)
         if meters_per_coil <= 0:
-            meters_per_coil = strap_pricing.suggest_meters_per_coil(product_line, gm_per_m, core_weight_kg)
+            meters_per_coil = strap_pricing.suggest_meters_per_coil(
+                g.db, product_line, gm_per_m, core_weight_kg, has_box)
 
         product = {
             "bom_key": bom_key, "width_mm": width_mm, "thickness_mm": thickness_mm,
@@ -573,9 +574,9 @@ def create_app():
             "gross_weight_max_kg": calc["gross_weight_max_kg"],
             "gross_weight_exceeded": calc["gross_weight_exceeded"],
             "suggested_rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
-                product["core_weight_kg"], bool(product["has_box"])),
+                g.db, product_line, product["core_weight_kg"], bool(product["has_box"])),
             "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
-                product["core_weight_kg"], bool(product["has_box"]),
+                g.db, product_line, product["core_weight_kg"], bool(product["has_box"]),
                 bool(product["ctr20"]), bool(product["ctr40"])),
             "discount_pct_applied": discount_pct,
             "discount_capped": discount_capped,
@@ -1120,9 +1121,10 @@ def create_app():
                 if not (ctr20 or ctr40):
                     ctr40 = True
                 stuffing = {
-                    "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(core_weight_kg, has_box),
+                    "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
+                        db, line_pl, core_weight_kg, has_box),
                     "pallets_per_container": strap_pricing.suggest_pallets_per_container(
-                        core_weight_kg, has_box, ctr20, ctr40),
+                        db, line_pl, core_weight_kg, has_box, ctr20, ctr40),
                     "box": "Yes" if has_box else "No",
                     "container": "20ft" if ctr20 else "40ft",
                 }
@@ -1187,7 +1189,14 @@ def create_app():
                 spec_core = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
                 if spec_roll or spec_core:
                     spec = {"width_mm": None, "roll_weight_kg": spec_roll, "core_weight_kg": spec_core}
-            spec_note = _format_spec_note(spec) if spec else None
+            # v124 -- Strap only: fold the line's actual ordered Pallets
+            # (Containers x the fixed Pallets/container, see this function's
+            # matching v124 comment on the "stuffing" dict above) into the
+            # spec note, so it shows up next to Rolls/Pallet on the view
+            # page, PDF and Excel -- see _format_spec_note()'s own comment.
+            spec_qty_pallets = (l["quantity_pallets"] if line_pl in ("pet", "pp")
+                                 and "quantity_pallets" in l.keys() else None)
+            spec_note = _format_spec_note(spec, spec_qty_pallets) if spec else None
 
             # v76.1 -- Rolls/Pallet and Pallets/Container as their own
             # columns on the exported PDF/Excel/view page (previously only
@@ -1377,7 +1386,7 @@ def create_app():
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
-    def _format_spec_note(spec):
+    def _format_spec_note(spec, quantity_pallets=None):
         """v68 -- renders a line's roll-spec dict (see load_quotation) into
         the single 'Width: ... · ...' note string shown under the line on
         the view page / PDF / Excel. Any field that's genuinely unknown for
@@ -1386,7 +1395,18 @@ def create_app():
         their own dedicated columns in the line table (see build_pdf() /
         build_xlsx() / view_quotation.html), replacing the Unit Price/Line
         Total columns the owner said she never uses, so repeating them here
-        too would just be clutter."""
+        too would just be clutter.
+        v124 -- owner-requested, Strap only (Arabic: "حتى عدد الباليتات كمان
+        تسده وانت اللي تديه كانفورميشن وتطلع في البي دي اف وفي الاكسل"): the
+        line's actual ordered Pallets (Containers x the fixed Pallets/
+        container -- both locked/read-only in the quote builder, see
+        pricing.html) is appended here rather than as a new PDF table column
+        -- the PDF's reportlab table has hand-tuned fixed column widths
+        (several past versions' worth of careful pixel measurement, see the
+        v69/v75/v76.1/v76.2/v105 comments in build_pdf()), so folding this
+        into the existing spec-note sub-row (already shared verbatim by the
+        view page, PDF and Excel) is the low-risk way to surface it
+        everywhere at once without re-tuning that table."""
         parts = []
         if spec.get("width_mm"):
             parts.append(f"Width: {spec['width_mm']:g}mm")
@@ -1394,6 +1414,8 @@ def create_app():
             parts.append(f"Thickness: {spec['thickness_mm']:g}mm")
         if spec.get("meters_per_coil"):
             parts.append(f"Meters/coil: {spec['meters_per_coil']:g}")
+        if quantity_pallets:
+            parts.append(f"Pallets: {quantity_pallets:g}")
         return "Spec — " + " · ".join(parts) if parts else None
 
     def _strap_gross_weight_kg(db, line_key, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg):
@@ -1934,6 +1956,27 @@ def create_app():
                 if val is not None and val != "":
                     db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
 
+            # v124 -- "stuffing" restrictions per (line, core size, box/no-box):
+            # Rolls/Pallet, Pallets/Container (20ft & 40ft), Max Roll Weight (kg).
+            for row in db.execute("SELECT id FROM strap_stuffing_config").fetchall():
+                sid = row["id"]
+                rpp_val = request.form.get(f"stuffing_{sid}_rpp")
+                p20_val = request.form.get(f"stuffing_{sid}_p20")
+                p40_val = request.form.get(f"stuffing_{sid}_p40")
+                maxwt_val = request.form.get(f"stuffing_{sid}_maxwt")
+                if rpp_val is not None and rpp_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET rolls_per_pallet=? WHERE id=?",
+                               (int(float(rpp_val)), sid))
+                if p20_val is not None and p20_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET pallets_per_container_20=? WHERE id=?",
+                               (int(float(p20_val)), sid))
+                if p40_val is not None and p40_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET pallets_per_container_40=? WHERE id=?",
+                               (int(float(p40_val)), sid))
+                if maxwt_val is not None and maxwt_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET max_roll_weight_kg=? WHERE id=?",
+                               (float(maxwt_val), sid))
+
             db.commit()
             flash("PET/PP Strap costing updated.", "success")
             return redirect(url_for("admin_strap_costing"))
@@ -2005,6 +2048,21 @@ def create_app():
         # Film's (Global Cost Settings) -- see
         # cost_engine.capped_discount_pct()/db._seed_strap_data().
         max_discount = db.execute("SELECT value FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
+        # v124 -- "stuffing" restrictions grid (Rolls/Pallet, Pallets/
+        # Container 20ft & 40ft, Max Roll Weight), one row per (line, core
+        # size, box/no-box) -- see db._seed_strap_stuffing_config_v124() and
+        # strap_pricing._get_stuffing_config(). Grouped by line for display,
+        # in core-size then box/no-box order (matches STRAP_CORE_SIZES on
+        # the Pricing screen).
+        core_size_order = {"150": 0, "200": 1, "400-405": 2}
+        stuffing_rows = db.execute("SELECT * FROM strap_stuffing_config").fetchall()
+        stuffing_config = {"pet": [], "pp": []}
+        for r in stuffing_rows:
+            stuffing_config.setdefault(r["line_key"], []).append(r)
+        for line_key in stuffing_config:
+            stuffing_config[line_key].sort(
+                key=lambda r: (core_size_order.get(r["core_size_mm"], 99), r["has_box"])
+            )
         return render_template(
             "admin_strap_costing.html",
             pet_dollar_rate=pet_dollar_rate["value"] if pet_dollar_rate else 47,
@@ -2014,6 +2072,7 @@ def create_app():
             line_configs=line_configs,
             freight=freight,
             max_discount=max_discount["value"] if max_discount else 2.0,
+            stuffing_config=stuffing_config,
         )
 
     @app.route("/admin/cost/labor", methods=["GET", "POST"])

@@ -426,6 +426,7 @@ def init_db():
     _seed_super_rigid_dynamic_micron8_v84(conn)
     _fix_super_rigid_auto_manual_v85(conn)
     _fix_v122_owner_requested_updates(conn)
+    _seed_strap_stuffing_config_v124(conn)
     conn.close()
 
 
@@ -3236,4 +3237,61 @@ def _seed_strap_data(conn):
             (line_key, code, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
              has_box, has_pallet, ctr20, ctr40),
         )
+    conn.commit()
+
+
+# v124 -- owner-requested (Arabic: "تسيب لي مكان في الباك اند ان انا اعرف
+# على كل كور سايز ان انا احط له ستافنج ديفرنت وذ بوكس اور وذ اوت بوكس سواء
+# رولز على الباليت او سواء باليتس بير كونتينر او سواء ماكسيمم رول ويت"):
+# Rolls/Pallet, Pallets/Container (20ft & 40ft) and Max Roll Weight (kg) --
+# previously hardcoded Python constants (strap_pricing.suggest_rolls_per_pallet
+# / suggest_pallets_per_container / TARGET_GROSS_WEIGHT_KG) -- now live here,
+# admin-editable per (line, core size, box/no-box) combination on the PET/PP
+# Strap Costing page, same idempotent per-row seeding pattern as everything
+# else in this file. Seeded from the EXACT figures already confirmed/shipped
+# (v91/v120/v121: rolls/pallet 150mm->72, 200mm->60, 400mm->56, same for
+# box/no-box; pallets/container 10 (20ft) / 20 (40ft), same for every core
+# size/box; max roll weight 20.2kg PET / 12.2kg PP, same for every core
+# size/box) so nothing silently changes for any existing quotation the
+# moment this ships -- it only diverges once the owner edits a specific
+# core-size/box row from here on.
+STRAP_STUFFING_CONFIG_SEED_ROLLS_PER_PALLET = {"150": 72, "200": 60, "400-405": 56}
+STRAP_STUFFING_CONFIG_SEED_MAX_ROLL_WEIGHT_KG = {"pet": 20.2, "pp": 12.2}
+STRAP_STUFFING_CONFIG_CORE_SIZES = ["150", "200", "400-405"]
+
+
+def _seed_strap_stuffing_config_v124(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strap_stuffing_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_key TEXT NOT NULL,
+            core_size_mm TEXT NOT NULL,
+            has_box INTEGER NOT NULL,
+            rolls_per_pallet INTEGER NOT NULL DEFAULT 0,
+            pallets_per_container_20 INTEGER NOT NULL DEFAULT 0,
+            pallets_per_container_40 INTEGER NOT NULL DEFAULT 0,
+            max_roll_weight_kg REAL NOT NULL DEFAULT 0,
+            UNIQUE(line_key, core_size_mm, has_box)
+        )
+    """)
+    conn.commit()
+    for line_key in ("pet", "pp"):
+        for core_size_mm in STRAP_STUFFING_CONFIG_CORE_SIZES:
+            for has_box in (0, 1):
+                exists = conn.execute(
+                    "SELECT id FROM strap_stuffing_config WHERE line_key=? AND core_size_mm=? AND has_box=?",
+                    (line_key, core_size_mm, has_box),
+                ).fetchone()
+                if exists:
+                    continue
+                conn.execute(
+                    """INSERT INTO strap_stuffing_config
+                       (line_key, core_size_mm, has_box, rolls_per_pallet,
+                        pallets_per_container_20, pallets_per_container_40, max_roll_weight_kg)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (line_key, core_size_mm, has_box,
+                     STRAP_STUFFING_CONFIG_SEED_ROLLS_PER_PALLET[core_size_mm],
+                     10, 20,
+                     STRAP_STUFFING_CONFIG_SEED_MAX_ROLL_WEIGHT_KG[line_key]),
+                )
     conn.commit()

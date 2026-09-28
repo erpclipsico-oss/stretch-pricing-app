@@ -137,6 +137,40 @@
     </div>
     {% endfor %}
 
+    <div class="panel-header" style="margin-top:28px;"><h2>Stuffing (loading restrictions)</h2></div>
+    <div class="price-note price-note-strap">
+      <div class="price-note-title">🟣 Fixed restrictions per core size / Box vs No Box</div>
+      For each core size and Box/No Box combination: Rolls/Pallet, Pallets/Container (20ft &amp; 40ft)
+      and Max Roll Weight (kg) are all fixed here -- not typed by the rep in the Pricing screen. In the
+      live quote builder, the rep only enters how many <strong>Containers</strong> (20ft/40ft), and
+      Pallets + Rolls/Pallet are auto-computed and locked (read-only) from these figures -- exactly what
+      gets shown on the saved quotation, PDF and Excel. Meters/Coil is also capped so nobody can enter
+      a gross roll weight over the Max Roll Weight set here.
+    </div>
+    {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
+    <h3 style="margin:14px 0 6px;">{{ line_label }}</h3>
+    <div class="edit-grid" style="margin-bottom:14px;">
+      <div class="edit-row header-row">
+        <span style="width:110px;">Core size</span>
+        <span style="width:70px;">Box</span>
+        <span style="width:110px;">Rolls/Pallet</span>
+        <span style="width:130px;">Pallets/Container (20ft)</span>
+        <span style="width:130px;">Pallets/Container (40ft)</span>
+        <span style="width:140px;">Max Roll Weight (kg)</span>
+      </div>
+      {% for row in stuffing_config.get(line_key, []) %}
+      <div class="edit-row">
+        <span style="width:110px;">{{ row.core_size_mm }}mm</span>
+        <span style="width:70px;">{{ "Box" if row.has_box else "No Box" }}</span>
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_rpp" value="{{ row.rolls_per_pallet }}" style="width:100px;">
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p20" value="{{ row.pallets_per_container_20 }}" style="width:120px;">
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p40" value="{{ row.pallets_per_container_40 }}" style="width:120px;">
+        <input type="number" step="any" min="0" name="stuffing_{{ row.id }}_maxwt" value="{{ row.max_roll_weight_kg }}" style="width:130px;">
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
     <div class="panel-header" style="margin-top:28px;"><h2>FOB &amp; credit terms</h2></div>
     <p class="hint" style="margin-bottom:10px;">
       Shared by PET Strap and PP Strap (per-container cost, split across whatever fits in the

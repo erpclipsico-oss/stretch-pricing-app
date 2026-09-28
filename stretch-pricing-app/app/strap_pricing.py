@@ -54,15 +54,19 @@ TARGET_GROSS_WEIGHT_KG = {
 }
 
 
-def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
+def suggest_meters_per_coil(conn, line_key, gm_per_m, core_weight_kg, has_box=None):
     """Owner-confirmed rule: pick meters/coil so the gross roll weight
     (net + core) lands as close as possible to the top of the target
     window without exceeding it. Rounded down to the nearest 10m (coils
     are wound in practical round numbers, and rounding down -- never up --
-    guarantees the max is never exceeded)."""
+    guarantees the max is never exceeded).
+
+    v124 -- the target ceiling now comes from gross_weight_max_kg(), which
+    is admin-editable per core-size/box (Admin > PET/PP Strap Costing), not
+    a fixed per-line constant -- see that function's docstring."""
     if not gm_per_m or gm_per_m <= 0:
         return 0
-    _, target_max = TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))
+    target_max = gross_weight_max_kg(conn, line_key, core_weight_kg, has_box)
     net_target_max_kg = target_max - (core_weight_kg or 0)
     if net_target_max_kg <= 0:
         return 0
@@ -70,26 +74,63 @@ def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
     return int(meters // 10) * 10
 
 
-def gross_weight_max_kg(line_key):
-    """The owner-confirmed hard ceiling (top of TARGET_GROSS_WEIGHT_KG's
-    window) for this line's gross roll weight, or 0 if the line isn't
-    recognized."""
+def _core_size_mm_for(core_weight_kg):
+    """Reverse lookup of CORE_SIZES_MM: the core-diameter label (e.g.
+    '400-405') for a given core weight in kg, or None if it doesn't match
+    one of the three owner-confirmed core sizes."""
+    for mm, kg in CORE_SIZES_MM.items():
+        if kg == core_weight_kg:
+            return mm
+    return None
+
+
+def _get_stuffing_config(conn, line_key, core_weight_kg, has_box):
+    """v124 -- admin-editable "stuffing" figures (Rolls/Pallet,
+    Pallets/Container 20ft & 40ft, Max Roll Weight) for one (line, core
+    size, box/no-box) combination -- see db._seed_strap_stuffing_config_v124()
+    for the seeded starting values (identical to the previously-hardcoded
+    ones) and admin_strap_costing.html for the editable grid. Returns None
+    if conn is None (e.g. a call site with no DB handle) or the combination
+    isn't recognized, so callers fall back to their own hardcoded default."""
+    if conn is None:
+        return None
+    core_size_mm = _core_size_mm_for(core_weight_kg)
+    if core_size_mm is None:
+        return None
+    row = conn.execute(
+        """SELECT rolls_per_pallet, pallets_per_container_20, pallets_per_container_40, max_roll_weight_kg
+           FROM strap_stuffing_config WHERE line_key=? AND core_size_mm=? AND has_box=?""",
+        (line_key, core_size_mm, 1 if has_box else 0),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def gross_weight_max_kg(conn, line_key, core_weight_kg=None, has_box=None):
+    """The hard ceiling for this line's gross roll weight. v124 -- admin-
+    editable per core-size/box (Admin > PET/PP Strap Costing) via
+    strap_stuffing_config; falls back to the old fixed per-line figure
+    (TARGET_GROSS_WEIGHT_KG -- 20.2kg PET / 12.2kg PP) when no core
+    weight is given, the combination isn't recognized, or the configured
+    value is 0/blank."""
+    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box) if core_weight_kg is not None else None
+    if cfg and cfg["max_roll_weight_kg"]:
+        return cfg["max_roll_weight_kg"]
     return TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))[1]
 
 
-def gross_weight_exceeds_max(line_key, gross_weight_kg):
+def gross_weight_exceeds_max(conn, line_key, gross_weight_kg, core_weight_kg=None, has_box=None):
     """v96 -- hard-validation companion to suggest_meters_per_coil() above.
     That function only ever proposes a DEFAULT meters/coil when the field is
     left blank/0 -- it never stops a rep from typing in a larger meters/coil
     by hand, which can push the actual (net + core) gross roll weight past
-    the owner-confirmed ceiling (20.2kg PET / 12.2kg PP) with nothing
-    catching it. This is that check: compute_strap_line() calls it and
-    app.py uses the result to block Save (and warn live) whenever a line's
-    real gross weight is over the line, telling the rep to reduce
-    Meters/Coil. A tiny epsilon absorbs float noise so a roll landing
+    the ceiling with nothing catching it. This is that check: compute_strap_line()
+    calls it and app.py uses the result to block Save (and warn live)
+    whenever a line's real gross weight is over the line, telling the rep to
+    reduce Meters/Coil. A tiny epsilon absorbs float noise so a roll landing
     exactly on the ceiling (e.g. suggest_meters_per_coil()'s own output)
-    never trips it."""
-    max_kg = gross_weight_max_kg(line_key)
+    never trips it. v124 -- the ceiling itself is now admin-editable per
+    core-size/box, see gross_weight_max_kg()."""
+    max_kg = gross_weight_max_kg(conn, line_key, core_weight_kg, has_box)
     return bool(max_kg) and gross_weight_kg > max_kg + 1e-6
 
 # v34 -- BOM composition %, profit % and waste % are now stored (and
@@ -307,61 +348,62 @@ def _packaging_addons(conn, line_key, dollar_rate, core_weight_kg, has_box, has_
     return jwan + stretch + box + cardboard + pallet
 
 
-def suggest_rolls_per_pallet(core_weight_kg, has_box):
+def suggest_rolls_per_pallet(conn, line_key, core_weight_kg, has_box):
     """The rolls/pallet figure shown to a rep/customer (quote builder live
-    preview + the printed PDF/Excel/view page) and used to convert Qty
-    (pallets) -> total coils. Purely a quantity-conversion default;
+    preview + the printed PDF/Excel/view page) and used to convert
+    pallets -> total coils. Purely a quantity-conversion default;
     overriding it does not change the container-freight math itself, which
     keeps using the verified per-sheet formula in _container_share below
     (same relationship suggest_pallets_per_container has to that function
     -- see its own docstring).
 
-    v120 -- owner-confirmed, explicit fixed figures by core size, no
-    longer split by Box/No-Box (Arabic: "عايزاك تثبت دول ... مافيهاش تغير"):
-    core 150mm (0.25kg) -> 72, core 200mm (0.5kg) -> 60, core 400mm
-    (1.0kg) -> 56, for every line regardless of has_box. This REPLACES the
-    old has_box-dependent 72/66/52 split (which also treated 150mm and
-    200mm core identically) -- has_box is kept as a parameter only because
-    both existing call sites (api_calculate_strap_line, load_quotation)
-    already pass it; it no longer affects the return value."""
+    v124 -- now admin-editable per (line, core size, box/no-box) via
+    strap_stuffing_config (Admin > PET/PP Strap Costing) -- see
+    _get_stuffing_config(). Falls back to the v120 owner-confirmed fixed
+    figures (150mm->72, 200mm->60, 400mm->56, same for box/no-box) when
+    conn is None or the row is somehow missing (shouldn't happen once
+    seeded), and to the pre-v120 has_box-based split for a core weight
+    outside those three recognized sizes."""
+    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box)
+    if cfg and cfg["rolls_per_pallet"]:
+        return cfg["rolls_per_pallet"]
     if core_weight_kg == 0.25:
         return 72
     if core_weight_kg == 0.5:
         return 60
     if core_weight_kg == 1.0:
         return 56
-    # Fallback for a core weight outside the three owner-confirmed sizes
-    # above (shouldn't happen -- CORE_SIZES_MM only ever produces 0.25/0.5/
-    # 1.0 -- see app.py's api_calculate_strap_line). Keeps the old
-    # has_box-based behavior rather than guessing a new fixed figure for a
-    # core size the owner hasn't confirmed one for.
     small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
     if small:
         return 72 if has_box else 66
     return 52
 
 
-def suggest_pallets_per_container(core_weight_kg, has_box, ctr20, ctr40):
+def suggest_pallets_per_container(conn, line_key, core_weight_kg, has_box, ctr20, ctr40):
     """The Pallets/Container figure shown to a rep/customer (quote builder
-    live preview + the printed PDF/Excel/view page) -- purely informational,
-    read-only.
+    live preview + the printed PDF/Excel/view page), and (v124) also what
+    the live builder multiplies by the rep's own Containers count to get
+    the locked, read-only Pallets total (see pricing.html's calculateAll()).
 
-    v91 -- owner-confirmed, twice, explicitly overriding the small-core
-    (<0.7kg) 11/22/24 split this used to return (which came from the
-    per-sheet container-SHARE formula in _container_share below, used to
-    spread the flat per-container FOB/freight cost across each coil -- see
-    that function's own docstring). The owner was clear that figure is not
-    her real max loading and she never asked for that split: her own
-    stated max loading for PET/PP Strap is a flat 20 pallets/40ft container,
-    10 pallets/20ft container, full stop -- no exception for a lighter
-    core weight or for Box vs No-Box. This function now just returns that.
+    v124 -- now admin-editable per (line, core size, box/no-box, 20ft/40ft)
+    via strap_stuffing_config (Admin > PET/PP Strap Costing) -- see
+    _get_stuffing_config(). Falls back to the v91 owner-confirmed flat
+    figures (20 pallets/40ft container, 10 pallets/20ft container, no
+    exception for core weight or Box/No-Box) when conn is None, the row is
+    missing, or its 20ft/40ft value is 0/blank.
 
     Deliberately NOT touched: _container_share()/compute_strap_line()'s
     actual FOB/CFR $ math, which keeps dividing by the verified per-sheet
     11/22/24/10/20 split (still exactly matches PET_Export_pricing /
-    PP_Export_pricing's own formulas) -- the owner's correction was about
-    what number gets PRINTED as Pallets/Container, not about the $ price,
-    which she has not disputed."""
+    PP_Export_pricing's own formulas) -- this function (and its backing
+    config) only ever controlled what number gets PRINTED/used to derive
+    Pallets, never the $ price."""
+    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box)
+    if cfg:
+        if ctr20 and cfg["pallets_per_container_20"]:
+            return cfg["pallets_per_container_20"]
+        if ctr40 and cfg["pallets_per_container_40"]:
+            return cfg["pallets_per_container_40"]
     if ctr20:
         return 10
     if ctr40:
@@ -539,8 +581,10 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
         # in the Pricing screen when a line's real gross roll weight (net +
         # core, from whatever meters/coil is actually set) is over the
         # owner-confirmed ceiling for this line.
-        "gross_weight_max_kg": gross_weight_max_kg(line_key),
-        "gross_weight_exceeded": gross_weight_exceeds_max(line_key, gross_weight_kg),
+        "gross_weight_max_kg": gross_weight_max_kg(conn, line_key, core_weight_kg, bool(product["has_box"])),
+        "gross_weight_exceeded": gross_weight_exceeds_max(
+            conn, line_key, gross_weight_kg, core_weight_kg, bool(product["has_box"])
+        ),
         "net_weight_kg": roll_net_kg,
         "meter_weight_g_per_m": net_weight_g_per_m,
         "material_cost": material_cost,
