@@ -236,6 +236,12 @@ def create_app():
             pricing_bases=pricing_bases,
             prestretch_packaging_types=prestretch_packaging_types,
             uv_types=cost_engine.UV_TYPES,
+            # v128 -- lets pricing.html show the full, detailed discount-cap
+            # explanation only to admin/sub_admin (a regular sales rep only
+            # ever sees the short "Standard 5%, Power 3%" style notice) --
+            # see the matching IS_ADMIN JS const near the top of that file's
+            # script block.
+            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
         )
 
     @app.route("/api/calculate-line", methods=["POST"])
@@ -292,9 +298,14 @@ def create_app():
         # max (Admin > Global Cost Settings > "Max Discount allowed") so the
         # margin can never be eroded past what the owner approved. v94 --
         # this is Stretch Film's own cap now; Strap has its own separate
-        # one (Admin > PET/PP Strap Costing) -- see cost_engine.capped_discount_pct().
-        discount_pct, discount_capped = cost_engine.capped_discount_pct(
-            g.db, line_discount_pct, global_discount_pct
+        # one (Admin > PET/PP Strap Costing). v128 -- each is further split
+        # per category (Standard/Power/Power_Plus/Rigid/Prestretch) -- see
+        # cost_engine.capped_discount_pct().
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.capped_discount_pct(
+                g.db, line_discount_pct, global_discount_pct,
+                product=product, is_prestretch_line=is_prestretch(product),
+            )
         )
         # v79 -- same flat credit-term $/kg surcharge Strap has always had,
         # now applied here too (Extras > Credit payment terms extra) -- see
@@ -335,6 +346,9 @@ def create_app():
                 "pallets_per_container20": None,
                 "discount_pct_applied": discount_pct,
                 "discount_capped": discount_capped,
+                "discount_cap_key": discount_cap_key,
+                "discount_cap_label": discount_cap_label,
+                "discount_cap_max": discount_cap_max,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -416,6 +430,9 @@ def create_app():
             "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
             "discount_pct_applied": discount_pct,
             "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
         })
 
     def _resolve_pricing_user(data):
@@ -511,9 +528,12 @@ def create_app():
         # v47: combined + capped discount rule -- see
         # cost_engine.capped_discount_pct(). v94 -- Strap now has its own
         # Max Discount cap (Admin > PET/PP Strap Costing), separate from
-        # Stretch Film's.
-        discount_pct, discount_capped = cost_engine.capped_discount_pct(
-            g.db, line_discount_pct, global_discount_pct, product_family="strap"
+        # Stretch Film's. v128 -- further split per PET/PP.
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.capped_discount_pct(
+                g.db, line_discount_pct, global_discount_pct,
+                product_family="strap", product_line=product_line,
+            )
         )
         credit_term = _is_credit_term(data)
         # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
@@ -580,6 +600,9 @@ def create_app():
                 bool(product["ctr20"]), bool(product["ctr40"])),
             "discount_pct_applied": discount_pct,
             "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
@@ -675,7 +698,13 @@ def create_app():
         # v47: tracks whether any saved line's Discount % got silently
         # capped by cost_engine.capped_discount_pct(), so the save response
         # can tell the rep -- see the two "if line_capped:" spots below.
+        # v128: capped_categories collects WHICH category(ies) got capped
+        # and at what max, keyed by category_key so each one only appears
+        # once even if several lines in the same category got capped --
+        # this is what lets the save response build a short "Standard 5%,
+        # Power 3%" style message instead of one generic sentence.
         any_discount_capped = False
+        capped_categories = {}
 
         for l in data.get("lines", []):
             line_product_line = l.get("product_line") or "stretch_film"
@@ -710,11 +739,13 @@ def create_app():
                 # re-caps independently of whatever the UI already showed,
                 # so the stored price can never reflect more discount than
                 # the owner allows. v94 -- Strap's own Max Discount cap.
-                discount_pct, line_capped = cost_engine.capped_discount_pct(
-                    db, line_discount_pct, global_discount_pct, product_family="strap"
+                discount_pct, line_capped, cap_key, cap_label, cap_max = cost_engine.capped_discount_pct(
+                    db, line_discount_pct, global_discount_pct,
+                    product_family="strap", product_line=line_product_line,
                 )
                 if line_capped:
                     any_discount_capped = True
+                    capped_categories[cap_key] = {"label": cap_label, "max": cap_max}
                 credit_term = _is_credit_term(data)
                 # v62 -- only the shipping (freight) leg is shared with
                 # Stretch Film's Catalog & Rates > Rates tables now, keyed
@@ -815,11 +846,13 @@ def create_app():
             # v47: then capped at the admin-configured max -- see
             # cost_engine.capped_discount_pct().
             line_discount_pct = float(l.get("line_discount_pct") or 0)
-            discount_pct, line_capped = cost_engine.capped_discount_pct(
-                db, line_discount_pct, global_discount_pct
+            discount_pct, line_capped, cap_key, cap_label, cap_max = cost_engine.capped_discount_pct(
+                db, line_discount_pct, global_discount_pct,
+                product=product, is_prestretch_line=is_prestretch(product),
             )
             if line_capped:
                 any_discount_capped = True
+                capped_categories[cap_key] = {"label": cap_label, "max": cap_max}
             # v79 -- same flat credit-term $/kg surcharge Strap lines get
             # above (Extras > Credit payment terms extra) -- see
             # _is_credit_term()/cost_engine.credit_term_extra_usd_kg().
@@ -959,6 +992,7 @@ def create_app():
         return jsonify({
             "id": quotation_id, "quotation_no": q["quotation_no"], "total": total,
             "discount_capped": any_discount_capped,
+            "discount_capped_categories": list(capped_categories.values()),
             # v99 -- tells the admin, on a fresh "Act as [salesperson]" save,
             # which sales rep this new quotation actually got attributed to
             # (created_by_id), so it's never a silent surprise.
@@ -1824,8 +1858,14 @@ def create_app():
             db.commit()
             flash("Global cost settings updated.", "success")
             return redirect(url_for("admin_global_settings"))
+        # v128 -- 'max_discount_pct' (the old single flat Stretch/Pre-Stretch
+        # cap) is superseded by the 5 max_discount_pct_* per-category caps
+        # below; the row is left alone in the DB (nothing reads it for
+        # pricing any more) but no longer shown here, so it can't be
+        # mistaken for a setting that still does anything.
         settings = db.execute(
-            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' ORDER BY label"
+            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' AND key != 'max_discount_pct' "
+            "ORDER BY (key LIKE 'max_discount_pct_%') DESC, label"
         ).fetchall()
         last_upload = table_sync.get_last_upload(db, "global_setting")
         return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
@@ -2019,18 +2059,28 @@ def create_app():
         # v88 -- strap_dollar_rate also excluded here: it gets its own
         # dedicated "Dollar Rate" section on the page (see dollar_rate
         # above), not the generic FOB/credit-terms grid. v94 --
-        # strap_max_discount_pct excluded the same way, its own "Max
-        # Discount" section below (see max_discount below).
+        # strap_max_discount_pct(_pet/_pp) excluded the same way, their own
+        # "Max Discount" section below (see max_discount_pet/pp below).
+        # v128 -- strap_max_discount_pct_pet/_pp (the new per-line caps)
+        # excluded here too, same reason.
         freight = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'strap_%' "
             "AND key NOT IN ('strap_shipping_rate_per_container_usd', 'strap_dollar_rate', "
-            "'strap_max_discount_pct') "
+            "'strap_max_discount_pct', 'strap_max_discount_pct_pet', 'strap_max_discount_pct_pp') "
             "ORDER BY label"
         ).fetchall()
         # v94 -- Strap's own Max Discount cap, independent of Stretch
-        # Film's (Global Cost Settings) -- see
-        # cost_engine.capped_discount_pct()/db._seed_strap_data().
-        max_discount = db.execute("SELECT value FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
+        # Film's (Global Cost Settings). v128 -- split again into PET's own
+        # and PP's own -- see cost_engine.capped_discount_pct()/
+        # db._seed_discount_cap_categories(). The old flat
+        # 'strap_max_discount_pct' row is left alone in the DB (nothing
+        # reads it for pricing any more) but no longer shown on this page.
+        max_discount_pet = db.execute(
+            "SELECT value FROM global_setting WHERE key='strap_max_discount_pct_pet'"
+        ).fetchone()
+        max_discount_pp = db.execute(
+            "SELECT value FROM global_setting WHERE key='strap_max_discount_pct_pp'"
+        ).fetchone()
         # v124 -- "stuffing" restrictions grid (Rolls/Pallet, Pallets/
         # Container 20ft & 40ft, Max Roll Weight), one row per (line, core
         # size, box/no-box) -- see db._seed_strap_stuffing_config_v124() and
@@ -2054,7 +2104,8 @@ def create_app():
             boms=boms,
             line_configs=line_configs,
             freight=freight,
-            max_discount=max_discount["value"] if max_discount else 2.0,
+            max_discount_pet=max_discount_pet["value"] if max_discount_pet else 2.0,
+            max_discount_pp=max_discount_pp["value"] if max_discount_pp else 2.0,
             stuffing_config=stuffing_config,
         )
 

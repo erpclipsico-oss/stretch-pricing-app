@@ -415,6 +415,7 @@ def init_db():
     _fix_stale_material_rates_v8(conn)
     _seed_strap_data(conn)
     _seed_max_discount_setting(conn)
+    _seed_discount_cap_categories(conn)
     _fix_uvi_margin_v53(conn)
     _dedupe_stale_jumbo_products_v63(conn)
     _seed_confirmed_micron_gaps_v64(conn)
@@ -1280,6 +1281,53 @@ def _seed_max_discount_setting(conn):
          "never computed with more discount than the owner approved. Set higher to "
          "allow bigger discounts (e.g. 100 effectively removes the cap)."),
     )
+    conn.commit()
+
+
+def _seed_discount_cap_categories(conn):
+    """v128 -- owner-requested split of the single Stretch Film cap and the
+    single PET/PP Strap cap into several independent per-category caps (see
+    cost_engine.STRETCH_DISCOUNT_CAP_CATEGORIES / STRAP_DISCOUNT_CAP_CATEGORIES
+    / discount_cap_category()). Same price-safe idempotent seeding pattern
+    as strap_max_discount_pct's own split in _seed_strap_data() -- each new
+    key is seeded from whatever the OLD flat cap ('max_discount_pct' for
+    Stretch/Pre-Stretch, 'strap_max_discount_pct' for Strap) is worth right
+    now, so nobody's effective cap silently changes the moment this ships;
+    it only diverges once the owner edits one of the new per-category
+    fields from here on. Runs after both _seed_max_discount_setting() and
+    _seed_strap_data() so those two legacy rows already exist to seed from."""
+    from . import cost_engine
+
+    legacy_stretch = conn.execute(
+        "SELECT value FROM global_setting WHERE key='max_discount_pct'"
+    ).fetchone()
+    stretch_seed = legacy_stretch["value"] if legacy_stretch and legacy_stretch["value"] is not None else 2.0
+    for key, label, setting_key in cost_engine.STRETCH_DISCOUNT_CAP_CATEGORIES:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (setting_key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (setting_key, f"Stretch Film -- {label}: Max Discount allowed (% points off margin)", stretch_seed,
+             f"Independent of every other Stretch Film category's own cap, and of PET/PP Strap's -- "
+             f"only applies to a line whose Stretch Ability is {label}"
+             + (" (or Pre-Stretch products)." if key == "prestretch" else ".")),
+        )
+
+    legacy_strap = conn.execute(
+        "SELECT value FROM global_setting WHERE key='strap_max_discount_pct'"
+    ).fetchone()
+    strap_seed = legacy_strap["value"] if legacy_strap and legacy_strap["value"] is not None else 2.0
+    for key, label, setting_key in cost_engine.STRAP_DISCOUNT_CAP_CATEGORIES:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (setting_key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (setting_key, f"{label}: Max Discount allowed (% points off margin)", strap_seed,
+             f"Independent of the other Strap line's own cap, and of every Stretch Film category's -- "
+             f"only applies to {label} lines. Edit it from the PET/PP Strap Costing page."),
+        )
     conn.commit()
 
 

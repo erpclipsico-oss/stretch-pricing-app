@@ -859,43 +859,91 @@ def apply_hidden_markup(price, markup_mode, markup_value):
     return price + value
 
 
-def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch"):
+# v128 -- owner-requested further split: the single "Stretch Film" cap and
+# the single "PET/PP Strap" cap each become several independent caps, one
+# per category, instead of one flat number covering every line in that
+# product family. Stretch splits into the same 5 categories the rest of the
+# app already recognizes (roll_type_bucket() + is_prestretch); Strap splits
+# into its existing pet/pp product_line. Each tuple is
+# (category_key, display_label, global_setting key).
+STRETCH_DISCOUNT_CAP_CATEGORIES = [
+    ("standard", "Standard", "max_discount_pct_standard"),
+    ("power", "Power", "max_discount_pct_power"),
+    ("power_plus", "Power Plus", "max_discount_pct_power_plus"),
+    ("rigid", "Rigid", "max_discount_pct_rigid"),
+    ("prestretch", "Prestretch", "max_discount_pct_prestretch"),
+]
+STRAP_DISCOUNT_CAP_CATEGORIES = [
+    ("pet", "PET Strap", "strap_max_discount_pct_pet"),
+    ("pp", "PP Strap", "strap_max_discount_pct_pp"),
+]
+_STRETCH_BUCKET_TO_CATEGORY = {"St": "standard", "P": "power", "P_plus": "power_plus", "RIGID": "rigid"}
+
+
+def discount_cap_category(product_family, product=None, is_prestretch_line=False, product_line=None):
+    """v128 -- picks which of the per-category Max Discount settings applies
+    to one specific line. Returns (category_key, label, global_setting_key).
+
+    Strap: driven by product_line ('pet'/'pp' -- defaults to 'pp' if not
+    given, matching the rest of the app's own default). Stretch/Pre-Stretch:
+    Pre-Stretch is always its own category regardless of the product passed
+    in; otherwise the category comes from this product's own Stretch
+    Ability, via the same roll_type_bucket() the Electricity/Conversion
+    cost sheets already use (St/P/P_plus/RIGID -> Standard/Power/Power
+    Plus/Rigid), so no new taxonomy was invented for this."""
+    if product_family == "strap":
+        key = "pet" if product_line == "pet" else "pp"
+        label = "PET Strap" if key == "pet" else "PP Strap"
+        return key, label, f"strap_max_discount_pct_{key}"
+    if is_prestretch_line:
+        return "prestretch", "Prestretch", "max_discount_pct_prestretch"
+    bucket = roll_type_bucket(product["stretch_ability"] if product is not None else None)
+    key = _STRETCH_BUCKET_TO_CATEGORY.get(bucket, "standard")
+    label = dict((k, l) for k, l, _ in STRETCH_DISCOUNT_CAP_CATEGORIES)[key]
+    return key, label, f"max_discount_pct_{key}"
+
+
+def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch",
+                         product=None, is_prestretch_line=False, product_line=None):
     """v47 -- owner-requested guardrail: combines a quotation line's own
     Discount % with the quotation's Global Discount % (percentage points,
     added together, same as every call site already did), then silently
     caps the total at the admin-configured 'Max Discount allowed' setting.
 
     v94 -- owner-requested split: Stretch Film / Pre-Stretch and PET/PP
-    Strap now each have their OWN Max Discount setting, edited on their own
-    page, instead of the one shared cap v47 originally set up (the owner's
-    instruction at the time was that this should be one rule everywhere --
-    she has since asked for it to be two independent ones instead, one per
-    product family, so this is the current, authoritative behavior).
-    product_family='stretch' (the default -- every existing caller except
-    Strap's own) reads global_setting key db.MAX_DISCOUNT_SETTING_KEY
-    ('max_discount_pct', Admin > Global Cost Settings, seeded at 2.0).
-    product_family='strap' reads 'strap_max_discount_pct' instead (Admin >
-    PET/PP Strap Costing, seeded from whatever max_discount_pct's value
-    already was at the moment of the split -- see db.py's migration -- so
-    the cap in effect today didn't silently change for either line).
-    Stretch discount comes straight off the margin factor
+    Strap each got their OWN Max Discount setting. v128 -- owner-requested
+    further split: each of those two is now several independent caps, one
+    per category (see discount_cap_category() above and
+    STRETCH_DISCOUNT_CAP_CATEGORIES / STRAP_DISCOUNT_CAP_CATEGORIES) --
+    e.g. Standard and Power film can each have their own cap, same for PET
+    vs PP Strap. Stretch discount comes straight off the margin factor
     (pricing._discounted_factor()); Strap's comes off its own BOM profit_pct
     the same way as of v93 (strap_pricing.compute_strap_line()) -- the two
-    mechanisms match now, but the CAP itself is independently configurable.
+    mechanisms match, but the CAP itself is independently configurable per
+    category. If a category's own setting hasn't been seeded yet for some
+    reason, this falls back to the old flat family-wide setting
+    ('max_discount_pct' / 'strap_max_discount_pct', seeded at 2.0) so a
+    missing row never silently means "no cap".
 
     This is the single place the cap is enforced, and it runs server-side
     on every price calculation AND on save -- so a sales rep typing more
     discount than allowed can never actually make it into a computed or
     saved price, regardless of what the UI does or doesn't catch first.
 
-    Returns (effective_discount_pct, was_capped) -- `was_capped` lets the
-    caller warn the rep in the UI that what they typed got reduced."""
+    Returns (effective_discount_pct, was_capped, category_key,
+    category_label, max_allowed) -- `was_capped` lets the caller warn the
+    rep; the category fields let the caller build a per-category message
+    instead of a generic one."""
     requested = (line_discount_pct or 0) + (global_discount_pct or 0)
-    setting_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
-    max_allowed = _get_setting(conn, setting_key, 2.0)
+    cat_key, cat_label, setting_key = discount_cap_category(
+        product_family, product=product, is_prestretch_line=is_prestretch_line, product_line=product_line
+    )
+    legacy_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
+    legacy_default = _get_setting(conn, legacy_key, 2.0)
+    max_allowed = _get_setting(conn, setting_key, legacy_default)
     if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
-        return max_allowed, True
-    return requested, False
+        return max_allowed, True, cat_key, cat_label, max_allowed
+    return requested, False, cat_key, cat_label, max_allowed
 
 
 def foreign_seller_extra_multiplier(conn, seller_type):

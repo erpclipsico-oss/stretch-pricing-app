@@ -227,6 +227,11 @@ const PRODUCTS = [
   {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
   {% endfor %}
 ];
+// v128 -- lets the discount-cap notice show its full detailed explanation
+// only to admin/sub_admin; a regular sales rep only ever sees the short
+// per-category "Standard 5%, Power 3%" list (see discount_capped_notice_*
+// in I18N and buildDiscountCapNotice() below).
+const IS_ADMIN = {{ is_admin_role|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
@@ -277,7 +282,11 @@ let currentLang = (function () {
 // outside calculateAll() so applyLanguage() can re-render an already-visible
 // notice in the new language the instant the toggle is clicked, instead of
 // waiting for the next recalc/act-as change to refresh it.
-let lastDiscountCapPct = null;    // null when no notice is showing
+// v128 -- was a single {max} number; now a list of {key, label, max} for
+// however many categories got capped on this quote (e.g. Standard AND
+// Power in the same quote each show their own number) -- see
+// buildDiscountCapNotice() below.
+let lastCappedCategories = [];    // [] when no notice is showing
 let lastGrossWeightLine = null;   // null when no notice is showing
 let lastActAsName = null;         // null when no "Act as" note is showing
 
@@ -316,8 +325,9 @@ const I18N = {
     tip_fob_roll: 'Ex-Work + per-container FOB share, priced per roll (not per kg)',
     tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
     tip_breaking_strength: 'Auto-computed from Width/Thickness (Ultimate breaking force). Type your own value here instead to see the equivalent g/m -- this field is informational only and never changes the priced g/m/weight.',
-    discount_capped_tooltip: 'Discount capped at {max}% (the maximum allowed) because the entered value was higher than allowed',
-    discount_capped_notice: '⚠️ On one or more lines, the entered discount was higher than allowed, so it was automatically capped at {max}% (the maximum allowed from Admin > Global Cost Settings). The affected line is outlined in orange.',
+    discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
+    discount_capped_notice_prefix: '⚠️ Discount capped — ',
+    discount_capped_notice_admin_suffix: ' The entered discount (line + global, added together) was higher than the max allowed for that category, so it was automatically capped before pricing. Affected lines are outlined in orange. Edit each category\'s own cap in Admin.',
     gross_weight_notice: "🚫 {line}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.",
     act_as_note: "Prices below reflect {name}'s own pricing.",
   },
@@ -355,8 +365,9 @@ const I18N = {
     tip_fob_roll: 'EX-Work + نصيب الكونتينر من الـ FOB، بالسعر للرول الواحد (مش للكيلو)',
     tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
     tip_breaking_strength: 'بيتحسب تلقائيًا من العرض/السمك (قوة الشد القصوى). اكتبي رقم بنفسك بدل كده عشان تشوفي الجرام/متر المعادل ليه -- الحقل ده للمعلومة بس ومش بيغيّر الجرام/الوزن المستخدم في التسعير.',
-    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح',
-    discount_capped_notice: '⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند {max}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.',
+    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
+    discount_capped_notice_prefix: '⚠️ الخصم اتقفل — ',
+    discount_capped_notice_admin_suffix: ' الخصم المدخل (السطر + العام، مجموعين) كان أعلى من الحد الأقصى المسموح لهذه الفئة، فاتقفل تلقائيًا قبل التسعير. السطر المتأثر متعلّم باللون البرتقالي. تقدري تعدّلي حد كل فئة من الأدمن.',
     gross_weight_notice: '🚫 {line}: وزن الرول تجاوز الحد الأقصى المسموح -- قلّلي المتر/الكويل في السطر المتعلّم باللون الأحمر. عرض السعر مش هيتحفظ لحد ما ده يتصلح.',
     act_as_note: 'الأسعار اللي تحت دي بتعكس أسعار {name}.',
   },
@@ -383,6 +394,20 @@ function tf(key, vars) {
     s = s.split('{' + k + '}').join(vars[k]);
   }
   return s;
+}
+
+// v128 -- owner-requested: the discount-capped warning must stay SHORT for
+// a regular user -- just which category(ies) got capped and their max %,
+// nothing else -- and only an admin/sub_admin should see the fuller
+// explanation on top of that. `categories` is [{label, max}, ...],
+// deduplicated by the caller so each category only appears once even if
+// several lines hit the same cap.
+function buildDiscountCapNotice(categories) {
+  if (!categories || !categories.length) return '';
+  const list = categories.map(c => `${c.label} ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
+  let msg = tf('discount_capped_notice_prefix') + list;
+  if (IS_ADMIN) msg += tf('discount_capped_notice_admin_suffix');
+  return msg;
 }
 
 // English label <-> Arabic label, keyed by the option's own `value`
@@ -436,12 +461,9 @@ function applyLanguage() {
   // now-active language, instead of leaving it stuck in whatever language
   // it was first generated in until the next recalc.
   const capNotice = document.getElementById('discountCapNotice');
-  if (capNotice && lastDiscountCapPct != null) {
-    capNotice.textContent = tf('discount_capped_notice', {max: lastDiscountCapPct});
+  if (capNotice && lastCappedCategories.length) {
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
   }
-  document.querySelectorAll('.f-discount, .f-strap-discount').forEach(el => {
-    if (el.title) el.title = tf('discount_capped_tooltip', {max: lastDiscountCapPct});
-  });
   const weightNotice = document.getElementById('grossWeightNotice');
   if (weightNotice && lastGrossWeightLine != null) {
     weightNotice.textContent = tf('gross_weight_notice', {line: lastGrossWeightLine});
@@ -1123,7 +1145,10 @@ async function calculateAll() {
   // (cost_engine.capped_discount_pct()) -- surfaced as a page-level notice
   // plus an outline on the affected row(s)' discount field.
   let anyDiscountCapped = false;
-  let cappedMaxPct = null;
+  // v128 -- keyed by category_key so Standard AND Power (etc.) each appear
+  // once even if several lines in the same category got capped -- see
+  // buildDiscountCapNotice().
+  const cappedCategoriesMap = {};
   // v96: whether any Strap line's gross roll weight is over the max --
   // see strap_pricing.gross_weight_exceeds_max() and the .f-strap-meters
   // outline set in the strap-lines loop below.
@@ -1175,9 +1200,9 @@ async function calculateAll() {
     const discInput = tr.querySelector('.f-discount');
     if (data.discount_capped) {
       anyDiscountCapped = true;
-      cappedMaxPct = data.discount_pct_applied;
+      cappedCategoriesMap[data.discount_cap_key] = {label: data.discount_cap_label, max: data.discount_cap_max};
       discInput.style.outline = '2px solid #d97706';
-      discInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
+      discInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied, label: data.discount_cap_label});
     } else {
       discInput.style.outline = '';
       discInput.title = '';
@@ -1294,9 +1319,9 @@ async function calculateAll() {
     const strapDiscInput = tr.querySelector('.f-strap-discount');
     if (data.discount_capped) {
       anyDiscountCapped = true;
-      cappedMaxPct = data.discount_pct_applied;
+      cappedCategoriesMap[data.discount_cap_key] = {label: data.discount_cap_label, max: data.discount_cap_max};
       strapDiscInput.style.outline = '2px solid #d97706';
-      strapDiscInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
+      strapDiscInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied, label: data.discount_cap_label});
     } else {
       strapDiscInput.style.outline = '';
       strapDiscInput.title = '';
@@ -1515,11 +1540,11 @@ async function calculateAll() {
   // see the .f-discount/.f-strap-discount outlines set above.
   const capNotice = document.getElementById('discountCapNotice');
   if (anyDiscountCapped) {
-    lastDiscountCapPct = cappedMaxPct;
+    lastCappedCategories = Object.values(cappedCategoriesMap);
     capNotice.style.display = '';
-    capNotice.textContent = tf('discount_capped_notice', {max: cappedMaxPct});
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
   } else {
-    lastDiscountCapPct = null;
+    lastCappedCategories = [];
     capNotice.style.display = 'none';
   }
 
@@ -1570,8 +1595,12 @@ async function saveQuotation() {
     // skipped/stale, this still catches it so the saved price is never
     // wrong even if the on-screen warning wasn't seen.
     let msg = 'Quotation saved as ' + (data.quotation_no || ('#' + data.id));
+    // v128 -- same short per-category list as the on-screen notice (plus
+    // the fuller explanation for admin/sub_admin only) -- see
+    // buildDiscountCapNotice(); data.discount_capped_categories is
+    // [{label, max}, ...] from api_save_quotation()'s own re-cap.
     if (data.discount_capped) {
-      msg += '\n\n⚠️ تنبيه: خصم سطر أو أكتر كان أعلى من الحد الأقصى المسموح، فاتقفل تلقائيًا قبل الحفظ.';
+      msg += '\n\n' + buildDiscountCapNotice(data.discount_capped_categories || []);
     }
     // v99 -- confirms, on a fresh "Act as [salesperson]" save, exactly which
     // sales rep this new quotation got attributed to (see the matching note
