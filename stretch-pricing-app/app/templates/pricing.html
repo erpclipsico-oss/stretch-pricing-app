@@ -159,6 +159,27 @@
         <th data-i18n="col_exw_kg">EX-Work $/kg</th>
         <th data-i18n="col_fob_kg">FOB $/kg</th>
         <th data-i18n="col_cif_kg">CIF $/kg</th>
+        <!-- v136 -- owner-requested "what price gives me what margin" tool
+             (Arabic: "تسيبلي جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان
+             السعر دا حيكون الفاكتور مثلاً 14% او 9%"): type any $/KG price
+             here and this shows what margin % (the same margin_factor-
+             table number normally looked up automatically) that price
+             would actually represent, given this line's own cost -- purely
+             a live what-if, never sent to the server or saved. Not shown
+             for a Pre-Stretch line (api_calculate_line's response carries
+             no margin_probe_*_usd_kg for those -- see that route's matching
+             v136 comment). v137 -- owner-requested: admin/sub_admin only
+             (Arabic: "تعملها في شاشه الادمن و الساب ادمن فقط") -- the whole
+             column is server-rendered out for a plain rep (is_admin_role),
+             and the JS row-builders below also skip creating the <td>/
+             listener per row (IS_ADMIN), and the API response carries no
+             margin_probe_* figures for a non-admin/sub_admin request either
+             (see api_calculate_line's/_calculate_strap_line's matching
+             v137 comment) -- a rep never even receives the numbers, not
+             just never sees the column. -->
+        {% if is_admin_role %}
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type any $/KG price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
+        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -213,6 +234,14 @@
              server's own field names (cfr_price_roll etc.) are internal
              and untouched. -->
         <th data-i18n="col_cif_roll" data-i18n-title="tip_cif_roll" title="FOB + per-container shipping share, priced per roll (not per kg)">CIF $/Roll</th>
+        <!-- v136 -- same "what price gives me what margin" tool as Stretch
+             Film's own table above, in $/Roll here (Strap's natural unit)
+             instead of $/KG. v137 -- admin/sub_admin only, same as the
+             Stretch Film column -- see that column's matching v137
+             comment. -->
+        {% if is_admin_role %}
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type any $/Roll price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
+        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -336,6 +365,10 @@ const I18N = {
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
     col_pallets_locked: 'Pallets',
     tip_pallets_locked: "How many pallets of this line the customer is ordering",
+    col_margin_probe: 'Margin sim',
+    tip_margin_probe: "Type any $/KG price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.",
+    tip_margin_probe_roll: "Type any $/Roll price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.",
+    tip_margin_probe_prestretch_na: "Not available for Pre-Stretch -- its price borrows another SKU's own price rather than applying a margin % to its own cost",
     prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
@@ -373,6 +406,10 @@ const I18N = {
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
     col_pallets_locked: 'البالتات',
     tip_pallets_locked: 'عدد البالتات المطلوبة من السطر ده',
+    col_margin_probe: 'محاكاة الهامش',
+    tip_margin_probe: 'اكتبي أي سعر $/كجم عشان تشوفي ده هيمثل هامش كام % بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
+    tip_margin_probe_roll: 'اكتبي أي سعر $/رول عشان تشوفي ده هيمثل هامش كام % بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
+    tip_margin_probe_prestretch_na: 'مش متاحة للبريستريتش -- سعره بيتاخد من سعر SKU تاني مش بتطبيق نسبة هامش على تكلفته هو',
     prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
@@ -541,6 +578,43 @@ function roundUp(num, decimals) {
   return Math.ceil((num - Number.EPSILON) * factor) / factor;
 }
 
+// v136 -- "what price gives me what margin" what-if tool (Arabic: "تسيبلي
+// جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان السعر دا حيكون الفاكتور مثلاً
+// 14% او 9%"). tr.dataset.marginLow/marginHigh are the two reference
+// prices api_calculate_line()/_calculate_strap_line() return -- the SAME
+// line, same extras, but with the margin/profit % forced to 0% and 100%
+// instead of the real looked-up-and-discounted one (see those routes'
+// matching v136 comments). Price is a straight-line (affine) function of
+// the margin fraction, so any typed price inverts instantly:
+//   implied_margin_pct = (typed - low) / (high - low) * 100
+// Shared by both the Stretch Film ($/KG) and Strap ($/Roll) tables --
+// isStrap only changes the "$/kg"/"$/Roll" unit shown in the output, the
+// math is identical either way. Purely client-side: never sent to the
+// server, never saved, recomputed on every keystroke with no round trip.
+function updateMarginProbe(tr, isStrap) {
+  // v137 -- owner-requested: admin/sub_admin only. IS_ADMIN false means the
+  // column's <td> was never rendered into this row at all (see addLine()'s/
+  // addStrapLine()'s matching v137 comment), so there's nothing to update.
+  if (!IS_ADMIN) return;
+  const input = tr.querySelector('.f-margin-probe');
+  const out = tr.querySelector('.f-margin-probe-out');
+  const low = parseFloat(tr.dataset.marginLow);
+  const high = parseFloat(tr.dataset.marginHigh);
+  const typed = parseFloat(input.value);
+  if (!isFinite(low) || !isFinite(high) || high === low) {
+    out.textContent = '';
+    return;
+  }
+  if (input.value === '' || !isFinite(typed)) {
+    out.textContent = '';
+    return;
+  }
+  const impliedPct = (typed - low) / (high - low) * 100;
+  const unit = isStrap ? '/roll' : '/kg';
+  out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% margin`;
+  out.title = `At \$${typed}${unit}, this line's own cost implies a ${roundHalfUp(impliedPct, 2)}% margin (0% margin = \$${roundHalfUp(low, 2)}${unit}, 100% margin = \$${roundHalfUp(high, 2)}${unit})`;
+}
+
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
@@ -619,6 +693,17 @@ function addLine(prefill) {
     <td class="f-exw num">0.000</td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
+    <!-- v136 -- "what price gives me what margin" what-if tool (see the
+         col_margin_probe header's matching v136 comment). Never read by
+         readLines()/calculateAll()'s request payload -- purely a local,
+         client-side calculation off tr.dataset.marginLow/marginHigh.
+         v137 -- admin/sub_admin only (IS_ADMIN, see that header's matching
+         v137 comment): the <td> itself is left out of the row entirely for
+         a plain rep, not just visually hidden. -->
+    ${IS_ADMIN ? `<td class="margin-probe-td">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/kg" style="width:65px;" title="Type any $/KG price to see what margin % it represents, given this line's own cost">
+      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
+    </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('linesBody').appendChild(tr);
@@ -628,6 +713,17 @@ function addLine(prefill) {
     if (next && next.classList.contains('prestretch-row')) next.remove();
     renumber();
   });
+
+  // v136 -- "what price gives me what margin" what-if tool: purely local,
+  // recomputed instantly from tr.dataset.marginLow/marginHigh (the two
+  // reference prices calculateAll() stashes there on every recalculate --
+  // see this function's matching v136 comment below), no server round trip
+  // needed per keystroke. See updateMarginProbe() (shared with the Strap
+  // table) for the actual math. v137 -- admin/sub_admin only: the <td>/
+  // input above was never created for a plain rep, so skip the listener.
+  if (IS_ADMIN) {
+    tr.querySelector('.f-margin-probe').addEventListener('input', () => updateMarginProbe(tr, false));
+  }
 
   // v119 -- owner-requested (Arabic: "ليه كتب لي باليتس بير كونتينر مرتين"
   // + "اعمل باكجينج وبعدين فوق زي التايتلز ... تشيك بوكس زيها زي كولر دو
@@ -893,9 +989,20 @@ function addStrapLine() {
     <td class="f-strap-exw num">0.00</td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
+    <!-- v136 -- "what price gives me what margin" what-if tool, $/Roll
+         here (Strap's natural unit) -- see the Stretch Film table's
+         matching v136 comment on col_margin_probe above. v137 --
+         admin/sub_admin only (IS_ADMIN), same as that table's column. -->
+    ${IS_ADMIN ? `<td class="margin-probe-td">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/roll" style="width:65px;" title="Type any $/Roll price to see what margin % it represents, given this line's own cost">
+      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
+    </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('strapLinesBody').appendChild(tr);
+  if (IS_ADMIN) {
+    tr.querySelector('.f-margin-probe').addEventListener('input', () => updateMarginProbe(tr, true));
+  }
   tr.querySelector('.btn-remove').addEventListener('click', () => {
     tr.remove();
     renumberStrap();
@@ -1228,6 +1335,28 @@ async function calculateAll() {
       discInput.style.outline = '';
       discInput.title = '';
     }
+    // v136 -- "what price gives me what margin" what-if tool: stash the two
+    // reference prices this response just carried (null for Pre-Stretch --
+    // see api_calculate_line's matching v136 comment) so updateMarginProbe()
+    // can invert instantly on every keystroke with no further round trip.
+    // v137 -- admin/sub_admin only: the response itself carries no
+    // margin_probe_* figures for a non-admin/sub_admin request (server-side
+    // gate -- see that route's matching v137 comment), and IS_ADMIN false
+    // also means this row never got the <td>/input in the first place (see
+    // addLine()'s matching v137 comment), so there's nothing to touch here.
+    if (IS_ADMIN) {
+      if (data.margin_probe_low_usd_kg != null && data.margin_probe_high_usd_kg != null) {
+        tr.dataset.marginLow = data.margin_probe_low_usd_kg;
+        tr.dataset.marginHigh = data.margin_probe_high_usd_kg;
+        tr.querySelector('.f-margin-probe').disabled = false;
+      } else {
+        delete tr.dataset.marginLow;
+        delete tr.dataset.marginHigh;
+        tr.querySelector('.f-margin-probe').disabled = true;
+        tr.querySelector('.f-margin-probe').title = tf('tip_margin_probe_prestretch_na');
+      }
+      updateMarginProbe(tr, false);
+    }
     if (!isPrestretch(product_id)) {
       // Reflect back the roll wt / core wt the server actually costed with
       // (in case a blank/invalid entry fell back to the catalog default),
@@ -1338,6 +1467,17 @@ async function calculateAll() {
     } else {
       strapDiscInput.style.outline = '';
       strapDiscInput.title = '';
+    }
+    // v136 -- "what price gives me what margin" what-if tool -- see the
+    // Stretch Film loop's matching v136 comment above. Strap always has
+    // both probe figures (no Pre-Stretch-style exception here). v137 --
+    // admin/sub_admin only, same gate as the Stretch Film loop.
+    if (IS_ADMIN) {
+      if (data.margin_probe_low_roll != null && data.margin_probe_high_roll != null) {
+        tr.dataset.marginLow = data.margin_probe_low_roll;
+        tr.dataset.marginHigh = data.margin_probe_high_roll;
+      }
+      updateMarginProbe(tr, true);
     }
     // v124 -- Rolls/pallet is fixed per (core size, box/no-box) in Admin >
     // PET/PP Strap Costing's Stuffing grid, and the field is readonly -- so

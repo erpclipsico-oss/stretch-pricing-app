@@ -248,6 +248,20 @@ input[type=number] {
    admin_strap_costing.html (uses this, purple) for the matching boxes. */
 .price-note-strap { background: #faf5ff; border-color: #e9d5ff; color: #6b21a8; }
 
+/* v138 -- owner-requested (Arabic: "لونها / خلي شكلها مختلف بشكل مختلف
+   عشان احس انها حاجة ليا مش للسعر الاساسي اللي انت مطلعه في الكوتيشن"):
+   the v136/v137 "Margin sim" what-if column (admin/sub_admin only) gets
+   its own distinct amber/honey tint -- different from every real price
+   column (EX-Work/FOB/CIF, plain white/grey) and from the blue/purple
+   "price-note" boxes elsewhere -- plus a dashed left border, so it visibly
+   reads as a personal scratch tool bolted onto the side of the table, not
+   part of the real quoted price. Used on both the Stretch Film and Strap
+   tables' header <th> and each row's <td> -- see pricing.html. */
+.margin-probe-th { background: #fffaeb; border-left: 2px dashed #f0c36d; color: #92400e; }
+.margin-probe-td { background: #fffdf6; border-left: 2px dashed #f0c36d; }
+.margin-probe-td .f-margin-probe { border-color: #f0c36d; background: #fff; }
+.margin-probe-td .f-margin-probe-out { color: #92400e; font-weight: 600; }
+
 .edit-grid { display: flex; flex-direction: column; gap: 6px; }
 .edit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--border); }
 .edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; }

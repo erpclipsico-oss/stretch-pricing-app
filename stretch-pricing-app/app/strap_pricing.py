@@ -445,7 +445,8 @@ def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
 
 def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False,
                         hidden_markup_mode=None, hidden_markup_value=0,
-                        fob_container_usd=None, shipping_container_usd=None):
+                        fob_container_usd=None, shipping_container_usd=None,
+                        profit_pct_override=None):
     """Full per-roll/per-kg breakdown for one strap_product row. Returns a
     dict with ex_work_price_roll, fob_price_roll/kg, cfr_price_roll/kg
     (Cash terms unless credit_term=True, in which case the flat $/kg
@@ -480,7 +481,16 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     is a flat USD/KG amount added onto the FINAL fob/cfr $/KG price,
     mirroring how the credit-term surcharge below is applied. Neither is
     surfaced anywhere in the price breakdown -- see app.py's
-    _calculate_strap_line/api_save_quotation."""
+    _calculate_strap_line/api_save_quotation.
+
+    profit_pct_override (v136): owner-requested "what price gives me what
+    margin" tool -- mirrors pricing.unit_price_for()'s matching
+    margin_pct_override param. When given (a plain fraction, e.g. 0.0 or
+    1.0 -- NOT a percent), REPLACES the BOM's own profit_pct + the
+    discount-pct reduction entirely, used only to probe two reference
+    prices (at 0% and 100% profit) so app.py can hand the client two points
+    on the price-vs-margin line to invert for any price typed in. None (the
+    default) leaves normal pricing untouched."""
     cfg = LINE_CONFIG[line_key]
     line_numbers = _get_line_config(conn, line_key)
     bom = _get_bom(conn, line_key, product["bom_key"])
@@ -527,7 +537,12 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     # Cost/Direct Labor never being discounted either. At discount_pct=0
     # this is numerically identical to the old formula, so today's prices
     # are unchanged.
-    discounted_profit_pct = max((bom["profit"] or 0) - (discount_pct or 0) / 100.0, 0.0)
+    # v136 -- margin-probe override (see this function's docstring): bypass
+    # the BOM profit lookup + discount reduction entirely when set.
+    if profit_pct_override is not None:
+        discounted_profit_pct = profit_pct_override
+    else:
+        discounted_profit_pct = max((bom["profit"] or 0) - (discount_pct or 0) / 100.0, 0.0)
     core_rate = _material_rate(conn, line_key, "core") / dollar_rate if dollar_rate else 0.0
     coil_price = ex_work_roll * (1 + discounted_profit_pct) + core_weight_kg * core_rate * (1 + PACKAGING_FACTORS["core"])
 

@@ -95,7 +95,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
                     colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0,
                     round_result=True, credit_term=False, exclude_pallet_from_packaging=False,
-                    convert_to_net_basis=False, box_packaging=True):
+                    convert_to_net_basis=False, box_packaging=True, margin_pct_override=None):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -150,10 +150,24 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     its source SKU's own price) -- and because it flows into the raw,
     unrounded price returned when round_result=False, it's already baked
     into the EX-Work base that FOB/CIF get built from in app.py, so both
-    end up including it, the same as Strap's FOB/CFR both do."""
-    factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
-                                         rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
-    factor = _discounted_factor(factor, discount_pct)
+    end up including it, the same as Strap's FOB/CFR both do.
+
+    margin_pct_override (v136): owner-requested "what price gives me what
+    margin" tool (Admin/Pricing screen -- Arabic: "تسيبلي جمبه خانة فاضية
+    اكتبلك فيها سعر تطلعلي ان السعر دا حيكون الفاكتور مثلاً 14% او 9%").
+    When given (a plain fraction, e.g. 0.0 or 1.0 -- NOT a percent), this
+    REPLACES the normal cost_engine.margin_pct_for() lookup + the discount-
+    pct reduction (_discounted_factor()) entirely -- used only to probe two
+    reference prices (at 0% and 100% margin) so app.py can hand the client
+    two points on the price-vs-margin line for it to invert instantly for
+    any price the rep types in, without a further round trip. None (the
+    default) leaves normal pricing completely untouched."""
+    if margin_pct_override is not None:
+        factor = margin_pct_override
+    else:
+        factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
+                                             rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
+        factor = _discounted_factor(factor, discount_pct)
     uv_fraction = cost_engine.UVI_FRACTION if uv_type else 0.0
     ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
                                                   rolls_per_pallet_override=rolls_per_pallet_override,
@@ -193,7 +207,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
                   seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
                   hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False,
-                  box_packaging=True):
+                  box_packaging=True, margin_pct_override=None):
     """Returns (unit_price_usd_kg, total_kg).
 
     box_packaging (v120): this line's own "Box" checkbox -- True (default)
@@ -241,7 +255,8 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  seller_type=seller_type, colored=colored, discount_pct=discount_pct,
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
                                  hidden_markup_value=hidden_markup_value, round_result=round_result,
-                                 credit_term=credit_term, box_packaging=box_packaging)
+                                 credit_term=credit_term, box_packaging=box_packaging,
+                                 margin_pct_override=margin_pct_override)
     # v46: the confirmed-correct, sheet-matching GROSS weight -- see this
     # function's docstring.
     gross_roll_weight = effective["roll_weight_kg"] or 0
