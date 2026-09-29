@@ -154,23 +154,43 @@
     </div>
     {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
     <h3 style="margin:14px 0 6px;">{{ line_label }}</h3>
-    <div class="edit-grid" style="margin-bottom:14px;">
+    <!-- v144 -- owner-requested (bordered table, each field lined up under
+         its own column title): scoped ".stuffing-grid" class adds real
+         grid-line borders (outer box + a line between every column/row)
+         on top of the existing .edit-grid/.edit-row flex layout, which
+         already lines fields up under fixed-width headers -- see this
+         class's rules in style.css. Scoped to this table only, so the
+         shared .edit-grid/.edit-row styling everywhere else (Factors,
+         Fixed inputs, FOB & credit terms sections on this same page, and
+         every other admin page that reuses them) is untouched. -->
+    <div class="edit-grid stuffing-grid" style="margin-bottom:14px;">
+      <!-- v144 -- these six widths (header spans AND the matching data
+           cells below) MUST be identical pairs -- before this table had
+           real grid-line borders, a header label a bit wider than its
+           declared width just quietly grew via the v132 min-width:max-
+           content rule with no visible side effect (flex gap absorbed it).
+           Now that .stuffing-grid draws a vertical border at each cell's
+           declared edge, that same growth would push a header out of line
+           with its own column's data cells. Widths below were bumped up
+           (some rows too, so every column matches) just past each header
+           label's actual rendered max-content width so none of them grow,
+           and each data-cell width matches its header exactly. -->
       <div class="edit-row header-row">
         <span style="width:110px;">Core size</span>
-        <span style="width:70px;">Box</span>
-        <span style="width:110px;">Rolls/Pallet</span>
-        <span style="width:130px;">Pallets/Container (20ft)</span>
-        <span style="width:130px;">Pallets/Container (40ft)</span>
-        <span style="width:140px;">Max Roll Weight (kg)</span>
+        <span style="width:80px;">Box</span>
+        <span style="width:130px;">Rolls/Pallet</span>
+        <span style="width:190px;">Pallets/Container (20ft)</span>
+        <span style="width:190px;">Pallets/Container (40ft)</span>
+        <span style="width:170px;">Max Roll Weight (kg)</span>
       </div>
       {% for row in stuffing_config.get(line_key, []) %}
       <div class="edit-row">
         <span style="width:110px;">{{ row.core_size_mm }}mm</span>
-        <span style="width:70px;">{{ "Box" if row.has_box else "No Box" }}</span>
-        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_rpp" value="{{ row.rolls_per_pallet }}" style="width:100px;">
-        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p20" value="{{ row.pallets_per_container_20 }}" style="width:120px;">
-        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p40" value="{{ row.pallets_per_container_40 }}" style="width:120px;">
-        <input type="number" step="any" min="0" name="stuffing_{{ row.id }}_maxwt" value="{{ row.max_roll_weight_kg }}" style="width:130px;">
+        <span style="width:80px;">{{ "Box" if row.has_box else "No Box" }}</span>
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_rpp" value="{{ row.rolls_per_pallet }}" style="width:130px;">
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p20" value="{{ row.pallets_per_container_20 }}" style="width:190px;">
+        <input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p40" value="{{ row.pallets_per_container_40 }}" style="width:190px;">
+        <input type="number" step="any" min="0" name="stuffing_{{ row.id }}_maxwt" value="{{ row.max_roll_weight_kg }}" style="width:170px;">
       </div>
       {% endfor %}
     </div>

@@ -2445,6 +2445,57 @@ def create_app():
     def admin_prestretch():
         db = g.db
         if request.method == "POST":
+            action = request.form.get("action")
+            # v145 -- owner-requested ("محتاجة اعرف ازود منتجات هنا"): this
+            # page used to only let you CHANGE which source SKU an
+            # ALREADY-EXISTING Pre-Stretch micron borrows its price from
+            # (the branch below, unchanged). There was no way anywhere in
+            # the app to add a brand-new Pre-Stretch micron -- the general
+            # Catalog & Rates > Products "Add product" form has no
+            # is_prestretch checkbox at all, so a product added there would
+            # silently default to is_prestretch=0 (see db.py's column
+            # default) and never show up here or in the Pre-Stretch quote
+            # picker. These two new branches (add_micron/delete_micron) are
+            # scoped to this page and only ever touch is_prestretch=1
+            # rows -- they can't create or delete a normal product.
+            if action == "add_micron":
+                micron = (request.form.get("micron") or "").strip()
+                source_id = request.form.get("prestretch_source_product_id") or None
+                if not micron:
+                    flash("اكتبي المايكرون الأول.", "error")
+                    return redirect(url_for("admin_prestretch"))
+                dup = db.execute(
+                    "SELECT id FROM product WHERE is_prestretch=1 AND micron=?", (micron,)
+                ).fetchone()
+                if dup:
+                    flash(f"المايكرون {micron}µm موجود بالفعل في الجدول.", "error")
+                    return redirect(url_for("admin_prestretch"))
+                # Same field pattern as every seeded Pre-Stretch row (see
+                # this route's own comment above prestretch_cost_components()
+                # in pricing.py): stretch_ability is always the fixed label
+                # "Pre-Stretch" (not a real stretch-ability spec -- Pre-
+                # Stretch borrows its price from the source SKU instead),
+                # ex_work_usd_kg is a harmless 0.0 placeholder (never read --
+                # material cost comes from the source SKU's own price, see
+                # prestretch_cost_components()), and roll/core weight,
+                # rolls/pallet are left NULL because the rep types those in
+                # per quotation line, not from the catalog.
+                db.execute(
+                    """INSERT INTO product
+                       (stretch_ability, micron, auto_manual, color, ex_work_usd_kg,
+                        is_prestretch, prestretch_source_product_id)
+                       VALUES ('Pre-Stretch', ?, 'Manual', 'Transparent', 0.0, 1, ?)""",
+                    (micron, source_id),
+                )
+                db.commit()
+                flash(f"اتضاف مايكرون {micron}µm جديد.", "success")
+                return redirect(url_for("admin_prestretch"))
+            if action == "delete_micron":
+                pid = request.form.get("product_id")
+                db.execute("DELETE FROM product WHERE id=? AND is_prestretch=1", (pid,))
+                db.commit()
+                flash("اتمسح المايكرون.", "success")
+                return redirect(url_for("admin_prestretch"))
             pid = request.form.get("product_id")
             source_id = request.form.get("prestretch_source_product_id") or None
             db.execute(

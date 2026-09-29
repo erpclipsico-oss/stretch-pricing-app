@@ -33,11 +33,35 @@
         </select>
         <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </form>
+      <form method="post" onsubmit="return confirm('Delete this Pre-Stretch micron?');">
+        <input type="hidden" name="action" value="delete_micron">
+        <input type="hidden" name="product_id" value="{{ r.id }}">
+        <button type="submit" class="btn-remove" title="Delete">✕</button>
+      </form>
     </div>
     {% else %}
     <p class="empty">No Pre-Stretch SKUs seeded yet.</p>
     {% endfor %}
   </div>
+  <!-- v145 -- owner-requested: add a brand-new Pre-Stretch micron (e.g.
+       11µm) that isn't in the table above yet, and pick which jumbo
+       Power/Power plus SKU it should borrow its price from right away
+       (or leave it unset and come back to the row above later). -->
+  <div class="panel-header" style="margin-top:22px;"><h3>Add a new Pre-Stretch micron</h3></div>
+  <form method="post" class="grid grid-4" style="align-items:end;">
+    <input type="hidden" name="action" value="add_micron">
+    <div class="field"><label>Micron</label><input type="text" name="micron" required placeholder="e.g. 11"></div>
+    <div class="field">
+      <label>Source SKU (optional -- can set later)</label>
+      <select name="prestretch_source_product_id" style="width:100%;">
+        <option value="">— none —</option>
+        {% for s in sources %}
+        <option value="{{ s.id }}">{{ product_label(s) }} (50kg jumbo)</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field"><button type="submit" class="btn btn-primary">Add micron</button></div>
+  </form>
 </div>
 
 <div class="panel">

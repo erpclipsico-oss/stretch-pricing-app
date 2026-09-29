@@ -185,6 +185,48 @@ input[type=number] {
 .lines-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lines-table .empty { text-align: center; color: var(--muted); padding: 24px; }
 
+/* v146 -- owner-requested (Arabic: "لما باجي يمين بلاقي المواصفة اختفت
+   ... تعمل فريز للمواصفة مهما امشي شمال يبقى مثبت لي البرودكت نفسه"):
+   with this many columns (Pallet type, Packing, Box, Width, Roll kg ...
+   all the way to Margin sim), scrolling the table right to see a later
+   column used to scroll the "#"/Product columns away too, so there was no
+   way to tell which product a value on the right belonged to once you'd
+   scrolled. Scoped to the two LIVE quote-builder tables only (#linesTable
+   / #strapLinesTable, both share the same first two columns) -- NOT
+   .lines-table-wide, the read-only saved-quotation view's table, which
+   the owner didn't ask about and has its own different column layout.
+   The "#" column is given a fixed, border-box width so the Product
+   column's sticky left offset lines up exactly under it, in both the
+   header row and every body row. A solid background (the panel's own
+   white) is required on a sticky cell -- otherwise the columns scrolling
+   underneath would show through it. The thin right-edge shadow is the
+   visual "freeze line" a spreadsheet shows, so it reads as pinned on
+   purpose rather than just stuck. */
+#linesTable th:first-child, #linesTable td:first-child,
+#strapLinesTable th:first-child, #strapLinesTable td:first-child,
+#linesTable th:nth-child(2), #linesTable td:nth-child(2),
+#strapLinesTable th:nth-child(2), #strapLinesTable td:nth-child(2) {
+  position: sticky;
+  background: var(--panel);
+}
+#linesTable th:first-child, #linesTable td:first-child,
+#strapLinesTable th:first-child, #strapLinesTable td:first-child {
+  left: 0;
+  width: 28px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+#linesTable th:nth-child(2), #linesTable td:nth-child(2),
+#strapLinesTable th:nth-child(2), #strapLinesTable td:nth-child(2) {
+  left: 28px;
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.2);
+  z-index: 1;
+}
+#linesTable thead th:first-child, #strapLinesTable thead th:first-child,
+#linesTable thead th:nth-child(2), #strapLinesTable thead th:nth-child(2) {
+  z-index: 2;
+}
+
 /* v69 -- saved-quotation view page's line-items table: a bit more
    breathing room per column now that headers are 2 lines (Qty (Pallets),
    Total Qty (KG), etc) instead of one bare word, per the owner's request
@@ -330,6 +372,52 @@ input[type=number] {
   background-repeat: no-repeat;
   background-position: right 6px center;
   background-size: 9px 6px;
+}
+
+/* v144 -- owner-requested ("organise this in a border table, each field
+   under it's title"): scoped to the Admin > PET/PP Strap Costing "Stuffing"
+   table ONLY (the wrapping <div> there carries both .edit-grid and this new
+   .stuffing-grid class -- see admin_strap_costing.html). Every other page
+   that reuses the shared .edit-grid/.edit-row/.header-row classes (this
+   same page's Factors, Fixed inputs, and FOB & credit terms sections, plus
+   any other admin page) has no .stuffing-grid ancestor, so none of these
+   rules reach it -- all selectors below are scoped with a ".stuffing-grid"
+   prefix for exactly that reason.
+   Look: an outer box border around the whole table, a horizontal line
+   between every row (already there via .edit-row's own border-bottom, kept
+   as-is), and NEW vertical lines between every column so each value sits
+   in its own bordered cell directly under its header label -- turning the
+   flex-row layout into something that reads as a real bordered table
+   without switching it to actual <table> markup (which would need a
+   template rewrite of the row-loop below). */
+.stuffing-grid {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.stuffing-grid .edit-row {
+  gap: 0;
+  padding: 0;
+  flex-wrap: nowrap;
+}
+.stuffing-grid .edit-row.header-row {
+  background: var(--bg);
+}
+.stuffing-grid .edit-row > span,
+.stuffing-grid .edit-row > input {
+  border-right: 1px solid var(--border);
+  padding: 8px 10px;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 0;
+}
+.stuffing-grid .edit-row > span:last-child,
+.stuffing-grid .edit-row > input:last-child {
+  border-right: none;
+}
+.stuffing-grid .edit-row:last-child {
+  border-bottom: none;
 }
 .col-label { font-size: 0.7rem; color: var(--muted); display: block; margin-bottom: 2px; }
 .edit-cell { display: flex; flex-direction: column; }
