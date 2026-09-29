@@ -694,6 +694,54 @@ function updateMarginProbe(tr, isStrap, kind) {
   out.title = `At \$${typed}${unit} delivered (${basisWord}), the EX-Work equivalent (\$${roundHalfUp(exWorkEquivalent, 2)}${unit}, after subtracting this line's own \$${roundHalfUp(isFinite(freightGap) ? freightGap : 0, 2)}${unit} ${shareWord} share) implies a ${roundHalfUp(impliedPct, 2)}% factor -- the exact same % you'd set in Admin > Margin Factors, unaffected by Color/credit-term/commission`;
 }
 
+// v148c -- owner-requested (Arabic: "قلل الفرق"): the "use current price"
+// button (see addLine()'s/addStrapLine()'s matching v148/v148c comments).
+// Filling the probe input with the DISPLAYED (2dp-rounded) FOB/CIF price
+// and re-running updateMarginProbe() above still shows a small residual
+// (e.g. 8.2% instead of 8.00%) even though the underlying math is exact --
+// because that displayed price, and the EX-Work price it's built from, are
+// genuinely rounded to 2dp as a deliberate step of the pricing formula
+// itself (matching the source Excel sheet's ROUNDUP() -- see pricing.py's
+// v70.2/v100/v110 notes), not just a display artifact. For the Stretch
+// Film table only, the server also hands back that EX-Work price at FULL
+// precision (unit_price_usd_kg_raw, stashed as tr.dataset.rawExw -- see
+// the per-line response handler's matching v148c comment), so this button
+// computes the factor straight from THAT instead of re-deriving an
+// EX-Work-equivalent from the rounded FOB/CIF cell -- proven to land on
+// exactly the nominal Admin > Margin Factors % (verified to 6 decimals,
+// with or without UV/Color/credit-term/commission, every time). The input
+// box is still filled with the normal displayed price, just for her own
+// reference -- only the % shown comes from the higher-precision path.
+// Strap has no equivalent raw figure available (its own ex_work_price_roll
+// is rounded unconditionally inside compute_strap_line(), not just for
+// display -- see strap_pricing.py), so its button falls back to the same
+// reconstruct-from-displayed-price path updateMarginProbe() always used.
+function fillExactPrice(tr, isFob) {
+  if (!IS_ADMIN) return;
+  const dispVal = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
+  if (dispVal === undefined) return;
+  const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
+  input.value = dispVal;
+  const rawExw = tr.dataset.rawExw;
+  if (rawExw === undefined) {
+    // Strap (or Pre-Stretch, where the button/input are disabled anyway) --
+    // no raw figure to bypass to, fall back to the normal reconstruction.
+    updateMarginProbe(tr, true, isFob ? 'fob' : undefined);
+    return;
+  }
+  const low = parseFloat(tr.dataset.marginLow);
+  const high = parseFloat(tr.dataset.marginHigh);
+  const raw = parseFloat(rawExw);
+  const out = tr.querySelector(isFob ? '.f-margin-probe-fob-out' : '.f-margin-probe-out');
+  if (!isFinite(low) || !isFinite(high) || high === low || !isFinite(raw)) {
+    out.textContent = '';
+    return;
+  }
+  const impliedPct = (raw - low) / (high - low) * 100;
+  out.textContent = `→ ${roundHalfUp(impliedPct, 2)}% factor (exact)`;
+  out.title = `Computed straight from this line's own full-precision EX-Work price ($${raw.toFixed(4)}/kg, before the 2dp rounding the displayed price uses) -- the exact same % as Admin > Margin Factors, with zero rounding noise, unaffected by Color/UV/Box/credit-term/commission.`;
+}
+
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
@@ -819,14 +867,7 @@ function addLine(prefill) {
     // probe -- same math as typing it by hand, just without any typo or
     // copy-paste mismatch.
     tr.querySelectorAll('.btn-fill-price').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const isFob = btn.dataset.kind === 'fob';
-        const val = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
-        if (val === undefined) return;
-        const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
-        input.value = val;
-        updateMarginProbe(tr, false, isFob ? 'fob' : undefined);
-      });
+      btn.addEventListener('click', () => fillExactPrice(tr, btn.dataset.kind === 'fob'));
     });
   }
 
@@ -1139,16 +1180,14 @@ function addStrapLine() {
     // v143 -- second (FOB-basis) probe, same row -- see updateMarginProbe()'s
     // matching v143 comment.
     tr.querySelector('.f-margin-probe-fob').addEventListener('input', () => updateMarginProbe(tr, true, 'fob'));
-    // v148 -- "use current price" auto-fill buttons -- see the Stretch
-    // Film table's matching v148 comment on addLine() above.
+    // v148/v148c -- "use current price" auto-fill buttons -- see the
+    // Stretch Film table's matching v148 comment on addLine() above and
+    // fillExactPrice()'s v148c comment (Strap has no raw-precision figure
+    // to bypass to, so this always falls back to the normal reconstruct-
+    // from-displayed-price path there).
     tr.querySelectorAll('.btn-fill-price').forEach(btn => {
       btn.addEventListener('click', () => {
-        const isFob = btn.dataset.kind === 'fob';
-        const val = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
-        if (val === undefined) return;
-        const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
-        input.value = val;
-        updateMarginProbe(tr, true, isFob ? 'fob' : undefined);
+        fillExactPrice(tr, btn.dataset.kind === 'fob');
       });
     });
   }
@@ -1502,12 +1541,30 @@ async function calculateAll() {
       if (data.margin_probe_low_usd_kg != null) {
         tr.dataset.marginLow = data.margin_probe_low_usd_kg;
         tr.dataset.marginHigh = data.margin_probe_high_usd_kg;
+        // v148c -- owner-requested (Arabic: "قلل الفرق"): stash the FULL-
+        // PRECISION EX-Work price too (never .toFixed()'d), so the "use
+        // current price" button can compute the implied factor straight
+        // from it instead of re-deriving an EX-Work-equivalent from the
+        // 2dp-rounded FOB/CIF cell + freight gap. That reconstruction is
+        // exact algebra either way, but it starts from the DISPLAYED
+        // (rounded) EX-Work price, which is where the small residual
+        // noise (e.g. 8.2% instead of 8.00%) was actually coming from --
+        // proven by comparing against this same raw figure: the two-point
+        // ratio computed from it is 8.000000% to 6 decimals, with or
+        // without UV/Color/credit-term/commission, every time (see the
+        // conversation's matching v148c investigation). Using it directly
+        // removes that last bit of noise for the Stretch Film table.
+        tr.dataset.rawExw = data.unit_price_usd_kg_raw;
         tr.querySelector('.f-margin-probe').disabled = false;
+        tr.querySelector('.f-margin-probe-fob').disabled = false;
       } else {
         delete tr.dataset.marginLow;
         delete tr.dataset.marginHigh;
+        delete tr.dataset.rawExw;
         tr.querySelector('.f-margin-probe').disabled = true;
         tr.querySelector('.f-margin-probe').title = tf('tip_margin_probe_prestretch_na');
+        tr.querySelector('.f-margin-probe-fob').disabled = true;
+        tr.querySelector('.f-margin-probe-fob').title = tf('tip_margin_probe_prestretch_na');
       }
       updateMarginProbe(tr, false);
     }
