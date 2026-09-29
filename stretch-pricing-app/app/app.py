@@ -460,14 +460,27 @@ def create_app():
 
     def _is_credit_term(data):
         """The quotation's own Payment Term selector: anything other than
-        'Cash (...)' triggers a flat $/kg credit-term surcharge -- PET/PP
+        'Cash (...)' triggers a $/kg credit-term surcharge -- PET/PP
         Strap's own (strap_pricing.compute_strap_line()) since v30, and
         (v79) Stretch Film/Pre-Stretch's (pricing.py's
         unit_price_for()/prestretch_unit_price_for(), via
         cost_engine.credit_term_extra_usd_kg()) -- both driven by this same
-        one field. Renamed from _strap_credit_term now that it's shared."""
-        payment_term = (data.get("payment_term") or "").strip().lower()
-        return bool(payment_term) and not payment_term.startswith("cash")
+        one field. Renamed from _strap_credit_term now that it's shared.
+
+        v135 -- owner-requested: the surcharge now varies by how many days
+        the term is (30/60/90), so this returns the exact term STRING (e.g.
+        '30 days', matching the Payment Term dropdown's own option value
+        verbatim) instead of a plain True/False. Every existing caller only
+        ever tested this for truthiness ('if credit_term', 'bool(credit_term)',
+        "'Credit' if credit_term else 'Cash'") or passed it straight through
+        to credit_term_extra_usd_kg()/compute_strap_line(), and a non-empty
+        string is just as truthy as True was -- so this is safe everywhere
+        that already used it, with no other call site needing to change.
+        Still '' (falsy) for Cash, exactly as before."""
+        payment_term = (data.get("payment_term") or "").strip()
+        if not payment_term or payment_term.lower().startswith("cash"):
+            return ""
+        return payment_term
 
     def _build_custom_strap_product(data, product_line):
         """v32 -- "Custom (width x thickness)" strap line: the rep picks a

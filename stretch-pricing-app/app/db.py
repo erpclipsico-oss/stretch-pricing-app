@@ -411,6 +411,7 @@ def init_db():
     _fix_stale_global_settings_v7(conn)
     _seed_margin_factor_v5(conn)
     _seed_extras_settings(conn)
+    _relabel_legacy_credit_term_v135(conn)
     _fix_prestretch_extra_v117(conn)
     _fix_stale_material_rates_v8(conn)
     _seed_strap_data(conn)
@@ -1182,12 +1183,26 @@ EXTRAS_GLOBAL_SETTINGS = [
     # app.py's _is_credit_term()). A separate, independently-editable
     # setting rather than reusing the Strap one, matching how every other
     # Extras surcharge is its own admin-editable row.
-    ("extra_credit_term_usd_kg", "Extras - Credit payment terms extra ($/KG)", 0.03,
+    ("extra_credit_term_usd_kg", "Extras - Credit payment terms extra ($/KG) [LEGACY, no longer used]", 0.03,
+     "No longer read by the app -- v135 replaced this one flat surcharge "
+     "with the three per-term settings below (30/60/90 days), per the "
+     "owner's request. Left in place, unused, only so nothing breaks for "
+     "anyone still reading this old setting directly."),
+    # v135 -- owner-requested: the single flat credit-term surcharge above
+    # is retired in favor of one that varies by how many days the term is
+    # (Arabic: "عايزه اخلي الاجل ال 30 يوم يزود 2 سنت وال 60 يوم يزود 3 سنت
+    # وال 90 يوم يزود 4 سنت"). Keyed by the exact Payment Term dropdown
+    # string (app.py's payment_terms list) -- see
+    # cost_engine.CREDIT_TERM_TIER_SETTING_KEYS.
+    ("extra_credit_term_30_usd_kg", "Extras - Credit payment terms extra, 30 days ($/KG)", 0.02,
      "Added to the unit price of every Stretch Film / Pre-Stretch line "
-     "when the quotation's Payment Term is anything other than Cash "
-     "('Extras > Credit payment terms extra'). Mirrors the PET/PP Strap "
-     "credit-term surcharge (Admin > PET/PP Strap Costing), kept as its "
-     "own separately-editable setting."),
+     "whose quotation's Payment Term is '30 days'."),
+    ("extra_credit_term_60_usd_kg", "Extras - Credit payment terms extra, 60 days ($/KG)", 0.03,
+     "Added to the unit price of every Stretch Film / Pre-Stretch line "
+     "whose quotation's Payment Term is '60 days'."),
+    ("extra_credit_term_90_usd_kg", "Extras - Credit payment terms extra, 90 days ($/KG)", 0.04,
+     "Added to the unit price of every Stretch Film / Pre-Stretch line "
+     "whose quotation's Payment Term is '90 days'."),
 ]
 
 
@@ -1203,6 +1218,38 @@ def _seed_extras_settings(conn):
             "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
             (key, label, value, help_text),
         )
+    conn.commit()
+
+
+def _relabel_legacy_credit_term_v135(conn):
+    """v135 -- 'extra_credit_term_usd_kg' pre-dates the 30/60/90-day tiers
+    (see EXTRAS_GLOBAL_SETTINGS's matching v135 note) and, unlike a
+    brand-new key, already exists with its OLD label on any live DB from
+    before this version -- _seed_extras_settings() only inserts missing
+    rows, it never updates an existing one's label. Re-applies the new
+    '[LEGACY, no longer used]' label/help text every startup (cheap,
+    idempotent, and safe to repeat) so an admin opening Global Cost
+    Settings on an already-deployed site sees the same up-to-date wording
+    as a fresh install -- NEVER touches `value`, so an owner-edited number
+    is preserved either way (this setting just isn't read for pricing any
+    more)."""
+    conn.execute(
+        "UPDATE global_setting SET label=?, help=? WHERE key='extra_credit_term_usd_kg'",
+        ("Extras - Credit payment terms extra ($/KG) [LEGACY, no longer used]",
+         "No longer read by the app -- v135 replaced this one flat surcharge "
+         "with the three per-term settings below (30/60/90 days), per the "
+         "owner's request. Left in place, unused, only so nothing breaks for "
+         "anyone still reading this old setting directly."),
+    )
+    conn.execute(
+        "UPDATE global_setting SET label=?, help=? WHERE key='strap_credit_surcharge_usd_kg'",
+        ("PET/PP Strap: credit-term surcharge ($/kg) [LEGACY, no longer used]",
+         "No longer read by the app -- v135 replaced this one flat surcharge "
+         "with the three per-term settings below (30/60/90 days), per the "
+         "owner's request. Left in place, unused, only so nothing breaks for "
+         "anyone still reading this old setting directly."),
+    )
+    conn.commit()
 
 
 def _fix_prestretch_extra_v117(conn):
@@ -3071,8 +3118,21 @@ STRAP_GLOBAL_SETTINGS = [
     ("strap_shipping_rate_per_container_usd", "PET/PP Strap: shipping rate per container ($)", 1200,
      "Flat sea-freight cost per shipping container, shared by the PET Strap and PP Strap lines, "
      "added on top of the FOB share the same way to get each line's per-roll CFR price."),
-    ("strap_credit_surcharge_usd_kg", "PET/PP Strap: credit-term surcharge ($/kg)", 0.03,
-     "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is not Cash."),
+    ("strap_credit_surcharge_usd_kg", "PET/PP Strap: credit-term surcharge ($/kg) [LEGACY, no longer used]", 0.03,
+     "No longer read by the app -- v135 replaced this one flat surcharge "
+     "with the three per-term settings below (30/60/90 days), per the "
+     "owner's request. Left in place, unused, only so nothing breaks for "
+     "anyone still reading this old setting directly."),
+    # v135 -- see cost_engine.CREDIT_TERM_TIER_SETTING_KEYS's matching note
+    # (Stretch Film's own version of this same change): the flat surcharge
+    # above is retired in favor of one that varies by how many days the
+    # term is, keyed by the exact Payment Term dropdown string.
+    ("strap_credit_surcharge_30_usd_kg", "PET/PP Strap: credit-term surcharge, 30 days ($/kg)", 0.02,
+     "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is '30 days'."),
+    ("strap_credit_surcharge_60_usd_kg", "PET/PP Strap: credit-term surcharge, 60 days ($/kg)", 0.03,
+     "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is '60 days'."),
+    ("strap_credit_surcharge_90_usd_kg", "PET/PP Strap: credit-term surcharge, 90 days ($/kg)", 0.04,
+     "Added to the Cash FOB/CFR $/kg price when the quotation's payment term is '90 days'."),
 ]
 
 # v34 -- BOM recipes, seeded from the exact figures verified against the

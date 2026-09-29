@@ -804,6 +804,21 @@ EXTRAS_SETTING_KEYS = {
     "credit_term": "extra_credit_term_usd_kg",
 }
 
+# v135 -- owner-requested: the flat credit-term surcharge above is retired
+# in favor of one that varies by how many days the term actually is (Arabic:
+# "عايزه اخلي الاجل ال 30 يوم يزود 2 سنت وال 60 يوم يزود 3 سنت وال 90 يوم
+# يزود 4 سنت"). Keyed by the exact Payment Term dropdown string (app.py's
+# payment_terms list) so no new lookup table is needed. See
+# db.EXTRAS_GLOBAL_SETTINGS for the seeded defaults/labels (still editable
+# in Admin > Global Cost Settings, alongside the old flat setting, which is
+# kept in the DB but no longer read -- see that file's matching v135 note).
+CREDIT_TERM_TIER_SETTING_KEYS = {
+    "30 days": ("extra_credit_term_30_usd_kg", 0.02),
+    "60 days": ("extra_credit_term_60_usd_kg", 0.03),
+    "90 days": ("extra_credit_term_90_usd_kg", 0.04),
+}
+
+
 def extras_settings(conn):
     """Current value of all three Extras settings, as a plain dict."""
     return {
@@ -827,10 +842,23 @@ def color_extra_usd_kg(conn, colored):
 def credit_term_extra_usd_kg(conn, credit_term):
     """v79 -- 'Credit payment terms extra': the Stretch Film / Pre-Stretch
     counterpart of strap_pricing.compute_strap_line()'s credit-term
-    surcharge. `credit_term` is the quotation's own flag (payment_term
-    isn't Cash), truthy/falsy -- see app.py's _is_credit_term()."""
+    surcharge. `credit_term` is the quotation's own Payment Term STRING
+    (e.g. '30 days'), or '' / falsy for Cash -- see app.py's
+    _is_credit_term() (v135 -- used to be a plain True/False flag; now the
+    exact term string so the surcharge can vary by term, below).
+
+    v135 -- owner-requested: no longer one flat $/KG for any non-Cash term
+    -- 30/60/90 days each now have their own admin-editable surcharge (see
+    CREDIT_TERM_TIER_SETTING_KEYS above). A term string that doesn't match
+    one of the three known tiers (shouldn't happen -- the Payment Term
+    dropdown only ever offers these three plus Cash) falls back to the old
+    flat setting so nothing silently prices at $0."""
     if not credit_term:
         return 0.0
+    tier = CREDIT_TERM_TIER_SETTING_KEYS.get(credit_term)
+    if tier:
+        key, default = tier
+        return _get_setting(conn, key, default)
     return _get_setting(conn, EXTRAS_SETTING_KEYS["credit_term"], 0.03)
 
 

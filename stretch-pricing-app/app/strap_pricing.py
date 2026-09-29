@@ -53,6 +53,19 @@ TARGET_GROSS_WEIGHT_KG = {
     "pp": (12.0, 12.2),
 }
 
+# v135 -- see compute_strap_line()'s matching v135 comment: the credit-term
+# surcharge now varies by how many days the Payment Term is, keyed by the
+# exact dropdown string (app.py's payment_terms list). Mirrors
+# cost_engine.CREDIT_TERM_TIER_SETTING_KEYS but with Strap's own,
+# separately-editable setting keys (Admin > PET/PP Strap Costing), same as
+# the old flat strap_credit_surcharge_usd_kg was its own setting, never
+# shared with Stretch Film's.
+STRAP_CREDIT_TERM_TIER_SETTING_KEYS = {
+    "30 days": ("strap_credit_surcharge_30_usd_kg", 0.02),
+    "60 days": ("strap_credit_surcharge_60_usd_kg", 0.03),
+    "90 days": ("strap_credit_surcharge_90_usd_kg", 0.04),
+}
+
 
 def suggest_meters_per_coil(conn, line_key, gm_per_m, core_weight_kg, has_box=None):
     """Owner-confirmed rule: pick meters/coil so the gross roll weight
@@ -566,7 +579,18 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
             cfr_price_roll = cfr_price_kg * gross_weight_kg
 
     if credit_term:
-        surcharge = _get_setting(conn, "strap_credit_surcharge_usd_kg", 0.03)
+        # v135 -- owner-requested: the flat surcharge above is retired in
+        # favor of one that varies by how many days the term is (mirrors
+        # cost_engine.CREDIT_TERM_TIER_SETTING_KEYS's matching Stretch Film
+        # change -- Arabic: "عايزه اخلي الاجل ال 30 يوم يزود 2 سنت وال 60
+        # يوم يزود 3 سنت وال 90 يوم يزود 4 سنت"). `credit_term` is now the
+        # exact Payment Term string (e.g. '30 days'), not a plain
+        # True/False -- see app.py's _is_credit_term(). Falls back to the
+        # old flat setting for any term string that isn't one of the three
+        # known tiers (shouldn't happen -- the dropdown only offers these
+        # three plus Cash).
+        surcharge = _get_setting(conn, *STRAP_CREDIT_TERM_TIER_SETTING_KEYS.get(
+            credit_term, ("strap_credit_surcharge_usd_kg", 0.03)))
         if fob_price_roll > 0:
             fob_price_kg = fob_price_kg + surcharge
             fob_price_roll = fob_price_kg * gross_weight_kg
