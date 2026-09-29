@@ -580,13 +580,16 @@ function roundUp(num, decimals) {
 
 // v136 -- "what price gives me what margin" what-if tool (Arabic: "تسيبلي
 // جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان السعر دا حيكون الفاكتور مثلاً
-// 14% او 9%"). tr.dataset.marginLow/marginHigh are the two reference
-// prices api_calculate_line()/_calculate_strap_line() return -- the SAME
-// line, same extras, but with the margin/profit % forced to 0% and 100%
-// instead of the real looked-up-and-discounted one (see those routes'
-// matching v136 comments). Price is a straight-line (affine) function of
-// the margin fraction, so any typed price inverts instantly:
-//   implied_margin_pct = (typed - low) / (high - low) * 100
+// 14% او 9%"). tr.dataset.marginLow is the ONE reference price
+// api_calculate_line()/_calculate_strap_line() return -- the SAME line,
+// same extras, but with the margin/profit % forced to 0% instead of the
+// real looked-up-and-discounted one (see those routes' matching v136/v139
+// comments) -- i.e. this line's own cost-equivalent price. v139 --
+// owner-corrected convention (Arabic: "المفروض ... تكون المارجن كنسبة من
+// السعر مش من التكلفة"): "margin" means the standard commercial gross
+// margin -- (price - cost) / price -- not markup-on-cost, so any typed
+// price inverts instantly with just this one reference point:
+//   implied_margin_pct = (typed - low) / typed * 100
 // Shared by both the Stretch Film ($/KG) and Strap ($/Roll) tables --
 // isStrap only changes the "$/kg"/"$/Roll" unit shown in the output, the
 // math is identical either way. Purely client-side: never sent to the
@@ -599,20 +602,29 @@ function updateMarginProbe(tr, isStrap) {
   const input = tr.querySelector('.f-margin-probe');
   const out = tr.querySelector('.f-margin-probe-out');
   const low = parseFloat(tr.dataset.marginLow);
-  const high = parseFloat(tr.dataset.marginHigh);
   const typed = parseFloat(input.value);
-  if (!isFinite(low) || !isFinite(high) || high === low) {
+  // v139 -- owner-corrected convention (Arabic: "المفروض ... تكون المارجن
+  // كنسبة من السعر مش من التكلفة"): "margin" here now means the standard
+  // commercial gross margin -- (price - cost) / price -- not this app's
+  // own internal "factor"/markup -- (price - cost) / cost -- that the
+  // real EX-Work/FOB/CIF prices are built from. `low` is this line's own
+  // cost-equivalent price (its real price recomputed at 0% factor, so it
+  // already includes every extra EXCEPT the owner's own margin) -- see
+  // app.py's matching v139 comment. Only this one reference point is
+  // needed for margin-on-price, unlike the old markup-on-cost formula
+  // which needed two (0% and 100%) to interpolate a straight line.
+  if (!isFinite(low)) {
     out.textContent = '';
     return;
   }
-  if (input.value === '' || !isFinite(typed)) {
+  if (input.value === '' || !isFinite(typed) || typed <= 0) {
     out.textContent = '';
     return;
   }
-  const impliedPct = (typed - low) / (high - low) * 100;
+  const impliedPct = (typed - low) / typed * 100;
   const unit = isStrap ? '/roll' : '/kg';
   out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% margin`;
-  out.title = `At \$${typed}${unit}, this line's own cost implies a ${roundHalfUp(impliedPct, 2)}% margin (0% margin = \$${roundHalfUp(low, 2)}${unit}, 100% margin = \$${roundHalfUp(high, 2)}${unit})`;
+  out.title = `At \$${typed}${unit}, this line's own cost (\$${roundHalfUp(low, 2)}${unit}) implies a ${roundHalfUp(impliedPct, 2)}% margin on the selling price (profit ÷ price, the standard commercial gross-margin convention -- not profit ÷ cost)`;
 }
 
 function firstNumber(str) {
@@ -696,7 +708,8 @@ function addLine(prefill) {
     <!-- v136 -- "what price gives me what margin" what-if tool (see the
          col_margin_probe header's matching v136 comment). Never read by
          readLines()/calculateAll()'s request payload -- purely a local,
-         client-side calculation off tr.dataset.marginLow/marginHigh.
+         client-side calculation off tr.dataset.marginLow (v139: just the
+         one reference price now, see updateMarginProbe()'s v139 comment).
          v137 -- admin/sub_admin only (IS_ADMIN, see that header's matching
          v137 comment): the <td> itself is left out of the row entirely for
          a plain rep, not just visually hidden. -->
@@ -715,11 +728,11 @@ function addLine(prefill) {
   });
 
   // v136 -- "what price gives me what margin" what-if tool: purely local,
-  // recomputed instantly from tr.dataset.marginLow/marginHigh (the two
-  // reference prices calculateAll() stashes there on every recalculate --
-  // see this function's matching v136 comment below), no server round trip
-  // needed per keystroke. See updateMarginProbe() (shared with the Strap
-  // table) for the actual math. v137 -- admin/sub_admin only: the <td>/
+  // recomputed instantly from tr.dataset.marginLow (v139: the one
+  // reference price calculateAll() stashes there on every recalculate --
+  // see this function's matching v136/v139 comment below), no server round
+  // trip needed per keystroke. See updateMarginProbe() (shared with the
+  // Strap table) for the actual math. v137 -- admin/sub_admin only: the <td>/
   // input above was never created for a plain rep, so skip the listener.
   if (IS_ADMIN) {
     tr.querySelector('.f-margin-probe').addEventListener('input', () => updateMarginProbe(tr, false));
@@ -1335,23 +1348,24 @@ async function calculateAll() {
       discInput.style.outline = '';
       discInput.title = '';
     }
-    // v136 -- "what price gives me what margin" what-if tool: stash the two
-    // reference prices this response just carried (null for Pre-Stretch --
-    // see api_calculate_line's matching v136 comment) so updateMarginProbe()
-    // can invert instantly on every keystroke with no further round trip.
+    // v136 -- "what price gives me what margin" what-if tool: stash the
+    // reference (0%-margin/cost-equivalent) price this response just
+    // carried (null for Pre-Stretch -- see api_calculate_line's matching
+    // v136 comment) so updateMarginProbe() can invert instantly on every
+    // keystroke with no further round trip. v139 -- only ONE reference
+    // price is needed now (margin-on-price convention -- see
+    // updateMarginProbe()'s matching v139 comment), not two.
     // v137 -- admin/sub_admin only: the response itself carries no
     // margin_probe_* figures for a non-admin/sub_admin request (server-side
     // gate -- see that route's matching v137 comment), and IS_ADMIN false
     // also means this row never got the <td>/input in the first place (see
     // addLine()'s matching v137 comment), so there's nothing to touch here.
     if (IS_ADMIN) {
-      if (data.margin_probe_low_usd_kg != null && data.margin_probe_high_usd_kg != null) {
+      if (data.margin_probe_low_usd_kg != null) {
         tr.dataset.marginLow = data.margin_probe_low_usd_kg;
-        tr.dataset.marginHigh = data.margin_probe_high_usd_kg;
         tr.querySelector('.f-margin-probe').disabled = false;
       } else {
         delete tr.dataset.marginLow;
-        delete tr.dataset.marginHigh;
         tr.querySelector('.f-margin-probe').disabled = true;
         tr.querySelector('.f-margin-probe').title = tf('tip_margin_probe_prestretch_na');
       }
@@ -1470,12 +1484,12 @@ async function calculateAll() {
     }
     // v136 -- "what price gives me what margin" what-if tool -- see the
     // Stretch Film loop's matching v136 comment above. Strap always has
-    // both probe figures (no Pre-Stretch-style exception here). v137 --
-    // admin/sub_admin only, same gate as the Stretch Film loop.
+    // its probe figure (no Pre-Stretch-style exception here). v137 --
+    // admin/sub_admin only, same gate as the Stretch Film loop. v139 --
+    // only one reference price now (margin-on-price convention).
     if (IS_ADMIN) {
-      if (data.margin_probe_low_roll != null && data.margin_probe_high_roll != null) {
+      if (data.margin_probe_low_roll != null) {
         tr.dataset.marginLow = data.margin_probe_low_roll;
-        tr.dataset.marginHigh = data.margin_probe_high_roll;
       }
       updateMarginProbe(tr, true);
     }

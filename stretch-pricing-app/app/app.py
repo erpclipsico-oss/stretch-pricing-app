@@ -361,7 +361,6 @@ def create_app():
                 # branch's matching v136 comment below) isn't offered for
                 # Pre-Stretch; null tells pricing.html not to show it.
                 "margin_probe_low_usd_kg": None,
-                "margin_probe_high_usd_kg": None,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -438,9 +437,21 @@ def create_app():
         # own cost, so "margin %" doesn't map onto it the same way) -- see
         # this route's Pre-Stretch branch above, which never reaches here.
         # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
-        # plain rep skips these two extra computations entirely, and gets
-        # neither field in the response below.
-        margin_probe_low = margin_probe_high = None
+        # plain rep skips this extra computation entirely, and gets neither
+        # field in the response below.
+        # v139 -- owner-corrected convention (Arabic: "المفروض ... تكون
+        # المارجن كنسبة من السعر مش من التكلفة"): the margin sim now reports
+        # margin-on-SELLING-PRICE ((price - cost) / price), the standard
+        # commercial "gross margin" convention, not markup-on-cost
+        # ((price - cost) / cost, what this system's own internal
+        # margin_pct_for()/"factor" means). Only ONE reference point is
+        # needed for that formula -- this line's own price at 0% factor,
+        # i.e. its cost-equivalent price including every extra EXCEPT the
+        # owner's own margin -- so the old 100%-factor probe (margin_probe_high)
+        # was dropped; it was only ever needed for the old markup-on-cost
+        # linear-interpolation formula. See updateMarginProbe() in
+        # pricing.html for the client-side math.
+        margin_probe_low = None
         if can_see_margin_probe:
             margin_probe_low, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
@@ -456,20 +467,6 @@ def create_app():
                                                 hidden_markup_value=hidden_markup_value,
                                                 credit_term=credit_term, box_packaging=box_packaging,
                                                 round_result=False, margin_pct_override=0.0)
-            margin_probe_high, _ = compute_line(g.db, product, country_class, customer_class, qty,
-                                                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
-                                                 pricing_basis=pricing_basis,
-                                                 roll_weight_kg=custom_roll_weight_kg,
-                                                 core_weight_kg=custom_core_weight_kg,
-                                                 width_mm=custom_width_mm,
-                                                 rolls_per_pallet_override=custom_rolls_per_pallet,
-                                                 seller_type=seller_type,
-                                                 auto_manual_override=auto_manual_override, colored=colored,
-                                                 uv_type=uv_type,
-                                                 hidden_markup_mode=hidden_markup_mode,
-                                                 hidden_markup_value=hidden_markup_value,
-                                                 credit_term=credit_term, box_packaging=box_packaging,
-                                                 round_result=False, margin_pct_override=1.0)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -497,7 +494,6 @@ def create_app():
             "discount_cap_label": discount_cap_label,
             "discount_cap_max": discount_cap_max,
             "margin_probe_low_usd_kg": margin_probe_low,
-            "margin_probe_high_usd_kg": margin_probe_high,
         })
 
     def _resolve_pricing_user(data):
@@ -663,14 +659,18 @@ def create_app():
                                                        shipping_container_usd=shipping_container_usd)
         # v136 -- owner-requested "what price gives me what margin" tool --
         # see api_calculate_line's matching v136 comment for the regular
-        # Stretch Film version of this same idea. Two reference EX-Work
-        # $/Roll prices (Strap's own natural per-unit figure, matching her
+        # Stretch Film version of this same idea. A reference EX-Work
+        # $/Roll price (Strap's own natural per-unit figure, matching her
         # wording "رول" -- Stretch Film uses $/KG instead), same line
-        # context, profit forced to 0%/100% instead of the BOM's own
+        # context, profit forced to 0% instead of the BOM's own
         # looked-up-and-discounted profit_pct.
         # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
-        # plain rep skips these two extra computations entirely.
-        margin_probe_low_roll = margin_probe_high_roll = None
+        # plain rep skips this extra computation entirely.
+        # v139 -- owner-corrected convention: margin-on-selling-price, not
+        # markup-on-cost -- see api_calculate_line's matching v139 comment.
+        # Only the 0%-profit reference point is needed now, so the old
+        # 100%-profit probe (margin_probe_high_roll) was dropped.
+        margin_probe_low_roll = None
         if can_see_margin_probe:
             calc_probe_low = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                                  credit_term=credit_term,
@@ -679,15 +679,7 @@ def create_app():
                                                                  fob_container_usd=fob_container_usd,
                                                                  shipping_container_usd=shipping_container_usd,
                                                                  profit_pct_override=0.0)
-            calc_probe_high = strap_pricing.compute_strap_line(g.db, product_line, product,
-                                                                  credit_term=credit_term,
-                                                                  hidden_markup_mode=hidden_markup_mode,
-                                                                  hidden_markup_value=hidden_markup_value,
-                                                                  fob_container_usd=fob_container_usd,
-                                                                  shipping_container_usd=shipping_container_usd,
-                                                                  profit_pct_override=1.0)
             margin_probe_low_roll = calc_probe_low["ex_work_price_roll"]
-            margin_probe_high_roll = calc_probe_high["ex_work_price_roll"]
         total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
@@ -725,7 +717,6 @@ def create_app():
             "discount_cap_label": discount_cap_label,
             "discount_cap_max": discount_cap_max,
             "margin_probe_low_roll": margin_probe_low_roll,
-            "margin_probe_high_roll": margin_probe_high_roll,
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
