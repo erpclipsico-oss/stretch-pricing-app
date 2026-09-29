@@ -253,6 +253,23 @@ input[type=number] {
 
 .btn-remove { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; }
 
+/* v148 -- "use current price" auto-fill button next to each Margin sim
+   input (owner-requested: "قلل الفرق" -- fills the probe with this line's
+   own already-displayed FOB/CIF price with zero transcription error,
+   instead of retyping it by hand). Deliberately tiny/unobtrusive -- it
+   sits right next to a 58px input in an already-dense row. */
+.btn-fill-price {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted, #666);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 3px 4px;
+}
+.btn-fill-price:hover { background: var(--border); }
+
 .totals-box { margin-top: 16px; margin-left: auto; max-width: 320px; }
 .totals-box div { display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.92rem; }
 .totals-box .grand { border-top: 2px solid var(--dark2); font-size: 1.1rem; font-weight: 700; margin-top: 4px; padding-top: 10px; }

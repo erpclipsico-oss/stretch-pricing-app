@@ -784,7 +784,10 @@ function addLine(prefill) {
          their headers -- see the col_margin_probe_fob header's matching
          v147 comment. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/kg" style="width:65px;" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <span style="display:inline-flex; align-items:center; gap:2px;">
+        <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/kg" style="width:58px;" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+        <button type="button" class="btn-fill-price" data-kind="fob" title="Fill in this line's own current FOB $/KG exactly -- no manual retyping/rounding error">⇩</button>
+      </span>
       <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <!-- v143 -- second Margin sim input, CIF-basis (see col_margin_probe
@@ -793,7 +796,10 @@ function addLine(prefill) {
          (tr.dataset.marginFreightGap) instead of just the FOB port-addon
          gap -- see updateMarginProbe()'s v143 comment. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/kg" style="width:65px;" title="Type a delivered/CIF $/KG price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <span style="display:inline-flex; align-items:center; gap:2px;">
+        <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/kg" style="width:58px;" title="Type a delivered/CIF $/KG price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+        <button type="button" class="btn-fill-price" data-kind="cif" title="Fill in this line's own current CIF $/KG exactly -- no manual retyping/rounding error">⇩</button>
+      </span>
       <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
@@ -805,6 +811,24 @@ function addLine(prefill) {
     if (next && next.classList.contains('prestretch-row')) next.remove();
     renumber();
   });
+  if (IS_ADMIN) {
+    // v148 -- owner-requested "use current price" auto-fill button (see
+    // this function's matching v148 comment on the dataset stash above):
+    // copies this line's own already-displayed FOB/CIF $/KG straight into
+    // the probe input with zero transcription error, then re-runs the
+    // probe -- same math as typing it by hand, just without any typo or
+    // copy-paste mismatch.
+    tr.querySelectorAll('.btn-fill-price').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const isFob = btn.dataset.kind === 'fob';
+        const val = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
+        if (val === undefined) return;
+        const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
+        input.value = val;
+        updateMarginProbe(tr, false, isFob ? 'fob' : undefined);
+      });
+    });
+  }
 
   // v136 -- "what price gives me what margin" what-if tool: purely local,
   // recomputed instantly from tr.dataset.marginLow (v139: the one
@@ -1092,13 +1116,19 @@ function addStrapLine() {
          <td>s stay in the same order as their headers -- see the
          col_margin_probe_fob header's matching v147 comment. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/roll" style="width:65px;" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <span style="display:inline-flex; align-items:center; gap:2px;">
+        <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/roll" style="width:58px;" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+        <button type="button" class="btn-fill-price" data-kind="fob" title="Fill in this line's own current FOB $/Roll exactly -- no manual retyping/rounding error">⇩</button>
+      </span>
       <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <!-- v143 -- second Margin sim input, CIF-basis -- see the Stretch Film
          table's matching v147 comment on col_margin_probe above. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/roll" style="width:65px;" title="Type a delivered/CIF $/Roll price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <span style="display:inline-flex; align-items:center; gap:2px;">
+        <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/roll" style="width:58px;" title="Type a delivered/CIF $/Roll price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+        <button type="button" class="btn-fill-price" data-kind="cif" title="Fill in this line's own current CIF $/Roll exactly -- no manual retyping/rounding error">⇩</button>
+      </span>
       <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
@@ -1109,6 +1139,18 @@ function addStrapLine() {
     // v143 -- second (FOB-basis) probe, same row -- see updateMarginProbe()'s
     // matching v143 comment.
     tr.querySelector('.f-margin-probe-fob').addEventListener('input', () => updateMarginProbe(tr, true, 'fob'));
+    // v148 -- "use current price" auto-fill buttons -- see the Stretch
+    // Film table's matching v148 comment on addLine() above.
+    tr.querySelectorAll('.btn-fill-price').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const isFob = btn.dataset.kind === 'fob';
+        const val = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
+        if (val === undefined) return;
+        const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
+        input.value = val;
+        updateMarginProbe(tr, true, isFob ? 'fob' : undefined);
+      });
+    });
   }
   tr.querySelector('.btn-remove').addEventListener('click', () => {
     tr.remove();
@@ -1622,6 +1664,19 @@ async function calculateAll() {
       }
       tr.dataset.marginFreightGap = strapCfrDisp - strapExwDisp;
       tr.dataset.marginFreightGapFob = strapFobDisp - strapExwDisp;
+      // v148 -- owner-requested "use current price" auto-fill button next
+      // to each probe input (Arabic: "قلل الفرق"): stash the exact number
+      // (not the .toFixed(2) STRING above, which would re-introduce a
+      // parseFloat round-trip) so the button can copy it into the probe
+      // input with zero transcription error -- removes any typo/rounding
+      // mismatch from typing the displayed price back in by hand. The
+      // tiny (<0.3pt) residual noise this doesn't remove is the EX-Work
+      // price itself being rounded to 2dp as a deliberate, sheet-matching
+      // step (see compute_line()'s v100/v110 notes) BEFORE FOB/CFR are
+      // built from it -- not something a UI-side fix can close without
+      // changing that rounding convention itself.
+      tr.dataset.cifDispValue = strapCfrDisp;
+      tr.dataset.fobDispValue = strapFobDisp;
       updateMarginProbe(tr, true);
       updateMarginProbe(tr, true, 'fob');
     }
@@ -1827,6 +1882,10 @@ async function calculateAll() {
     }
     rc.tr.dataset.marginFreightGap = cifDisp - exwDisp;
     rc.tr.dataset.marginFreightGapFob = fobDisp - exwDisp;
+    // v148 -- same "use current price" stash as the Strap loop's matching
+    // v148 comment above.
+    rc.tr.dataset.cifDispValue = cifDisp;
+    rc.tr.dataset.fobDispValue = fobDisp;
     if (IS_ADMIN) {
       updateMarginProbe(rc.tr, false);
       updateMarginProbe(rc.tr, false, 'fob');
