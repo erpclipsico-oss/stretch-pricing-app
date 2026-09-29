@@ -439,18 +439,21 @@ def create_app():
         # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
         # plain rep skips this extra computation entirely, and gets neither
         # field in the response below.
-        # v139 -- owner-corrected convention (Arabic: "المفروض ... تكون
-        # المارجن كنسبة من السعر مش من التكلفة"): the margin sim now reports
-        # margin-on-SELLING-PRICE ((price - cost) / price), the standard
-        # commercial "gross margin" convention, not markup-on-cost
-        # ((price - cost) / cost, what this system's own internal
-        # margin_pct_for()/"factor" means). Only ONE reference point is
-        # needed for that formula -- this line's own price at 0% factor,
-        # i.e. its cost-equivalent price including every extra EXCEPT the
-        # owner's own margin -- so the old 100%-factor probe (margin_probe_high)
-        # was dropped; it was only ever needed for the old markup-on-cost
-        # linear-interpolation formula. See updateMarginProbe() in
-        # pricing.html for the client-side math.
+        # v139 tried margin-on-SELLING-PRICE ((price - cost) / price) instead
+        # of this system's own "factor" convention ((price - cost) / cost,
+        # what margin_pct_for() and Admin > Margin Factors both mean), but
+        # the owner cross-checked it against a real line (confirmed 13%
+        # factor -> 1.78 EX-Work -> 1.575 cost) and confirmed she wants the
+        # tool to keep matching Admin's own "factor" % -- so v140 reverted
+        # the CLIENT-SIDE formula back (see updateMarginProbe() in
+        # pricing.html for the v140 math). This server-side probe itself
+        # never changed: it always returns this line's own price at 0%
+        # factor, i.e. its cost-equivalent price including every extra
+        # EXCEPT the owner's own factor -- that's ALL either convention
+        # needs, so the old 100%-factor probe (margin_probe_high) stays
+        # dropped from v139; it was only ever needed for the ORIGINAL
+        # (pre-v139) two-point linear-interpolation formula, which the
+        # v140 single-reference formula doesn't need either.
         margin_probe_low = None
         if can_see_margin_probe:
             margin_probe_low, _ = compute_line(g.db, product, country_class, customer_class, qty,

@@ -178,7 +178,7 @@
              v137 comment) -- a rep never even receives the numbers, not
              just never sees the column. -->
         {% if is_admin_role %}
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type any $/KG price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type any $/KG price to see what factor % it represents (the same % as Admin > Margin Factors), given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
         {% endif %}
         <th></th>
       </tr>
@@ -240,7 +240,7 @@
              Stretch Film column -- see that column's matching v137
              comment. -->
         {% if is_admin_role %}
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type any $/Roll price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type any $/Roll price to see what factor % it represents (the same % as Admin > Margin Factors), given this line's own cost. Not sent or saved -- just a live what-if.">Margin sim</th>
         {% endif %}
         <th></th>
       </tr>
@@ -366,8 +366,8 @@ const I18N = {
     col_pallets_locked: 'Pallets',
     tip_pallets_locked: "How many pallets of this line the customer is ordering",
     col_margin_probe: 'Margin sim',
-    tip_margin_probe: "Type any $/KG price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.",
-    tip_margin_probe_roll: "Type any $/Roll price to see what margin % it represents, given this line's own cost. Not sent or saved -- just a live what-if.",
+    tip_margin_probe: "Type any $/KG price to see what factor % it represents (the same % as Admin > Margin Factors), given this line's own cost. Not sent or saved -- just a live what-if.",
+    tip_margin_probe_roll: "Type any $/Roll price to see what factor % it represents (the same % as Admin > Margin Factors), given this line's own cost. Not sent or saved -- just a live what-if.",
     tip_margin_probe_prestretch_na: "Not available for Pre-Stretch -- its price borrows another SKU's own price rather than applying a margin % to its own cost",
     prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
@@ -407,8 +407,8 @@ const I18N = {
     col_pallets_locked: 'البالتات',
     tip_pallets_locked: 'عدد البالتات المطلوبة من السطر ده',
     col_margin_probe: 'محاكاة الهامش',
-    tip_margin_probe: 'اكتبي أي سعر $/كجم عشان تشوفي ده هيمثل هامش كام % بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
-    tip_margin_probe_roll: 'اكتبي أي سعر $/رول عشان تشوفي ده هيمثل هامش كام % بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
+    tip_margin_probe: 'اكتبي أي سعر $/كجم عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors) بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
+    tip_margin_probe_roll: 'اكتبي أي سعر $/رول عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors) بناءً على تكلفة السطر ده -- مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
     tip_margin_probe_prestretch_na: 'مش متاحة للبريستريتش -- سعره بيتاخد من سعر SKU تاني مش بتطبيق نسبة هامش على تكلفته هو',
     prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
@@ -584,12 +584,13 @@ function roundUp(num, decimals) {
 // api_calculate_line()/_calculate_strap_line() return -- the SAME line,
 // same extras, but with the margin/profit % forced to 0% instead of the
 // real looked-up-and-discounted one (see those routes' matching v136/v139
-// comments) -- i.e. this line's own cost-equivalent price. v139 --
-// owner-corrected convention (Arabic: "المفروض ... تكون المارجن كنسبة من
-// السعر مش من التكلفة"): "margin" means the standard commercial gross
-// margin -- (price - cost) / price -- not markup-on-cost, so any typed
-// price inverts instantly with just this one reference point:
-//   implied_margin_pct = (typed - low) / typed * 100
+// comments) -- i.e. this line's own cost-equivalent price.
+// v139 tried "margin on price" ((price-cost)/price) instead, but the
+// owner cross-checked it against her own system (confirmed real factor
+// 13% -> real EX-Work 1.78 -> cost 1.575) and confirmed she wants the
+// EXACT SAME "factor" % as Admin > Margin Factors -- (price-cost)/cost,
+// what real prices are actually built from -- so v140 reverted to that:
+//   implied_factor_pct = (typed - low) / low * 100
 // Shared by both the Stretch Film ($/KG) and Strap ($/Roll) tables --
 // isStrap only changes the "$/kg"/"$/Roll" unit shown in the output, the
 // math is identical either way. Purely client-side: never sent to the
@@ -603,28 +604,31 @@ function updateMarginProbe(tr, isStrap) {
   const out = tr.querySelector('.f-margin-probe-out');
   const low = parseFloat(tr.dataset.marginLow);
   const typed = parseFloat(input.value);
-  // v139 -- owner-corrected convention (Arabic: "المفروض ... تكون المارجن
-  // كنسبة من السعر مش من التكلفة"): "margin" here now means the standard
-  // commercial gross margin -- (price - cost) / price -- not this app's
-  // own internal "factor"/markup -- (price - cost) / cost -- that the
-  // real EX-Work/FOB/CIF prices are built from. `low` is this line's own
+  // v140 -- owner-confirmed, reverting v139 (Arabic: "ارجعيها لمعادلة
+  // الفاكتور الأصلية"): this shows the exact SAME "factor" % as the
+  // Admin > Margin Factors screen -- (price - cost) / cost -- since that
+  // field is literally what real EX-Work/FOB/CIF prices are built from
+  // (price = cost * (1 + factor)), and the owner confirmed by testing:
+  // for a line whose real factor is 13% and real EX-Work price is 1.78,
+  // its cost-equivalent price is 1.78 / 1.13 = 1.575 -- typing 2.14 into
+  // this tool must show (2.14 - 1.575) / 1.575 = 35.9%, the exact factor
+  // % that Admin field would need to reach 2.14, confirmed against the
+  // live system rather than assumed. `low` is this line's own
   // cost-equivalent price (its real price recomputed at 0% factor, so it
-  // already includes every extra EXCEPT the owner's own margin) -- see
-  // app.py's matching v139 comment. Only this one reference point is
-  // needed for margin-on-price, unlike the old markup-on-cost formula
-  // which needed two (0% and 100%) to interpolate a straight line.
-  if (!isFinite(low)) {
+  // already includes every extra EXCEPT the owner's own factor) -- see
+  // app.py's matching v139/v140 comment.
+  if (!isFinite(low) || low === 0) {
     out.textContent = '';
     return;
   }
-  if (input.value === '' || !isFinite(typed) || typed <= 0) {
+  if (input.value === '' || !isFinite(typed)) {
     out.textContent = '';
     return;
   }
-  const impliedPct = (typed - low) / typed * 100;
+  const impliedPct = (typed - low) / low * 100;
   const unit = isStrap ? '/roll' : '/kg';
-  out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% margin`;
-  out.title = `At \$${typed}${unit}, this line's own cost (\$${roundHalfUp(low, 2)}${unit}) implies a ${roundHalfUp(impliedPct, 2)}% margin on the selling price (profit ÷ price, the standard commercial gross-margin convention -- not profit ÷ cost)`;
+  out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% factor`;
+  out.title = `At \$${typed}${unit}, this line's own cost (\$${roundHalfUp(low, 2)}${unit}) implies a ${roundHalfUp(impliedPct, 2)}% factor -- the exact same % you'd set in Admin > Margin Factors to reach this price`;
 }
 
 function firstNumber(str) {
@@ -714,7 +718,7 @@ function addLine(prefill) {
          v137 comment): the <td> itself is left out of the row entirely for
          a plain rep, not just visually hidden. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/kg" style="width:65px;" title="Type any $/KG price to see what margin % it represents, given this line's own cost">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/kg" style="width:65px;" title="Type any $/KG price to see what factor % it represents (the same % as Admin &gt; Margin Factors), given this line's own cost">
       <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
@@ -1007,7 +1011,7 @@ function addStrapLine() {
          matching v136 comment on col_margin_probe above. v137 --
          admin/sub_admin only (IS_ADMIN), same as that table's column. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/roll" style="width:65px;" title="Type any $/Roll price to see what margin % it represents, given this line's own cost">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="$/roll" style="width:65px;" title="Type any $/Roll price to see what factor % it represents (the same % as Admin &gt; Margin Factors), given this line's own cost">
       <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
