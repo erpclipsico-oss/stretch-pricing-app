@@ -361,6 +361,7 @@ def create_app():
                 # branch's matching v136 comment below) isn't offered for
                 # Pre-Stretch; null tells pricing.html not to show it.
                 "margin_probe_low_usd_kg": None,
+                "margin_probe_high_usd_kg": None,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -428,14 +429,11 @@ def create_app():
         # is an affine (straight-line) function of the margin fraction, so
         # the client can invert instantly for whatever price the rep types
         # in -- implied_margin_pct = (typed - low) / (high - low) * 100 --
-        # without another round trip, and it stays correct however many
-        # multiplicative extras (foreign seller %, percent-mode hidden
-        # markup) sit on top, since those scale/shift both ends the same
-        # way pricing.unit_price_for() computes the real price. Not offered
-        # for Pre-Stretch (compute_prestretch_line() borrows another SKU's
-        # own finished price rather than applying margin_pct_for() to its
-        # own cost, so "margin %" doesn't map onto it the same way) -- see
-        # this route's Pre-Stretch branch above, which never reaches here.
+        # without another round trip. Not offered for Pre-Stretch
+        # (compute_prestretch_line() borrows another SKU's own finished
+        # price rather than applying margin_pct_for() to its own cost, so
+        # "margin %" doesn't map onto it the same way) -- see this route's
+        # Pre-Stretch branch above, which never reaches here.
         # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
         # plain rep skips this extra computation entirely, and gets neither
         # field in the response below.
@@ -445,16 +443,39 @@ def create_app():
         # the owner cross-checked it against a real line (confirmed 13%
         # factor -> 1.78 EX-Work -> 1.575 cost) and confirmed she wants the
         # tool to keep matching Admin's own "factor" % -- so v140 reverted
-        # the CLIENT-SIDE formula back (see updateMarginProbe() in
-        # pricing.html for the v140 math). This server-side probe itself
-        # never changed: it always returns this line's own price at 0%
-        # factor, i.e. its cost-equivalent price including every extra
-        # EXCEPT the owner's own factor -- that's ALL either convention
-        # needs, so the old 100%-factor probe (margin_probe_high) stays
-        # dropped from v139; it was only ever needed for the ORIGINAL
-        # (pre-v139) two-point linear-interpolation formula, which the
-        # v140 single-reference formula doesn't need either.
+        # the CLIENT-SIDE formula back to markup-on-cost, but (mistakenly,
+        # see v148 below) as a SINGLE-reference (typed-low)/low formula,
+        # dropping the 100%-factor probe (margin_probe_high) that the
+        # ORIGINAL pre-v139 two-point formula used.
+        # v148 -- owner-reported bug (Arabic: "المارجن سيم... عمولتهم كأنها
+        # من ضمن المارجن وهي أصلاً مش من ضمن المارجن... كل ده تكلفة بس
+        # المارجن ثابت"): verified with real numbers that the single-
+        # reference (typed-low)/low formula is NOT actually independent of
+        # Color extra / Payment-term surcharge the way the v136 comment
+        # above always claimed for "multiplicative extras" -- those two are
+        # flat $/KG amounts added AFTER the margin factor with no markup of
+        # their own (see unit_price_for()), so they inflate `low` (the
+        # denominator) without inflating the numerator (typed-low) by the
+        # same proportion, silently diluting the reported % below the real
+        # factor whenever Color or a credit Payment Term is selected --
+        # confirmed numerically (8% factor read back as ~6.8% with Color
+        # on). Rep commission (hidden markup) and the Foreign Seller extra
+        # are BOTH purely multiplicative and were already exactly
+        # cancelling out, confirmed separately -- that half of her report
+        # was already correct behavior, not a bug. Restoring the ORIGINAL
+        # two-point (0%/100%) probe fixes this for every extra at once,
+        # additive or multiplicative: (high-low) collapses to exactly
+        # ex_work * <the one unit of margin fraction> * <whatever
+        # multiplicative extras> regardless of Color/credit-term/box/core
+        # (every additive term appears identically in both low and high,
+        # so it cancels in the subtraction) -- proved algebraically and
+        # confirmed numerically (round-tripping a real computed price
+        # through the sim now reproduces the exact Admin > Margin Factors
+        # % with Color, a credit Payment Term, and Act As Manuel/Pasquale
+        # commission all on at once). See updateMarginProbe() in
+        # pricing.html for the matching client-side v148 change.
         margin_probe_low = None
+        margin_probe_high = None
         if can_see_margin_probe:
             margin_probe_low, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
@@ -470,6 +491,20 @@ def create_app():
                                                 hidden_markup_value=hidden_markup_value,
                                                 credit_term=credit_term, box_packaging=box_packaging,
                                                 round_result=False, margin_pct_override=0.0)
+            margin_probe_high, _ = compute_line(g.db, product, country_class, customer_class, qty,
+                                                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                                 pricing_basis=pricing_basis,
+                                                 roll_weight_kg=custom_roll_weight_kg,
+                                                 core_weight_kg=custom_core_weight_kg,
+                                                 width_mm=custom_width_mm,
+                                                 rolls_per_pallet_override=custom_rolls_per_pallet,
+                                                 seller_type=seller_type,
+                                                 auto_manual_override=auto_manual_override, colored=colored,
+                                                 uv_type=uv_type,
+                                                 hidden_markup_mode=hidden_markup_mode,
+                                                 hidden_markup_value=hidden_markup_value,
+                                                 credit_term=credit_term, box_packaging=box_packaging,
+                                                 round_result=False, margin_pct_override=1.0)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -497,6 +532,7 @@ def create_app():
             "discount_cap_label": discount_cap_label,
             "discount_cap_max": discount_cap_max,
             "margin_probe_low_usd_kg": margin_probe_low,
+            "margin_probe_high_usd_kg": margin_probe_high,
         })
 
     def _resolve_pricing_user(data):
@@ -673,7 +709,19 @@ def create_app():
         # markup-on-cost -- see api_calculate_line's matching v139 comment.
         # Only the 0%-profit reference point is needed now, so the old
         # 100%-profit probe (margin_probe_high_roll) was dropped.
+        # v148 -- restored (see api_calculate_line's matching v148 comment):
+        # same bug here -- core cost, packaging_total and the FOB/shipping
+        # per-container shares are ALL added into ex_work_price_roll (or
+        # fob/cfr_price_roll) with no profit markup of their own, so the
+        # single-reference (typed-low)/low formula silently diluted the
+        # reported % whenever those applied (i.e. on every real Strap
+        # line, since packaging/core/container shares are never zero) --
+        # confirmed with real numbers. The two-point (high-low) formula
+        # cancels every one of those out the same way it does for Stretch
+        # Film's Color/credit-term, since they're added identically to both
+        # the 0% and 100% probes.
         margin_probe_low_roll = None
+        margin_probe_high_roll = None
         if can_see_margin_probe:
             calc_probe_low = strap_pricing.compute_strap_line(g.db, product_line, product,
                                                                  credit_term=credit_term,
@@ -683,6 +731,14 @@ def create_app():
                                                                  shipping_container_usd=shipping_container_usd,
                                                                  profit_pct_override=0.0)
             margin_probe_low_roll = calc_probe_low["ex_work_price_roll"]
+            calc_probe_high = strap_pricing.compute_strap_line(g.db, product_line, product,
+                                                                  credit_term=credit_term,
+                                                                  hidden_markup_mode=hidden_markup_mode,
+                                                                  hidden_markup_value=hidden_markup_value,
+                                                                  fob_container_usd=fob_container_usd,
+                                                                  shipping_container_usd=shipping_container_usd,
+                                                                  profit_pct_override=1.0)
+            margin_probe_high_roll = calc_probe_high["ex_work_price_roll"]
         total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
@@ -720,6 +776,7 @@ def create_app():
             "discount_cap_label": discount_cap_label,
             "discount_cap_max": discount_cap_max,
             "margin_probe_low_roll": margin_probe_low_roll,
+            "margin_probe_high_roll": margin_probe_high_roll,
         })
 
     @app.route("/api/save-quotation", methods=["POST"])

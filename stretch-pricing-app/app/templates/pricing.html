@@ -178,14 +178,20 @@
              v137 comment) -- a rep never even receives the numbers, not
              just never sees the column. -->
         {% if is_admin_role %}
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type a delivered/CIF $/KG price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
-        <!-- v143 -- owner-requested (Arabic: "ممكن تعمل لي واحد سي اي اف
-             واحد زيه جنبه اف او بي"): a second Margin sim input right next
-             to the CIF one, same tool, but for an FOB (not fully
-             freight-inclusive) target price -- only this line's own FOB
-             port-addon share is subtracted, not the destination freight
-             leg too. See updateMarginProbe()'s matching v143 comment. -->
+        <!-- v147 -- owner-requested reorder (Arabic: "زي ترتيبهم في السعر
+             ... فوت تعمل الاف او بي الاول وبعد كده سي اي اف زي ما انت عامل
+             في التسعير الاساسي"): these two probe columns now read
+             FOB-then-CIF, matching the real price columns' own left-to-
+             right order just to their left (EX-WORK, FOB, CIF) -- so each
+             probe sits under/near the real column it mirrors instead of
+             the reverse order it had before (v143 added FOB after CIF,
+             the order they were requested in, not the order that reads
+             clearly). Purely a display/DOM-order change: class names
+             (.f-margin-probe stays CIF's, .f-margin-probe-fob stays FOB's)
+             and updateMarginProbe()'s kind parameter are untouched, so
+             nothing about how either probe calculates changes. -->
         <th class="margin-probe-th" data-i18n="col_margin_probe_fob" data-i18n-title="tip_margin_probe_fob" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (FOB)</th>
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type a delivered/CIF $/KG price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
         {% endif %}
         <th></th>
       </tr>
@@ -247,10 +253,12 @@
              Stretch Film column -- see that column's matching v137
              comment. -->
         {% if is_admin_role %}
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type a delivered/CIF $/Roll price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
-        <!-- v143 -- same second FOB-basis Margin sim input as the Stretch
-             Film table's matching v143 comment above, $/Roll here. -->
+        <!-- v147 -- same FOB-then-CIF reorder as the Stretch Film table's
+             matching v147 comment above, so both probe columns read in
+             the same left-to-right order as the real EX-WORK/FOB/CIF
+             price columns just to their left. -->
         <th class="margin-probe-th" data-i18n="col_margin_probe_fob" data-i18n-title="tip_margin_probe_fob_roll" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (FOB)</th>
+        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type a delivered/CIF $/Roll price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
         {% endif %}
         <th></th>
       </tr>
@@ -638,21 +646,28 @@ function updateMarginProbe(tr, isStrap, kind) {
   const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
   const out = tr.querySelector(isFob ? '.f-margin-probe-fob-out' : '.f-margin-probe-out');
   const low = parseFloat(tr.dataset.marginLow);
+  const high = parseFloat(tr.dataset.marginHigh);
   const typed = parseFloat(input.value);
-  // v140 -- owner-confirmed, reverting v139 (Arabic: "ارجعيها لمعادلة
-  // الفاكتور الأصلية"): this shows the exact SAME "factor" % as the
-  // Admin > Margin Factors screen -- (price - cost) / cost -- since that
-  // field is literally what real EX-Work/FOB/CIF prices are built from
-  // (price = cost * (1 + factor)), and the owner confirmed by testing:
-  // for a line whose real factor is 13% and real EX-Work price is 1.78,
-  // its cost-equivalent price is 1.78 / 1.13 = 1.575 -- typing 2.14 into
-  // this tool must show (2.14 - 1.575) / 1.575 = 35.9%, the exact factor
-  // % that Admin field would need to reach 2.14, confirmed against the
-  // live system rather than assumed. `low` is this line's own
-  // cost-equivalent price (its real price recomputed at 0% factor, so it
-  // already includes every extra EXCEPT the owner's own factor) -- see
-  // app.py's matching v139/v140 comment.
-  if (!isFinite(low) || low === 0) {
+  // v148 -- owner-reported (Arabic: "المارجن بيحسب عمولاتهم كأنها من ضمن
+  // المارجن وهي أصلاً مش من ضمن المارجن ... كل ده تكلفة بس المارجن ثابت"):
+  // restores the ORIGINAL two-point formula the v139/v140 single-reference
+  // one had replaced. `low`/`high` are this line's own price recomputed
+  // at 0% and 100% factor (app.py's matching v148 comment) -- every other
+  // cost on the line (Color extra, a credit Payment Term's surcharge,
+  // Strap's packaging/core cost, even rep commission) is baked into BOTH
+  // the same way, so it cancels out in (high - low), leaving exactly the
+  // one unit of margin fraction: implied_factor_pct = (typed - low) /
+  // (high - low) * 100. The old (typed - low) / low formula looked
+  // right for Act As Manuel/Pasquale (their commission is a pure % on the
+  // whole price, so it happened to cancel there too) but was quietly wrong
+  // whenever Color or a credit Payment Term was on, since those are flat
+  // $/KG add-ons with no markup of their own -- they inflated `low` (the
+  // denominator) without inflating the numerator by the same amount,
+  // reading a lower % than the real Admin > Margin Factors number even
+  // though the actual profit $ never moved. Verified against a real line
+  // with Color + a credit term + Act As Manuel all on at once: this
+  // formula reproduces the exact Admin factor %, the old one didn't.
+  if (!isFinite(low) || !isFinite(high) || high === low) {
     out.textContent = '';
     return;
   }
@@ -671,12 +686,12 @@ function updateMarginProbe(tr, isStrap, kind) {
   const gapKey = isFob ? 'marginFreightGapFob' : 'marginFreightGap';
   const freightGap = parseFloat(tr.dataset[gapKey]);
   const exWorkEquivalent = typed - (isFinite(freightGap) ? freightGap : 0);
-  const impliedPct = (exWorkEquivalent - low) / low * 100;
+  const impliedPct = (exWorkEquivalent - low) / (high - low) * 100;
   const unit = isStrap ? '/roll' : '/kg';
   const basisWord = isFob ? 'FOB' : 'CIF';
   const shareWord = isFob ? 'FOB port-addon' : 'freight/port';
   out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% factor`;
-  out.title = `At \$${typed}${unit} delivered (${basisWord}), the EX-Work equivalent (\$${roundHalfUp(exWorkEquivalent, 2)}${unit}, after subtracting this line's own \$${roundHalfUp(isFinite(freightGap) ? freightGap : 0, 2)}${unit} ${shareWord} share) implies a ${roundHalfUp(impliedPct, 2)}% factor -- the exact same % you'd set in Admin > Margin Factors`;
+  out.title = `At \$${typed}${unit} delivered (${basisWord}), the EX-Work equivalent (\$${roundHalfUp(exWorkEquivalent, 2)}${unit}, after subtracting this line's own \$${roundHalfUp(isFinite(freightGap) ? freightGap : 0, 2)}${unit} ${shareWord} share) implies a ${roundHalfUp(impliedPct, 2)}% factor -- the exact same % you'd set in Admin > Margin Factors, unaffected by Color/credit-term/commission`;
 }
 
 function firstNumber(str) {
@@ -764,19 +779,22 @@ function addLine(prefill) {
          one reference price now, see updateMarginProbe()'s v139 comment).
          v137 -- admin/sub_admin only (IS_ADMIN, see that header's matching
          v137 comment): the <td> itself is left out of the row entirely for
-         a plain rep, not just visually hidden. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/kg" style="width:65px;" title="Type a delivered/CIF $/KG price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
-    <!-- v143 -- second Margin sim input, FOB-basis (see col_margin_probe_fob
-         header's matching v143 comment). Same idea as the CIF one just
-         above, just subtracts this line's own FOB-only port-addon share
-         (tr.dataset.marginFreightGapFob) instead of the full CIF freight
-         gap -- see updateMarginProbe()'s v143 comment. -->
+         a plain rep, not just visually hidden. v147 -- FOB probe now comes
+         FIRST (was CIF first) so these two <td>s stay in the same order as
+         their headers -- see the col_margin_probe_fob header's matching
+         v147 comment. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
       <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/kg" style="width:65px;" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
       <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
+    </td>` : ''}
+    <!-- v143 -- second Margin sim input, CIF-basis (see col_margin_probe
+         header's matching v147 comment). Same idea as the FOB one just
+         above, but subtracts this line's own full freight/port share
+         (tr.dataset.marginFreightGap) instead of just the FOB port-addon
+         gap -- see updateMarginProbe()'s v143 comment. -->
+    ${IS_ADMIN ? `<td class="margin-probe-td">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/kg" style="width:65px;" title="Type a delivered/CIF $/KG price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
@@ -1069,16 +1087,19 @@ function addStrapLine() {
     <!-- v136 -- "what price gives me what margin" what-if tool, $/Roll
          here (Strap's natural unit) -- see the Stretch Film table's
          matching v136 comment on col_margin_probe above. v137 --
-         admin/sub_admin only (IS_ADMIN), same as that table's column. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/roll" style="width:65px;" title="Type a delivered/CIF $/Roll price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
-    <!-- v143 -- second Margin sim input, FOB-basis -- see the Stretch Film
-         table's matching v143 comment on col_margin_probe_fob above. -->
+         admin/sub_admin only (IS_ADMIN), same as that table's column.
+         v147 -- FOB probe now comes FIRST (was CIF first) so these two
+         <td>s stay in the same order as their headers -- see the
+         col_margin_probe_fob header's matching v147 comment. -->
     ${IS_ADMIN ? `<td class="margin-probe-td">
       <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/roll" style="width:65px;" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
       <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
+    </td>` : ''}
+    <!-- v143 -- second Margin sim input, CIF-basis -- see the Stretch Film
+         table's matching v147 comment on col_margin_probe above. -->
+    ${IS_ADMIN ? `<td class="margin-probe-td">
+      <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/roll" style="width:65px;" title="Type a delivered/CIF $/Roll price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
+      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
     </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
@@ -1425,9 +1446,11 @@ async function calculateAll() {
     // reference (0%-margin/cost-equivalent) price this response just
     // carried (null for Pre-Stretch -- see api_calculate_line's matching
     // v136 comment) so updateMarginProbe() can invert instantly on every
-    // keystroke with no further round trip. v139 -- only ONE reference
-    // price is needed now (margin-on-price convention -- see
-    // updateMarginProbe()'s matching v139 comment), not two.
+    // keystroke with no further round trip. v139 tried dropping the
+    // 100%-margin reference (only one point needed for margin-on-price) --
+    // v148 restores it (see app.py's/updateMarginProbe()'s matching v148
+    // comments: the single-reference formula silently diluted the % below
+    // the real factor whenever Color or a credit Payment Term was on).
     // v137 -- admin/sub_admin only: the response itself carries no
     // margin_probe_* figures for a non-admin/sub_admin request (server-side
     // gate -- see that route's matching v137 comment), and IS_ADMIN false
@@ -1436,9 +1459,11 @@ async function calculateAll() {
     if (IS_ADMIN) {
       if (data.margin_probe_low_usd_kg != null) {
         tr.dataset.marginLow = data.margin_probe_low_usd_kg;
+        tr.dataset.marginHigh = data.margin_probe_high_usd_kg;
         tr.querySelector('.f-margin-probe').disabled = false;
       } else {
         delete tr.dataset.marginLow;
+        delete tr.dataset.marginHigh;
         tr.querySelector('.f-margin-probe').disabled = true;
         tr.querySelector('.f-margin-probe').title = tf('tip_margin_probe_prestretch_na');
       }
@@ -1593,6 +1618,7 @@ async function calculateAll() {
     if (IS_ADMIN) {
       if (data.margin_probe_low_roll != null) {
         tr.dataset.marginLow = data.margin_probe_low_roll;
+        tr.dataset.marginHigh = data.margin_probe_high_roll;
       }
       tr.dataset.marginFreightGap = strapCfrDisp - strapExwDisp;
       tr.dataset.marginFreightGapFob = strapFobDisp - strapExwDisp;
