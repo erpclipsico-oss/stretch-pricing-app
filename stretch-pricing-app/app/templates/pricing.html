@@ -220,7 +220,15 @@
         <th data-i18n="col_roll_weight_kg" data-i18n-title="tip_roll_weight_kg" title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
         <th data-i18n="col_box">Box</th>
         <th data-i18n="col_pallet">Pallet</th>
-        <!-- v133 -- owner-requested removal, same as Stretch's own Container
+        <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container this line's FOB/CIF is spread over -- matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly">Container</th>
+        <!-- v149 -- RESTORED: the v133 removal below turned out to be based
+             on a mistaken belief that this picker never affected price --
+             it does (see _container_share() in strap_pricing.py, confirmed
+             byte-for-byte against both the PET and PP source Excel sheets'
+             own CTR. 20ft/CTR. 40ft formulas). The picker is back, wired to
+             the real strap_ctr20/strap_ctr40 flags below, for both PP and
+             PET strap lines.
+             v133 -- owner-requested removal, same as Stretch's own Container
              (40ft/20ft) column above -- see that column's matching v133
              comment. Every strap line now always prices/stuffs as 40ft
              (ctr40 defaults true server-side whenever neither is sent --
@@ -379,6 +387,7 @@ const I18N = {
     col_gm: 'g/m', col_breaking_strength: 'Breaking Strength (kg)',
     col_meters_coil: 'Meters/coil', col_core_size: 'Core size',
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
+    col_container: 'Container', tip_container: "Which container this line's FOB/CIF is spread over -- a 20ft container splits the same per-container FOB/shipping $ amount across fewer pallets than a 40ft one, so it usually prices a bit higher per roll. Matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly.",
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
     col_pallets_locked: 'Pallets',
@@ -423,6 +432,7 @@ const I18N = {
     col_gm: 'جم/م', col_breaking_strength: 'قوة الشد (كجم)',
     col_meters_coil: 'متر/كويل', col_core_size: 'مقاس الكور',
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
+    col_container: 'الكونتينر', tip_container: 'الكونتينر اللي نصيب الشحن/الـ FOB بتاع السطر ده بيتقسم عليه -- الكونتينر 20 قدم بيقسم نفس مبلغ الشحن/FOB على عدد بالتات أقل من الـ 40 قدم، فبيطلع السعر للرول أعلى شوية. نفس الظبط اللي في الاكسل شيت الأصلي أعمدة CTR. 20ft / CTR. 40ft بالظبط.',
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
     col_pallets_locked: 'البالتات',
@@ -1140,6 +1150,12 @@ function addStrapLine() {
     <td><input type="text" class="f-strap-rollwt compact-input" readonly style="width:70px; background:#f3f3f3;" value="0.00" title="Computed gross weight per roll = (meters/coil × g/m ÷ 1000) + core weight"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-strap-box"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-strap-pallet" checked></td>
+    <td>
+      <select class="f-strap-container compact-input" style="width:70px;" title="Which container this line's FOB/CIF is spread over -- matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly">
+        <option value="40ft">40ft</option>
+        <option value="20ft">20ft</option>
+      </select>
+    </td>
     <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" readonly title="Rolls per pallet -- fixed by core size (not editable)" style="width:70px; background:#f0f0f0;"></td>
     <!-- v135 -- "Containers" removed (see the col_pallets_locked header's
          matching v135 comment); Pallets is a plain typed quantity again,
@@ -1310,7 +1326,7 @@ function addStrapLine() {
   // v44 -- see scheduleRecalc()'s comment: auto-recalculate on every
   // price-affecting strap field too (not just the live g/m preview).
   tr.querySelector('.f-strap-product').addEventListener('change', scheduleRecalc);
-  ['.f-strap-bom', '.f-strap-core', '.f-strap-box', '.f-strap-pallet'].forEach(sel => {
+  ['.f-strap-bom', '.f-strap-core', '.f-strap-box', '.f-strap-pallet', '.f-strap-container'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
   // v124 -- .f-strap-rpp is readonly (server-fixed by core size/box), so it
@@ -1361,13 +1377,11 @@ function readStrapLines() {
         strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: tr.querySelector('.f-strap-box').checked,
         strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
-        // v133 -- owner-requested removal of the 40ft/20ft picker (see the
-        // Strap "Container" column's matching v133 comment) -- every line
-        // now always sends 40ft; app.py already defaults to this whenever
-        // neither is sent, so this is just making that explicit rather than
-        // relying on the querySelector'd (now-removed) radio buttons.
-        strap_ctr40: true,
-        strap_ctr20: false,
+        // v149 -- RESTORED: reads the real Container (20ft/40ft) picker
+        // (see that column's matching v149 comment) instead of the old
+        // hardcoded-40ft stand-in from v133.
+        strap_ctr20: tr.querySelector('.f-strap-container').value === '20ft',
+        strap_ctr40: tr.querySelector('.f-strap-container').value !== '20ft',
       });
     }
     return Object.assign(base, {strap_product_id: sel.value});
@@ -1651,13 +1665,11 @@ async function calculateAll() {
         strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: tr.querySelector('.f-strap-box').checked,
         strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
-        // v133 -- owner-requested removal of the 40ft/20ft picker (see the
-        // Strap "Container" column's matching v133 comment) -- every line
-        // now always sends 40ft; app.py already defaults to this whenever
-        // neither is sent, so this is just making that explicit rather than
-        // relying on the querySelector'd (now-removed) radio buttons.
-        strap_ctr40: true,
-        strap_ctr20: false,
+        // v149 -- RESTORED: reads the real Container (20ft/40ft) picker
+        // (see that column's matching v149 comment) instead of the old
+        // hardcoded-40ft stand-in from v133.
+        strap_ctr20: tr.querySelector('.f-strap-container').value === '20ft',
+        strap_ctr40: tr.querySelector('.f-strap-container').value !== '20ft',
       });
     } else {
       payload.strap_product_id = sel.value;
