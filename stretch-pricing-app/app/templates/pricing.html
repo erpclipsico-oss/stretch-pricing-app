@@ -242,7 +242,7 @@
              longer locked/computed from it -- it's a plain typed quantity
              again now, same as Stretch Film's own Qty field. -->
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
-        <th data-i18n="col_pallets_locked" data-i18n-title="tip_pallets_locked" title="How many pallets of this line the customer is ordering">Pallets</th>
+        <th data-i18n="col_pallets_locked" data-i18n-title="tip_pallets_locked" title="Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line. To order a different quantity, add another strap line.">Pallets</th>
         <th data-i18n="col_discount_pct">Discount %</th>
         <th data-i18n="col_exw_roll">EX-Work $/Roll</th>
         <th data-i18n="col_fob_roll" data-i18n-title="tip_fob_roll" title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
@@ -391,7 +391,7 @@ const I18N = {
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
     col_pallets_locked: 'Pallets',
-    tip_pallets_locked: "How many pallets of this line the customer is ordering",
+    tip_pallets_locked: "Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line. To order a different quantity, add another strap line.",
     col_margin_probe: 'Margin sim (CIF)',
     tip_margin_probe: "Type a delivered/CIF $/KG price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
     tip_margin_probe_roll: "Type a delivered/CIF $/Roll price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
@@ -436,7 +436,7 @@ const I18N = {
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
     col_pallets_locked: 'البالتات',
-    tip_pallets_locked: 'عدد البالتات المطلوبة من السطر ده',
+    tip_pallets_locked: 'عدد بالتات السطر ده -- محسوب أوتوماتيك على حسب سعة الكونتينر (20ft/40ft) ومقاس الكور والبوكس المختارين، مش قابل للتعديل. لو عايزة كمية مختلفة، ضيفي سطر ستراب تاني.',
     col_margin_probe: 'محاكاة الفاكتور (CIF)',
     tip_margin_probe: 'اكتبي سعر التسليم/CIF $/كجم (زي سعر منافس أو سعر مستهدف من العميل) -- نصيب الشحن بتاع السطر ده بيتشال أوتوماتيك -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
     tip_margin_probe_roll: 'اكتبي سعر التسليم/CIF $/رول (زي سعر منافس أو سعر مستهدف من العميل) -- نصيب الشحن بتاع السطر ده بيتشال أوتوماتيك -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
@@ -1157,10 +1157,21 @@ function addStrapLine() {
       </select>
     </td>
     <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" readonly title="Rolls per pallet -- fixed by core size (not editable)" style="width:70px; background:#f0f0f0;"></td>
-    <!-- v135 -- "Containers" removed (see the col_pallets_locked header's
-         matching v135 comment); Pallets is a plain typed quantity again,
-         no longer locked/computed from a Containers count. -->
-    <td><input type="number" class="f-strap-pallets compact-input" value="1" min="0" step="1" title="How many pallets of this line the customer is ordering" style="width:65px;"></td>
+    <!-- v150 -- RESTORED to locked/readonly (reverses v135): owner-reported
+         that a freely-typed Pallets number let a rep type ANY quantity
+         (10, 50, whatever) with nothing tying it to the Container (20ft/
+         40ft) actually picked for that line -- misleading, since the whole
+         point of Container is that its price assumes a real, fixed pallet
+         capacity per the source Excel sheet (see strap_pricing.
+         suggest_pallets_per_container()). This field is now readonly again
+         and always shows that real capacity for whichever Container/core
+         size/box combo is selected (20 for a 40ft container, 10 for a 20ft
+         one, by default -- admin-editable per line in Admin > PET/PP Strap
+         Costing's Stuffing grid) -- the system states the number, not the
+         rep. To order a different quantity, add another strap line
+         (another container) rather than typing a partial-container count
+         here. -->
+    <td><input type="number" class="f-strap-pallets compact-input" min="0" step="1" readonly title="Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line (not editable). To order a different quantity, add another strap line." style="width:65px; background:#f0f0f0;"></td>
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
     <td class="f-strap-exw num">0.00</td>
     <td class="f-strap-fob num">0.00</td>
@@ -1332,12 +1343,13 @@ function addStrapLine() {
   // v124 -- .f-strap-rpp is readonly (server-fixed by core size/box), so it
   // doesn't need its own 'input' listener; it's refreshed unconditionally
   // by calculateAll() below whenever any of the fields here change.
-  // v135 -- .f-strap-pallets is a plain typed quantity again (Containers
-  // removed -- see the col_pallets_locked header's matching v135 comment),
-  // so it needs the same 'input' recalc-trigger every other typed field
-  // here gets.
+  // v150 -- .f-strap-pallets is ALSO readonly again now (see that field's
+  // matching v150 comment) -- it's locked to the real pallets-per-container
+  // capacity for whichever Container (20ft/40ft) is picked, so it no longer
+  // needs its own 'input' trigger either; refreshed the same unconditional
+  // way as Rolls/pallet, by calculateAll() below.
   ['.f-strap-width', '.f-strap-thickness', '.f-strap-meters',
-   '.f-strap-pallets', '.f-strap-discount'].forEach(sel => {
+   '.f-strap-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
   applyLanguage();
@@ -1357,9 +1369,10 @@ function readStrapLines() {
   return [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')].map(tr => {
     const sel = tr.querySelector('.f-strap-product');
     const rollsPerPallet = parseFloat(tr.querySelector('.f-strap-rpp').value || 0);
-    // v135 -- Pallets is a plain free-typed Qty again (Containers removed
-    // -- see the col_pallets_locked header's matching v135 comment), same
-    // as Stretch Film's own Qty field; no longer locked/server-computed.
+    // v150 -- Pallets is readonly/server-locked again (reverses v135 --
+    // see that field's matching v150 comment): reads whatever calculateAll()
+    // last wrote there from suggested_pallets_per_container, i.e. the real
+    // capacity for this line's Container/core size/box combo.
     const qtyPallets = parseFloat(tr.querySelector('.f-strap-pallets').value || 0);
     const base = {
       product_line: sel.selectedOptions[0].dataset.line,
@@ -1701,12 +1714,16 @@ async function calculateAll() {
     // or 0 on the row's very first calculate), so total_kg/line_gross below
     // are recomputed here from the now-current figures instead of firing a
     // second round trip.
-    // v135 -- Pallets (priorPallets) is the rep's own typed quantity now,
-    // no longer overwritten from a Containers-derived server suggestion --
-    // see this function's matching v135 comment above.
+    // v150 -- Pallets is readonly again (reverses v135 -- see that field's
+    // matching v150 comment): always overwritten from the server's own
+    // suggested_pallets_per_container, the same unconditional way Rolls/
+    // pallet already refreshes from suggested_rolls_per_pallet, so it
+    // follows a Container/core size/box change instead of showing a stale
+    // value from a previous selection.
     const effectiveRolls = data.suggested_rolls_per_pallet;
     rollsPerPalletField.value = effectiveRolls;
-    const effectivePallets = priorPallets;
+    const effectivePallets = data.suggested_pallets_per_container;
+    palletsField.value = effectivePallets;
     const effectiveTotalKg = Math.round(data.gross_weight_kg * effectivePallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
