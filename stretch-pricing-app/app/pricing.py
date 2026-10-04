@@ -162,6 +162,35 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     two points on the price-vs-margin line for it to invert instantly for
     any price the rep types in, without a further round trip. None (the
     default) leaves normal pricing completely untouched."""
+    # v153 -- a product whose price is a straight multiple of ANOTHER
+    # product's own finished sales price (product.price_source_product_id/
+    # price_multiplier -- see db.py's matching v153 migration comment for
+    # why). Short-circuits everything below: recurses into this SAME
+    # function for the source product with these SAME line-level args
+    # (so Color/UV/discount/credit-term/hidden-markup/pallet-type all still
+    # apply exactly as if the rep had quoted the source product directly),
+    # then scales the result by the multiplier. margin_pct_override (the
+    # Admin/Pricing margin-probe tool) is intentionally NOT forwarded here
+    # -- a derived product has no BOM/margin-factor of its own to probe.
+    if product["price_source_product_id"] if "price_source_product_id" in product.keys() else None:
+        source = db.execute(
+            "SELECT * FROM product WHERE id=?", (product["price_source_product_id"],)
+        ).fetchone()
+        multiplier = product["price_multiplier"] or 1.0
+        if source is None:
+            return 0.0
+        source_price = unit_price_for(
+            db, source, country_class, customer_class, roll_size=roll_size,
+            price_adjustment_usd_kg=price_adjustment_usd_kg, pallet_type=pallet_type,
+            rolls_per_pallet_override=rolls_per_pallet_override, seller_type=seller_type,
+            apply_extras=apply_extras, colored=colored, discount_pct=discount_pct, uv_type=uv_type,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            round_result=False, credit_term=credit_term,
+            exclude_pallet_from_packaging=exclude_pallet_from_packaging,
+            convert_to_net_basis=convert_to_net_basis, box_packaging=box_packaging,
+        )
+        price = source_price * multiplier
+        return cost_engine.round_half_up(price, 2) if round_result else price
     if margin_pct_override is not None:
         factor = margin_pct_override
     else:

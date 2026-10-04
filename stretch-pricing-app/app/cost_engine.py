@@ -22,6 +22,9 @@ import decimal
 import math
 import re
 
+from flask import g as _flask_g
+from flask import has_app_context as _has_app_context
+
 
 def round_half_up(value, decimals=2):
     """Standard "round half up" (a final digit of 5 or more always rounds
@@ -63,8 +66,63 @@ def _get_setting(conn, key, default=0.0):
 
 
 def _material_rate(conn, key, default=0.0):
+    # v155 -- Actual vs Market pricing toggle. When a request has chosen
+    # "Market Prices" (see market_material_overrides() below), app.py stashes
+    # the computed override dict on Flask's request-scoped `g` object as
+    # g.material_overrides before calling into any pricing/compute_line
+    # function. Every raw-material lookup in this module and in
+    # strap_pricing.py goes through this one function, so checking it here
+    # (instead of threading a pricing_mode argument through every function
+    # signature in both files) is the single, low-risk place to make the
+    # Market toggle affect the whole engine. Only the 5 keys the owner named
+    # (c4, exceed3518, exceed3812, exceedxp, enable) are ever present in the
+    # override dict -- every other material_key (vista6000, ld, vista, uvi,
+    # all packaging items, PET/PP resins, etc.) always falls through to the
+    # normal DB lookup below, in both Actual and Market mode.
+    # v155 follow-up fix -- this function is also called from plain scripts/
+    # migrations (db.py's _seed_missing_products(), recalculate_all_products(),
+    # admin bulk-recalc, etc.) that run with NO Flask request/app context at
+    # all. Flask's `g` is a proxy that RAISES RuntimeError("Working outside
+    # of application context") on any attribute access while unbound --
+    # getattr(..., default) only swallows AttributeError, not RuntimeError,
+    # so the plain getattr below blew up every such call site. Checking
+    # has_app_context() first avoids touching the proxy at all when there's
+    # no app context to read from (identical to the old behavior: no
+    # overrides, normal DB lookup).
+    overrides = getattr(_flask_g, "material_overrides", None) if _has_app_context() else None
+    if overrides and key in overrides and overrides[key] is not None:
+        return overrides[key]
     row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
     return row["value"] if row is not None and row["value"] is not None else default
+
+
+def market_material_overrides(conn):
+    """v155 -- owner-requested Actual/Market price dropdown (Arabic spec,
+    2026-10-04 big multi-part message, item 4): "add a dropdown that allows
+    the admin/sub admin users to choose whether the pricing should be based
+    on ... Market price have different raw material prices in the C4 and
+    Exceed 3518, and add those markups over the rest of the materials
+    automatic: Exceed 3812 = +$100/ton over the exceed 3518 price, Exceed
+    XP = +$190/ton over the exceed 3518 price, Enable = +$50/ton over the
+    exceed 3518 price."
+
+    Two new admin-editable "market" base prices (global_setting rows,
+    market_price_c4_usd_ton / market_price_exceed3518_usd_ton -- deliberately
+    NOT material_rate rows, since those are the existing *Actual* prices and
+    must stay untouched) drive everything else by the owner's exact fixed
+    deltas above. Only these 5 keys are ever returned; every other raw
+    material (Vista 6000, LD, Vista, UVI, all PET/PP resins, all packaging)
+    is intentionally absent so _material_rate() falls through to its normal
+    Actual-price lookup for them regardless of pricing_mode."""
+    market_c4 = _get_setting(conn, "market_price_c4_usd_ton", _material_rate(conn, "c4"))
+    market_3518 = _get_setting(conn, "market_price_exceed3518_usd_ton", _material_rate(conn, "exceed3518"))
+    return {
+        "c4": market_c4,
+        "exceed3518": market_3518,
+        "exceed3812": market_3518 + 100,
+        "exceedxp": market_3518 + 190,
+        "enable": market_3518 + 50,
+    }
 
 
 def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None, auto_manual=None):

@@ -85,6 +85,28 @@
       <label data-i18n="global_discount_pct">Global Discount %</label>
       <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
     </div>
+    {% if is_admin_role %}
+    <!-- v155 -- owner-requested Actual/Market pricing dropdown (Arabic
+         spec, item 4): admin/sub_admin only, same gating as "Act as" /
+         margin-probe (IS_ADMIN below). A plain sales rep never sees this
+         field at all -- server-rendered out entirely, same pattern as the
+         margin-probe column (see the "is_admin_role" v137 comment further
+         down this file) -- and api.py's _resolve_pricing_mode() forces
+         'actual' for anyone whose role isn't admin/sub_admin regardless of
+         what the client sends, so this is belt-and-braces, not the only
+         guard. "Market Prices" substitutes different C4/Exceed 3518/Exceed
+         3812/Exceed XP/Enable raw-material prices for the WHOLE quotation
+         (every Stretch Film / Pre-Stretch line); it has no effect on PET/
+         PP Strap lines (different raw materials entirely) or on any other
+         material. -->
+    <div class="field">
+      <label data-i18n="pricing_mode">Pricing Mode</label>
+      <select id="pricing_mode">
+        <option value="actual" data-i18n="pricing_mode_actual">Actual Prices</option>
+        <option value="market" data-i18n="pricing_mode_market">Market Prices</option>
+      </select>
+    </div>
+    {% endif %}
   </div>
 
   <!-- v47: shown whenever a line's (Line Discount % + Global Discount %) exceeded
@@ -374,12 +396,14 @@ const I18N = {
     act_as: 'Act as (preview prices as)', myself_admin: 'Myself (Admin)',
     loading_port: 'Loading Port', destination: 'Destination', select_ellipsis: 'Select...',
     payment_term: 'Payment Term', global_discount_pct: 'Global Discount %',
+    pricing_mode: 'Pricing Mode', pricing_mode_actual: 'Actual Prices', pricing_mode_market: 'Market Prices',
     customer_name: 'Customer Name', quotation_no: 'Quotation No.',
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
     col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_packaging: 'Box',
     col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
+    hint_width_is_stretch_film: '(Stretch-film width)',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
     col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
     col_fob_kg: 'FOB $/kg',
@@ -419,12 +443,14 @@ const I18N = {
     act_as: 'التسعير كأنك (معاينة الأسعار)', myself_admin: 'أنا (أدمن)',
     loading_port: 'ميناء الشحن', destination: 'الوجهة', select_ellipsis: 'اختر...',
     payment_term: 'شرط الدفع', global_discount_pct: 'الخصم العام %',
+    pricing_mode: 'نوع التسعير', pricing_mode_actual: 'السعر الفعلي', pricing_mode_market: 'سعر السوق',
     customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
     col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_packaging: 'بوكس',
     col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
+    hint_width_is_stretch_film: '(عرض الستريتش فيلم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
     col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
     col_fob_kg: 'FOB $/كجم',
@@ -771,6 +797,16 @@ function previewAsUserId() {
   return (sel && sel.value) ? sel.value : null;
 }
 
+// v155 -- Actual/Market pricing dropdown (admin/sub_admin only -- the
+// control isn't even rendered on a plain rep's page, same pattern as
+// previewAsUserId() above). Returns 'actual' when the control isn't on the
+// page at all, matching the server's own default/forced value for anyone
+// who isn't admin/sub_admin (see app.py's _resolve_pricing_mode()).
+function pricingMode() {
+  const sel = document.getElementById('pricing_mode');
+  return sel ? sel.value : 'actual';
+}
+
 // v44 -- auto-recalculate. Previously every price-affecting field (Pallet
 // type, Packing type, Pricing basis, Colored, UV, Qty, Discount, custom
 // roll/core/width/rolls-per-pallet, plus the strap fields and Payment
@@ -821,7 +857,10 @@ function addLine(prefill) {
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from this product's own Stretch Ability"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-box" title="Box packaging"></td>
-    <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
+    <td>
+      <input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)">
+      <small class="f-width-hint" data-i18n="hint_width_is_stretch_film" style="display:none; color:#888; white-space:nowrap;">Stretch-film width</small>
+    </td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
@@ -1018,6 +1057,24 @@ function addLine(prefill) {
     const show = isPrestretch(tr.querySelector('.f-product').value);
     syncBasisOptions(show);
     tr.querySelector('.f-packing').disabled = show;
+    // v153 -- owner-requested clarification (Arabic: "Clearly indicate that
+    // the requested widths are: Stretch-film widths"): on a Pre-Stretch
+    // line, the Width field here is the WIDE source jumbo Stretch-Film roll
+    // this Pre-Stretch roll gets slit from, not the finished narrow
+    // Pre-Stretch roll's own width -- easy to misread as the latter since
+    // it's the exact same input box every other product uses for its own
+    // (finished) roll width. Swaps the tooltip (and a small inline label)
+    // only for a Pre-Stretch line; every other product's Width field is
+    // untouched.
+    const widthField = tr.querySelector('.f-width');
+    const widthHint = tr.querySelector('.f-width-hint');
+    if (show) {
+      widthField.title = "Stretch-film width (mm) -- the WIDE source jumbo roll this Pre-Stretch roll is slit from, not the finished Pre-Stretch roll's own width.";
+      if (widthHint) widthHint.style.display = '';
+    } else {
+      widthField.title = "Actual roll/core width in mm for this order (editable per customer)";
+      if (widthHint) widthHint.style.display = 'none';
+    }
     syncBoxCheckbox();
     // v115 -- owner-confirmed: Pallet Type (Standard/Euro) and Container
     // (20ft/40ft) stay selectable for Pre-Stretch too, exactly like every
@@ -1501,6 +1558,7 @@ async function calculateAll() {
       product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
       line_discount_pct, global_discount_pct: globalDiscountPct,
       preview_as_user_id: previewAsUserId(),
+      pricing_mode: pricingMode(),
       // v130 -- owner-reported: the live calculator never sent Payment Term
       // at all for Stretch Film/Pre-Stretch lines, so the on-screen $/kg
       // never reflected the Credit payment terms extra (Extras > Credit
@@ -1667,6 +1725,7 @@ async function calculateAll() {
       // separate flat setting, so loading_port isn't needed here.
       destination: document.getElementById('destination').value,
       preview_as_user_id: previewAsUserId(),
+      pricing_mode: pricingMode(),
     };
     if (custom) {
       Object.assign(payload, {
@@ -2019,6 +2078,7 @@ async function saveQuotation() {
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
     lines: [...readLines(), ...readStrapLines()],
     preview_as_user_id: previewAsUserId(),
+    pricing_mode: pricingMode(),
   };
   const resp = await fetch('/api/save-quotation', {
     method: 'POST',
@@ -2078,6 +2138,12 @@ document.getElementById('global_discount_pct').addEventListener('input', schedul
 // but is wired the same way so its Total updates live too.
 document.getElementById('loading_port').addEventListener('change', scheduleRecalc);
 document.getElementById('destination').addEventListener('change', scheduleRecalc);
+// v155 -- Actual/Market pricing dropdown (admin/sub_admin only -- not
+// rendered at all otherwise, so guard the lookup).
+(function() {
+  const pm = document.getElementById('pricing_mode');
+  if (pm) pm.addEventListener('change', scheduleRecalc);
+})();
 
 // v99 -- "Act as [salesperson]" preview: switching the dropdown re-runs
 // Calculate immediately (not debounced -- this is a deliberate, infrequent

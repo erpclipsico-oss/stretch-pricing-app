@@ -135,7 +135,19 @@ body {
 }
 
 .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-.container-wide { max-width: 1800px; margin: 24px auto; padding: 0 10px; }
+/* v156 -- owner-requested (Arabic: "عايزاك تكبر الشاشه البيضه تكون مريحه
+   للعين وواخده حجم الشاشه اللي مفتوح عليها الموقع"): the Pricing screen's
+   white panel (.container-wide) was still capped at a fixed 1800px max-
+   width, leaving a big grey margin on both sides on a wider monitor (her
+   screenshot: a 2000px-ish window with a noticeably narrower white card
+   centered in it). Switched from a fixed max-width to a %-of-viewport
+   width (96vw) with only a small max-width CAP (2400px, well above any
+   realistic desktop width today) so it always fills whatever screen the
+   browser window is actually open on, on every device, instead of
+   plateauing at one fixed pixel number. Every other page using the plain
+   .container class (Admin, Quotations list, etc.) is untouched -- only
+   the wide Pricing-screen layout changes.*/
+.container-wide { width: 96vw; max-width: 2400px; margin: 24px auto; padding: 0 10px; }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }

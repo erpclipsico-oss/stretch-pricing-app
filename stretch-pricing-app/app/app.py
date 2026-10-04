@@ -256,6 +256,12 @@ def create_app():
         # left out of the JSON response entirely otherwise, so the numbers
         # never even reach a rep's browser/network tab.
         can_see_margin_probe = g.user["role"] in ACT_AS_ROLES
+        # v155 -- Actual/Market pricing dropdown: resolved once per request,
+        # before either branch below (Stretch/Pre-Stretch or Strap both go
+        # through cost_engine._material_rate()). See _resolve_pricing_mode()/
+        # _apply_pricing_mode() for the admin/sub_admin gating.
+        pricing_mode = _resolve_pricing_mode(data)
+        _apply_pricing_mode(pricing_mode)
         product_line = data.get("product_line") or "stretch_film"
 
         if product_line in ("pet", "pp"):
@@ -362,6 +368,7 @@ def create_app():
                 # Pre-Stretch; null tells pricing.html not to show it.
                 "margin_probe_low_usd_kg": None,
                 "margin_probe_high_usd_kg": None,
+                "pricing_mode": pricing_mode,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -533,6 +540,7 @@ def create_app():
             "discount_cap_max": discount_cap_max,
             "margin_probe_low_usd_kg": margin_probe_low,
             "margin_probe_high_usd_kg": margin_probe_high,
+            "pricing_mode": pricing_mode,
         })
 
     def _resolve_pricing_user(data):
@@ -581,6 +589,30 @@ def create_app():
         if not payment_term or payment_term.lower().startswith("cash"):
             return ""
         return payment_term
+
+    def _resolve_pricing_mode(data):
+        """v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04
+        Arabic spec, item 4): admin/sub_admin only (same gating as the
+        existing margin-probe / "Act as" tools -- ACT_AS_ROLES). A plain
+        sales rep's request is always forced to 'actual' even if a stray/
+        tampered 'pricing_mode':'market' somehow made it into the JSON body,
+        so this is the single place that decides the mode, never trusting
+        the client-sent role. Returns the plain string 'actual' or 'market'
+        (never anything else, whatever the client sends)."""
+        if g.user["role"] not in ACT_AS_ROLES:
+            return "actual"
+        return "market" if (data.get("pricing_mode") == "market") else "actual"
+
+    def _apply_pricing_mode(mode):
+        """v155 -- sets (or clears) Flask's request-scoped g.material_overrides
+        for the rest of THIS request, per cost_engine._material_rate()'s
+        matching v155 comment. Call once per request, before any
+        compute_line/compute_prestretch_line/compute_strap_line call --
+        g is request-scoped so nothing here can leak into another request."""
+        if mode == "market":
+            g.material_overrides = cost_engine.market_material_overrides(g.db)
+        else:
+            g.material_overrides = None
 
     def _build_custom_strap_product(data, product_line):
         """v32 -- "Custom (width x thickness)" strap line: the rep picks a
@@ -765,6 +797,14 @@ def create_app():
             # lets the Pricing screen warn live, before the rep even tries to Save.
             "gross_weight_max_kg": calc["gross_weight_max_kg"],
             "gross_weight_exceeded": calc["gross_weight_exceeded"],
+            # v155 -- Strap's own raw materials (pet_*/pp_* keys) are never
+            # part of the Actual/Market override dict (only the 5 Stretch
+            # Film/Pre-Stretch resins the owner named -- c4/exceed3518/
+            # exceed3812/exceedxp/enable -- see
+            # cost_engine.market_material_overrides()), so Market mode has
+            # no price effect here at all; this is only echoed back so the
+            # UI's dropdown state stays visibly in sync across product lines.
+            "pricing_mode": _resolve_pricing_mode(data),
             "suggested_rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
                 g.db, product_line, product["core_weight_kg"], bool(product["has_box"])),
             "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
@@ -785,6 +825,16 @@ def create_app():
         data = request.get_json(force=True)
         db = g.db
         q_id = data.get("id")
+        # v155 -- Actual/Market pricing dropdown: resolved once up front and
+        # applied for the rest of this request, same as api_calculate_line,
+        # so every compute_line/compute_prestretch_line/compute_strap_line
+        # call below (which freeze each line's unit_price_usd_kg into the
+        # DB) prices under the SAME mode the rep was previewing, and that
+        # mode is also persisted on the quotation itself (see the INSERT/
+        # UPDATE below) so re-opening/exporting later shows a consistent
+        # picture of which mode this quotation was actually priced under.
+        pricing_mode = _resolve_pricing_mode(data)
+        _apply_pricing_mode(pricing_mode)
 
         if q_id:
             existing = db.execute("SELECT * FROM quotation WHERE id=?", (q_id,)).fetchone()
@@ -831,9 +881,10 @@ def create_app():
             db.execute(
                 """UPDATE quotation SET quotation_no=?, customer_name=?, loading_port=?, destination=?,
                    payment_term=?, customer_class=?, country_class=?, seller_type=?, global_discount_pct=?,
-                   status='saved', saved_by_id=? WHERE id=?""",
+                   status='saved', saved_by_id=?, pricing_mode=? WHERE id=?""",
                 (quotation_no, customer_name, loading_port, destination, payment_term,
-                 customer_class, country_class, seller_type, global_discount_pct, g.user["id"], q_id),
+                 customer_class, country_class, seller_type, global_discount_pct, g.user["id"],
+                 pricing_mode, q_id),
             )
             db.execute("DELETE FROM quotation_line WHERE quotation_id=?", (q_id,))
             quotation_id = q_id
@@ -843,11 +894,11 @@ def create_app():
                 """INSERT INTO quotation
                    (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
                     country_class, seller_type, global_discount_pct, status, created_by_id, saved_by_id,
-                    created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?,?,?)""",
+                    created_at, pricing_mode)
+                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?,?,?,?)""",
                 (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
                  country_class, seller_type, global_discount_pct, new_created_by_id, g.user["id"],
-                 datetime.now(timezone.utc).isoformat()),
+                 datetime.now(timezone.utc).isoformat(), pricing_mode),
             )
             quotation_id = cur.lastrowid
 

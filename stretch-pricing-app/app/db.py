@@ -429,6 +429,9 @@ def init_db():
     _fix_super_rigid_auto_manual_v85(conn)
     _fix_v122_owner_requested_updates(conn)
     _seed_strap_stuffing_config_v124(conn)
+    _fix_v151_cap_price_update(conn)
+    _fix_v153_prestretch_extra_120(conn)
+    _seed_4_micron_power_v153(conn)
     conn.close()
 
 
@@ -619,6 +622,19 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation ADD COLUMN saved_by_id INTEGER REFERENCES user(id)")
         conn.commit()
 
+    if "pricing_mode" not in quotation_cols:
+        # v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04
+        # Arabic spec, item 4): 'actual' (default, today's existing behavior,
+        # unchanged) or 'market' (substitutes the 5 raw materials named in
+        # cost_engine.market_material_overrides() for the whole quotation).
+        # Admin/sub-admin only -- see pricing.html's dropdown and app.py's
+        # ACT_AS_ROLES-gated handling. Stored on the quotation (not just the
+        # live request) so a saved quotation reloads/exports with the same
+        # mode it was priced under. NULL-safe default 'actual' for every
+        # quotation saved before this column existed.
+        conn.execute("ALTER TABLE quotation ADD COLUMN pricing_mode TEXT DEFAULT 'actual'")
+        conn.commit()
+
     # ---- Per-line custom roll spec for EVERY product, not just Pre-Stretch
     # (v9): actual roll weight, core weight and width vary by customer order,
     # so these are left as open/editable fields on each quotation line,
@@ -749,6 +765,31 @@ def _migrate(conn):
     product_cols = {row["name"] for row in conn.execute("PRAGMA table_info(product)").fetchall()}
     if "packaging_group" not in product_cols:
         conn.execute("ALTER TABLE product ADD COLUMN packaging_group TEXT")
+        conn.commit()
+
+    # v153 -- generic "derived price" support, for a product whose own
+    # selling price is defined as a straight multiple of ANOTHER product's
+    # own finished sales price, rather than computed from its own BOM/
+    # material recipe. First use: the 4-micron Stretch Film the owner asked
+    # for (Arabic: "Add the 4-micron and determine which Power product it
+    # should be deducted from (4mic >> 12mic 300%)" -- confirmed: "4-micron
+    # price = 12-micron Power price x 3"). A normal micron just scales
+    # material usage linearly and would price a 4-micron film CHEAPER than
+    # a 12-micron one, which the owner says is wrong at this thickness
+    # (hard-to-produce ultra-thin film, not a simple linear BOM scale-down)
+    # -- so this bypasses the BOM entirely for a product with this column
+    # set, same spirit as Pre-Stretch's own prestretch_source_product_id
+    # (which borrows a source SKU's price for a DIFFERENT reason -- the
+    # jumbo roll it's rewound from), generalized to any product/multiplier.
+    # NULL/1.0 (the default) leaves every existing and future ordinary
+    # product's own BOM-based pricing completely untouched -- see
+    # pricing.unit_price_for()'s matching v153 short-circuit.
+    product_cols = {row["name"] for row in conn.execute("PRAGMA table_info(product)").fetchall()}
+    if "price_source_product_id" not in product_cols:
+        conn.execute("ALTER TABLE product ADD COLUMN price_source_product_id INTEGER REFERENCES product(id)")
+        conn.commit()
+    if "price_multiplier" not in product_cols:
+        conn.execute("ALTER TABLE product ADD COLUMN price_multiplier REAL")
         conn.commit()
 
     # Seed the two Egyptian loading ports with their FOB add-on (idempotent,
@@ -1166,9 +1207,16 @@ EXTRAS_GLOBAL_SETTINGS = [
     # existing-row correction (same idempotent-only-if-still-the-old-
     # default pattern as _fix_stale_global_settings_v7, so an owner edit
     # away from 0.12 is never silently overwritten).
-    ("extra_prestretch_usd_kg", "Extras - Prestretch extra ($/KG)", 0.10,
-     "Added to the unit price of every Pre-Stretch line, on top of its "
-     "normal EX-Work + margin ('Extras > Prestretch extra')."),
+    # v153 -- owner-requested (2026-10-04, Arabic: "Add $120 markup fees on
+    # top of the Pre-Stretch cost"): back to 0.12 $/KG (= $120/ton) -- see
+    # _fix_v153_prestretch_extra_120 below for the existing-row correction,
+    # same idempotent-only-if-still-the-old-default pattern used throughout
+    # this file.
+    ("extra_prestretch_usd_kg", "Extras - Prestretch extra ($/KG = $120/ton)", 0.12,
+     "Added to the unit price of EVERY Pre-Stretch line (every micron/width/"
+     "packaging variant), on top of its normal EX-Work + margin -- the "
+     "owner's flat $120/ton Pre-Stretch markup fee ('Extras > Prestretch "
+     "extra')."),
     ("extra_foreign_seller_pct", "Extras - Foreign sellers extra (% of selling price)", 1.0,
      "Applied as an extra percentage markup (not $/KG) on top of the final "
      "unit price -- stacked on top of the existing fixed Foreign Seller "
@@ -1203,6 +1251,33 @@ EXTRAS_GLOBAL_SETTINGS = [
     ("extra_credit_term_90_usd_kg", "Extras - Credit payment terms extra, 90 days ($/KG)", 0.04,
      "Added to the unit price of every Stretch Film / Pre-Stretch line "
      "whose quotation's Payment Term is '90 days'."),
+    # v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04,
+    # big multi-part Arabic spec, item 4): two new admin-editable "Market"
+    # base prices for C4 and Exceed 3518 only. Deliberately separate
+    # global_setting rows, NOT the existing material_rate rows for c4/
+    # exceed3518 (those stay the single source of truth for Actual mode) --
+    # see cost_engine.market_material_overrides() for how Exceed 3812/
+    # Exceed XP/Enable's Market prices are then derived automatically from
+    # the Market Exceed 3518 price via the owner's fixed deltas
+    # (+$100/+$190/+$50 per ton), and _material_rate() for how a line
+    # actually picks Actual vs Market (via Flask's request-scoped
+    # g.material_overrides, set by app.py from quotation.pricing_mode).
+    # Defaults match the live Actual material_rate seed values for c4/
+    # exceed3518 at the time this setting was introduced, purely so a fresh
+    # Market toggle starts out identical to Actual until the admin edits it.
+    ("market_price_c4_usd_ton", "Actual/Market toggle - Market price for C4 ($/TON)", 1240,
+     "Only used for quotations whose Payment/Pricing mode dropdown is set "
+     "to 'Market Prices' (admin/sub-admin only). Has no effect at all on "
+     "'Actual Prices' mode, which always uses the normal C4 row in Material "
+     "Rates."),
+    ("market_price_exceed3518_usd_ton", "Actual/Market toggle - Market price for Exceed 3518 ($/TON)", 1440,
+     "Only used for quotations whose Payment/Pricing mode dropdown is set "
+     "to 'Market Prices' (admin/sub-admin only). Also drives the Market "
+     "price automatically used for Exceed 3812 (+$100/ton over this), "
+     "Exceed XP (+$190/ton over this) and Enable (+$50/ton over this) -- "
+     "the owner's fixed formula, not independently editable. Has no effect "
+     "at all on 'Actual Prices' mode, which always uses the normal Exceed "
+     "3518 row in Material Rates."),
 ]
 
 
@@ -1294,6 +1369,123 @@ def _fix_v122_owner_requested_updates(conn):
             conn.execute(
                 "UPDATE user SET stretch_markup_value=0.75 WHERE username=?", (username,)
             )
+    conn.commit()
+
+
+def _fix_v151_cap_price_update(conn):
+    """One-time, owner-requested live-data update (2026-10-04, Arabic:
+    "Cap 1100~1200 is for 50 egp"): material_rate.material_key='cap'
+    (label "Cap 1100~1200", EGP/piece -- see cost_engine's _packaging_addons,
+    which divides it by the live dollar_rate same as every other EGP
+    packaging component) was seeded at 46, owner says it should be 50.
+
+    Same defensive pattern as _fix_v122_owner_requested_updates above: only
+    touches the value while it is still EXACTLY the old seeded default (46)
+    -- if the owner has since edited it to something else in Admin, that
+    edit is left alone."""
+    row = conn.execute("SELECT value FROM material_rate WHERE material_key='cap'").fetchone()
+    if row is not None and row["value"] == 46:
+        conn.execute("UPDATE material_rate SET value=50 WHERE material_key='cap'")
+    conn.commit()
+
+
+def _fix_v153_prestretch_extra_120(conn):
+    """One-time, owner-requested live-data update (2026-10-04, Arabic:
+    "Add $120 markup fees on top of the Pre-Stretch cost"): reverses the old
+    v117 correction (0.12 -> 0.10 $/KG) back to 0.12 $/KG (= $120/ton), the
+    owner's now-confirmed figure. Same defensive pattern as every other
+    one-time fix in this file: only touches the value while it is still
+    EXACTLY the old default (0.10) -- if the owner has since edited it to
+    anything else in Admin, that edit is left alone."""
+    row = conn.execute("SELECT value FROM global_setting WHERE key='extra_prestretch_usd_kg'").fetchone()
+    if row is not None and row["value"] == 0.10:
+        conn.execute("UPDATE global_setting SET value=0.12 WHERE key='extra_prestretch_usd_kg'")
+    conn.execute(
+        "UPDATE global_setting SET label='Extras - Prestretch extra ($/KG = $120/ton)' "
+        "WHERE key='extra_prestretch_usd_kg'"
+    )
+    conn.commit()
+
+
+def _seed_4_micron_power_v153(conn):
+    """One-time, owner-requested new product (2026-10-04, Arabic: "Add the
+    4-micron and determine which Power product it should be deducted from
+    (4mic >> 12mic 300%)"; confirmed via follow-up: "4-micron price =
+    12-micron Power price x 3"). Reading "12mic 300%" as the '300% (Power
+    plus)' / 12-micron catalog row (id looked up by name below, never
+    hardcoded, so this works whatever id it happens to have).
+
+    A 4-micron film is NOT priced the normal way (BOM material cost scaled
+    by thickness) -- that would make it CHEAPER than the 12-micron product,
+    which the owner says is wrong (this thin a film is hard to produce, not
+    a simple linear scale-down). Instead this uses the new generic
+    price_source_product_id/price_multiplier columns (see this file's
+    matching v153 migration comment and pricing.unit_price_for()'s matching
+    v153 short-circuit) to make its selling price always exactly 3x
+    whatever the 12-micron '300% (Power plus)' product's own price is,
+    including every line-level extra (Color/UV/discount/credit-term/hidden
+    markup) applied consistently to both.
+
+    Roll weight/core weight/rolls-per-pallet/pallet size/color are seeded
+    as a COPY of the 12-micron source product's own geometry -- these only
+    ever affect this line's total_kg/quantity math, never its $/KG price
+    (which is fully driven by the multiplier above), so they are a safe
+    starting default. If the real 4-micron roll's physical spec differs
+    (lighter roll, different rolls/pallet, etc.), the owner can correct
+    these directly in Admin > Products with no code change needed.
+
+    Idempotent/gated behind a global_setting marker, same pattern as every
+    other one-time seed in this file."""
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='micron4_power_v153_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    source = conn.execute(
+        "SELECT * FROM product WHERE stretch_ability='300% (Power plus)' AND micron='12' "
+        "AND auto_manual='Automatic'"
+    ).fetchone()
+    if source is None:
+        # Reference row not found (shouldn't happen on a normally-seeded DB)
+        # -- mark as run anyway so this doesn't retry forever and spam the
+        # log every boot; the owner can add the 4-micron product by hand via
+        # Admin > Products (price_source_product_id/price_multiplier) if so.
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+            ("micron4_power_v153_seeded", "4-micron Power product seed v153 (internal marker)", 0,
+             "Internal marker: _seed_4_micron_power_v153() could not find its '300% (Power plus)' "
+             "12-micron reference row, so no 4-micron product was created. Add it by hand in "
+             "Admin > Products if needed (set price_source_product_id to the 12-micron 300% Power "
+             "Plus product's id and price_multiplier to 3)."),
+        )
+        conn.commit()
+        return
+
+    exists = conn.execute(
+        "SELECT id FROM product WHERE stretch_ability=? AND micron='4'", (source["stretch_ability"],)
+    ).fetchone()
+    if not exists:
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg,
+                packaging_group, price_source_product_id, price_multiplier)
+               VALUES (?, '4', ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, 3)""",
+            (source["stretch_ability"], source["pallet_size"], source["auto_manual"], source["color"],
+             source["rolls_per_pallet"], source["roll_weight_kg"], source["core_weight_kg"],
+             source["width_mm"], source["packaging_group"], source["id"]),
+        )
+    conn.commit()
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("micron4_power_v153_seeded", "4-micron Power product seed v153 (internal marker)", 1,
+         "Internal marker: the one-time 4-micron '300% (Power plus)' product (priced at 3x the "
+         "12-micron 300% Power Plus product's own price, via price_source_product_id/"
+         "price_multiplier) has been seeded. Do not delete this row -- it stops the seed from "
+         "running again."),
+    )
     conn.commit()
 
 
