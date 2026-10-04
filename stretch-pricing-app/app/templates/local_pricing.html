@@ -59,7 +59,7 @@
   </div>
 
   <h3 style="margin-top:20px;">Quotation lines</h3>
-  <table class="lines-table" id="linesTable">
+  <table class="lines-table lines-table-compact" id="linesTable">
     <thead>
       <tr>
         <th>#</th>
@@ -68,6 +68,10 @@
         <th>Packing type</th>
         <th>Colored</th>
         <th>UV</th>
+        <th>Width (mm)</th>
+        <th>Roll wt (kg)</th>
+        <th>Core wt (kg)</th>
+        <th>Rolls/Pallet</th>
         <th>Qty (Pallets)</th>
         <th>Discount %</th>
         <th>Unit Price (EGP/KG)</th>
@@ -109,11 +113,15 @@ function addLine() {
   tr.dataset.lineId = lineCounter;
   tr.innerHTML = `
     <td>${lineCounter}</td>
-    <td><select class="f-product compact-input">${buildProductOptions()}</select></td>
-    <td><select class="f-pallet compact-input">${buildSelectOptions(PALLET_TYPES)}</select></td>
-    <td><select class="f-packing compact-input">${buildSelectOptions(PACKING_TYPES)}</select></td>
+    <td><select class="f-product">${buildProductOptions()}</select></td>
+    <td><select class="f-pallet">${buildSelectOptions(PALLET_TYPES)}</select></td>
+    <td><select class="f-packing">${buildSelectOptions(PACKING_TYPES)}</select></td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv"></td>
+    <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, leave blank to use the catalog/packing-table default"></td>
     <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
     <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
     <td class="num f-unit-price">-</td>
@@ -142,6 +150,10 @@ async function calcLine(tr) {
     packing_type: tr.querySelector('.f-packing').value,
     colored: tr.querySelector('.f-colored').checked,
     uv: tr.querySelector('.f-uv').checked,
+    custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
+    custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
+    custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
+    custom_rolls_per_pallet: tr.querySelector('.f-rpp').value ? parseFloat(tr.querySelector('.f-rpp').value) : null,
     quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
     line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
@@ -190,6 +202,10 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       packing_type: tr.querySelector('.f-packing').value,
       colored: tr.querySelector('.f-colored').checked,
       uv: tr.querySelector('.f-uv').checked,
+      custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
+      custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
+      custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
+      custom_rolls_per_pallet: tr.querySelector('.f-rpp').value ? parseFloat(tr.querySelector('.f-rpp').value) : null,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     });
