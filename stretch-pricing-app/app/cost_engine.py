@@ -1035,6 +1035,50 @@ def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_fa
     return requested, False, cat_key, cat_label, max_allowed
 
 
+# v170 -- owner-requested ("تبقى سابريتلي غير برضو بتاعت الاكسبورت"): Local
+# Market's own Max Discount caps, completely separate settings from
+# Export's STRETCH_DISCOUNT_CAP_CATEGORIES above -- editing one never
+# touches the other, and each can be set to a different % independently.
+# Local has no Pre-Stretch yet (see local_pricing.py's module docstring),
+# so only the 4 Stretch categories apply; PET/PP Strap isn't built in Local
+# at all yet (same docstring) so there is no Strap cap to add here until
+# that phase exists.
+LOCAL_DISCOUNT_CAP_CATEGORIES = [
+    ("standard", "Standard", "local_max_discount_pct_standard"),
+    ("power", "Power", "local_max_discount_pct_power"),
+    ("power_plus", "Power Plus", "local_max_discount_pct_power_plus"),
+    ("rigid", "Rigid", "local_max_discount_pct_rigid"),
+]
+
+
+def local_discount_cap_category(product):
+    """Same St/P/P_plus/RIGID -> Standard/Power/Power Plus/Rigid mapping as
+    discount_cap_category() uses for Export (via roll_type_bucket()), since
+    Local's product catalog carries the exact same Stretch Ability text --
+    but reading Local's own local_max_discount_pct_* settings, never
+    Export's max_discount_pct_*."""
+    bucket = roll_type_bucket(product["stretch_ability"] if product is not None else None)
+    key = _STRETCH_BUCKET_TO_CATEGORY.get(bucket, "standard")
+    label = dict((k, l) for k, l, _ in LOCAL_DISCOUNT_CAP_CATEGORIES)[key]
+    return key, label, f"local_max_discount_pct_{key}"
+
+
+def local_capped_discount_pct(conn, line_discount_pct, global_discount_pct, product=None):
+    """Local Market's own counterpart to capped_discount_pct() above --
+    identical mechanics (combine line + global discount in percentage
+    points, silently cap at the admin-configured max, enforced server-side
+    on every calculate AND save), but reads Local's own
+    local_max_discount_pct_* settings (Admin > Local > Local Costing), never
+    Export's. Returns (effective_discount_pct, was_capped, category_key,
+    category_label, max_allowed)."""
+    requested = (line_discount_pct or 0) + (global_discount_pct or 0)
+    cat_key, cat_label, setting_key = local_discount_cap_category(product)
+    max_allowed = _get_setting(conn, setting_key, 2.0)
+    if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
+        return max_allowed, True, cat_key, cat_label, max_allowed
+    return requested, False, cat_key, cat_label, max_allowed
+
+
 def foreign_seller_extra_multiplier(conn, seller_type):
     """'Foreign sellers extra': an extra PERCENTAGE markup (not $/KG) on
     top of the final unit price, for any rep whose account is marked

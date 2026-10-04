@@ -99,6 +99,7 @@
             {% if current_user.role in ('admin', 'sub_admin') %}
             <span class="nav-dropdown-sep"></span>
             <a href="{{ url_for('local_admin_costing') }}">Local Costing</a>
+            <a href="{{ url_for('local_admin_bom') }}">Local BOM</a>
             {% endif %}
           </div>
         </div>

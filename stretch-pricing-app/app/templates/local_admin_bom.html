@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Local BOM · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">Local Pricing System (Stretch Film, Phase 1)</div>
+  Local's OWN material-composition recipe table, completely independent from Export's BOM (Admin ▸ Costing ▸ BOM).
+  Nothing below is read by the Export pricing engine, and editing it here never changes Export's own BOM.
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Local BOM (material composition)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    Material composition (weight fraction, 0–1) per Stretch-Ability multiplier × Micron × Roll tier
+    (standard = roll ≤25kg, jumbo = roll &gt;25kg). "C4" is not stored — it is always the remainder
+    (1 − sum of the other fractions), exactly like Export's own BOM sheet and the workbook's BOM sheet.
+  </p>
+  <div class="admin-table-scroll">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Mult.</th><th>Micron</th><th>Tier</th>
+        <th>C4 (calc)</th><th>Exceed3518</th><th>Exceed3812</th>
+        <th>ExceedXP</th><th>Vista6000</th><th>Enable</th>
+        <th>LD258</th><th>Vista6202</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.stretch_multiplier }}</td>
+        <td>{{ r.micron }}</td>
+        <td>{{ r.roll_tier }}</td>
+        <td>{{ "%.3f"|format(1 - (r.exceed3518 + r.exceed3812 + r.exceedxp + r.vista6000 + r.enable + r.ld258 + r.vista6202)) }}</td>
+        <td><input type="number" step="any" name="exceed3518" value="{{ r.exceed3518 }}" style="width:70px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="exceed3812" value="{{ r.exceed3812 }}" style="width:70px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="exceedxp" value="{{ r.exceedxp }}" style="width:65px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="vista6000" value="{{ r.vista6000 }}" style="width:70px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="enable" value="{{ r.enable }}" style="width:55px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="ld258" value="{{ r.ld258 }}" style="width:50px;" form="localbomrow{{ r.id }}"></td>
+        <td><input type="number" step="any" name="vista6202" value="{{ r.vista6202 }}" style="width:60px;" form="localbomrow{{ r.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="localbomrow{{ r.id }}">Save</button></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="12" class="empty">No Local BOM rows yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% for r in rows %}
+  <form id="localbomrow{{ r.id }}" method="post"><input type="hidden" name="bom_id" value="{{ r.id }}"></form>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1946,7 +1946,14 @@ def create_app():
         uv = bool(data.get("uv"))
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
-        discount_pct = min(line_discount_pct + global_discount_pct, 100)
+        # v170 -- owner-requested: Local gets its own Max Discount cap,
+        # separate settings from Export's (Admin > Local > Local Costing) --
+        # same silent-cap, enforced-server-side-on-every-calc-and-save
+        # mechanism Export has always had, just its own independent %
+        # per Stretch category -- see cost_engine.local_capped_discount_pct().
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.local_capped_discount_pct(db, line_discount_pct, global_discount_pct, product=product)
+        )
         payment_term = data.get("payment_term") or "Cash"
         destination = data.get("destination") or None
         auto_manual_override = data.get("packing_type") or None
@@ -1992,6 +1999,10 @@ def create_app():
             "core_weight_kg": effective_product["core_weight_kg"] or 0,
             "rolls_per_pallet": rolls_per_pallet,
             "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
         })
 
     def _local_compute_totals(db, qid):
@@ -2063,7 +2074,13 @@ def create_app():
             colored = bool(line.get("colored"))
             uv = bool(line.get("uv"))
             line_discount_pct = float(line.get("line_discount_pct") or 0)
-            discount_pct = min(line_discount_pct + global_discount_pct, 100)
+            # v170 -- same server-side cap as /local/api/calculate-line above
+            # (Local's own, independent-of-Export max-discount settings) --
+            # enforced here too so a saved quotation can never carry more
+            # discount than approved, regardless of what the UI sent.
+            discount_pct, _capped, _cap_key, _cap_label, _cap_max = cost_engine.local_capped_discount_pct(
+                db, line_discount_pct, global_discount_pct, product=product
+            )
             auto_manual_override = line.get("packing_type") or None
             custom_roll_weight_kg = line.get("custom_roll_weight_kg")
             custom_core_weight_kg = line.get("custom_core_weight_kg")
@@ -2149,6 +2166,27 @@ def create_app():
         q, lines, total = _load_local_quotation(g.db, qid)
         return render_template("local_view_quotation.html", q=q, lines=lines, total=total)
 
+    @app.route("/local/quotations/<int:qid>/pdf")
+    @login_required
+    @local_access_required
+    def local_quotation_pdf(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        buf = build_local_pdf(q, lines, total)
+        filename = f"Local_Quotation_{q['quotation_no'] or q['id']}.pdf"
+        return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+
+    @app.route("/local/quotations/<int:qid>/excel")
+    @login_required
+    @local_access_required
+    def local_quotation_excel(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        buf = build_local_xlsx(q, lines, total)
+        filename = f"Local_Quotation_{q['quotation_no'] or q['id']}.xlsx"
+        return send_file(
+            buf, as_attachment=True, download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     # ---------- Local Costing (admin/sub_admin) ----------
     @app.route("/local/admin/costing", methods=["GET", "POST"])
     @factors_admin_required
@@ -2203,6 +2241,40 @@ def create_app():
         destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
         return render_template("local_admin_costing.html", settings=settings, resin=resin, packaging=packaging,
                                 margin_rows=margin_rows, destinations=destinations)
+
+    # ---------- Local BOM (admin/sub_admin) ----------
+    # v169 -- owner-reported ("مش لاقيه له اي بومز ورا"): local_bom_row has
+    # existed since v156 (one-time copy of Export's own bom_row recipes,
+    # then fully independent -- see db.py's _seed_local_system_v156()
+    # comment and local_pricing.py's module docstring) and IS what Local's
+    # own EX-Work calculation reads for its raw-resin % composition -- but
+    # there was never an admin screen to see or edit it, unlike Export's own
+    # Admin > Costing > BOM page. This mirrors that page exactly, against
+    # local_bom_row instead of bom_row.
+    @app.route("/local/admin/bom", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_bom():
+        db = g.db
+        if request.method == "POST":
+            bid = request.form.get("bom_id")
+            db.execute(
+                """UPDATE local_bom_row SET exceed3518=?, exceed3812=?, exceedxp=?, vista6000=?, enable=?,
+                   ld258=?, vista6202=? WHERE id=?""",
+                (
+                    float(request.form.get("exceed3518") or 0), float(request.form.get("exceed3812") or 0),
+                    float(request.form.get("exceedxp") or 0), float(request.form.get("vista6000") or 0),
+                    float(request.form.get("enable") or 0), float(request.form.get("ld258") or 0),
+                    float(request.form.get("vista6202") or 0), bid,
+                ),
+            )
+            db.commit()
+            flash("Local BOM row updated.", "success")
+            return redirect(url_for("local_admin_bom"))
+        rows = db.execute(
+            "SELECT * FROM local_bom_row ORDER BY stretch_multiplier, roll_tier, micron"
+        ).fetchall()
+        return render_template("local_admin_bom.html", rows=rows)
 
     # ---------- Simple admin: users ----------
     @app.route("/admin/users", methods=["GET", "POST"])
@@ -3813,6 +3885,222 @@ def build_xlsx(q, lines, totals):
     # dropped too).
     # v105 -- EX-Work Price column added (12 columns now, was 11).
     widths = [5, 36, 15, 17, 14, 12, 12, 12, 16, 13, 13, 13]
+    for col, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def build_local_pdf(q, lines, total):
+    """Local Market's own PDF export -- same company letterhead/meta-table
+    look as Export's build_pdf() above, but a single, simple 6-column
+    EGP-priced line-items table (Product / Pallet / Packing / Qty (Pallets) /
+    Rolls per Pallet / Unit Price (EGP/KG) / Total (KG) / Line Total (EGP)),
+    matching exactly what local_view_quotation.html already shows on screen
+    -- no FOB/CIF/dual-family logic, since Local has neither."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm,
+                             leftMargin=15 * mm, rightMargin=15 * mm)
+    PAGE_CONTENT_WIDTH = 180 * mm
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1a1a1a"))
+    company_name_style = ParagraphStyle("CoName", parent=styles["Normal"], fontSize=15, fontName="Helvetica-Bold",
+                                         textColor=colors.HexColor("#1a1a1a"))
+    company_detail_style = ParagraphStyle("CoDetail", parent=styles["Normal"], fontSize=8,
+                                           textColor=colors.HexColor("#444444"), leading=11)
+
+    logo_path = os.path.join(BASE_DIR, "static", "logo.png")
+    company_lines = [
+        Paragraph(COMPANY_NAME, company_name_style),
+        Paragraph(f"Address&nbsp;&nbsp;: {COMPANY_ADDRESS}", company_detail_style),
+        Paragraph(f"Tel&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_TEL}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL2}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL3}", company_detail_style),
+        Paragraph(f"Fax&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_FAX}", company_detail_style),
+        Paragraph(f"Email&nbsp;&nbsp;&nbsp;: {COMPANY_EMAIL}", company_detail_style),
+    ]
+    company_table = Table([[p] for p in company_lines], colWidths=[148 * mm])
+    company_table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("TOPPADDING", (0, 1), (0, 1), 6),
+    ]))
+
+    if os.path.exists(logo_path):
+        logo = RLImage(logo_path, width=30 * mm, height=30 * mm * (246 / 209))
+        letterhead = Table([[logo, company_table]], colWidths=[36 * mm, PAGE_CONTENT_WIDTH - 36 * mm])
+        letterhead.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (0, 0), 0),
+            ("LEFTPADDING", (1, 0), (1, 0), 8),
+        ]))
+    else:
+        letterhead = company_table
+    letterhead.hAlign = "LEFT"
+
+    elements = [letterhead, Spacer(1, 10)]
+    divider = Table([[""]], colWidths=[PAGE_CONTENT_WIDTH], rowHeights=[0.75],
+                     style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#cccccc"))]))
+    divider.hAlign = "LEFT"
+    elements.append(divider)
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph("Local Market Quotation", title_style))
+    elements.append(Spacer(1, 6))
+
+    created_at = q["created_at"] or ""
+    date_str = created_at[:10] if created_at else "-"
+    meta = [
+        ["Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str],
+        ["Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"],
+        ["Customer Class", q["customer_class"] or "-", "Destination", q["destination"] or "-"],
+        ["Discount", f"{q['global_discount_pct'] or 0}%", "", ""],
+    ]
+    meta_table = Table(meta, colWidths=[95, 160, 95, PAGE_CONTENT_WIDTH - 95 - 160 - 95])
+    meta_table.hAlign = "LEFT"
+    meta_table.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 14))
+
+    label_style = ParagraphStyle("LineLabel", parent=styles["Normal"], fontSize=8, leading=10)
+    header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
+                                   textColor=colors.white, alignment=1)
+
+    header = [Paragraph(t, header_style) for t in
+              ["#", "Product", "Pallet", "Packing", "Qty<br/>(Pallets)", "Rolls/<br/>Pallet",
+               "Unit Price<br/>(EGP/KG)", "Total<br/>(KG)", "Line Total<br/>(EGP)"]]
+    rows = [header]
+    for i, line in enumerate(lines, start=1):
+        rows.append([
+            str(i), Paragraph(line["label"], label_style),
+            Paragraph(line.get("pallet_type") or "-", label_style),
+            Paragraph(line.get("packing_type") or "-", label_style),
+            f"{line['quantity_pallets']:g}" if line.get("quantity_pallets") is not None else "-",
+            f"{line['custom_rolls_per_pallet']:g}" if line.get("custom_rolls_per_pallet") else "-",
+            f"{(line.get('unit_price_egp_kg') or 0):.2f}",
+            f"{(line.get('total_kg') or 0):.1f}",
+            f"{(line.get('line_total') or 0):.2f}",
+        ])
+    t = Table(rows, colWidths=[14, 150, 68, 80, 40, 38, 48, 36, 36])
+    t.hAlign = "LEFT"
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 14))
+
+    total_style = ParagraphStyle("TotalLine", parent=styles["Normal"], fontSize=12, fontName="Helvetica-Bold",
+                                  alignment=2)
+    elements.append(Paragraph(f"Total: {total:.2f} EGP", total_style))
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf
+
+
+def build_local_xlsx(q, lines, total):
+    """Excel version of build_local_pdf() -- same letterhead/meta/line
+    columns/grand total, as an .xlsx download, sitting next to the Local
+    quotation's Export PDF button."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Local Quotation"
+
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    right = Alignment(horizontal="right")
+
+    row = 1
+    ws.cell(row=row, column=1, value=COMPANY_NAME).font = Font(bold=True, size=13)
+    row += 1
+    ws.cell(row=row, column=1, value=COMPANY_ADDRESS).font = Font(size=8, color="444444")
+    row += 2
+
+    ws.cell(row=row, column=1, value="Local Market Quotation").font = Font(bold=True, size=15)
+    row += 2
+
+    created_at = q["created_at"] or ""
+    date_str = created_at[:10] if created_at else "-"
+    meta_rows = [
+        ("Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str),
+        ("Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"),
+        ("Customer Class", q["customer_class"] or "-", "Destination", q["destination"] or "-"),
+        ("Discount", f"{q['global_discount_pct'] or 0}%", "", ""),
+    ]
+    for label1, val1, label2, val2 in meta_rows:
+        ws.cell(row=row, column=1, value=label1).font = bold
+        ws.cell(row=row, column=2, value=val1)
+        if label2:
+            ws.cell(row=row, column=3, value=label2).font = bold
+            ws.cell(row=row, column=4, value=val2)
+        row += 1
+    row += 1
+
+    header_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    headers = ["#", "Product", "Pallet", "Packing", "Qty\n(Pallets)", "Rolls/Pallet",
+               "Unit Price\n(EGP/KG)", "Total\n(KG)", "Line Total\n(EGP)"]
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = header_wrap
+    ws.row_dimensions[row].height = 28
+    row += 1
+
+    for i, line in enumerate(lines, start=1):
+        values = [
+            i, line["label"], line.get("pallet_type") or "-", line.get("packing_type") or "-",
+            line.get("quantity_pallets") or 0,
+            line.get("custom_rolls_per_pallet") if line.get("custom_rolls_per_pallet") else "-",
+            cost_engine.round_half_up(line.get("unit_price_egp_kg") or 0, 2),
+            cost_engine.round_half_up(line.get("total_kg") or 0, 1),
+            cost_engine.round_half_up(line.get("line_total") or 0, 2),
+        ]
+        for col, v in enumerate(values, start=1):
+            cell = ws.cell(row=row, column=col, value=v)
+            cell.border = border
+            if col >= 5:
+                cell.alignment = right
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Total (EGP)").font = bold
+    ws.cell(row=row, column=2, value=cost_engine.round_half_up(total, 2)).font = bold
+
+    widths = [5, 44, 18, 20, 12, 12, 14, 12, 14]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 

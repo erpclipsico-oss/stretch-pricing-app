@@ -564,6 +564,7 @@ def init_db():
     _seed_local_system_v156(conn)
     _migrate_v159_market_prices(conn)
     _migrate_v161_more_market_prices(conn)
+    _seed_local_discount_cap_categories_v170(conn)
     conn.close()
 
 
@@ -1964,6 +1965,30 @@ def _seed_discount_cap_categories(conn):
             (setting_key, f"{label}: Max Discount allowed (% points off margin)", strap_seed,
              f"Independent of the other Strap line's own cap, and of every Stretch Film category's -- "
              f"only applies to {label} lines. Edit it from the PET/PP Strap Costing page."),
+        )
+    conn.commit()
+
+
+def _seed_local_discount_cap_categories_v170(conn):
+    """v170 -- owner-requested ("تبقى سابريتلي غير برضو بتاعت الاكسبورت"):
+    Local Market's own Max Discount caps, completely separate settings from
+    Export's own max_discount_pct_* rows (see cost_engine.
+    LOCAL_DISCOUNT_CAP_CATEGORIES / local_capped_discount_pct()) -- seeded
+    at 2.0 (same default Export's own caps started at), then fully
+    independent from here on via Admin > Local > Local Costing. Idempotent
+    (checks each key before inserting) so it's safe to run on every
+    startup, not just once."""
+    from . import cost_engine
+
+    for key, label, setting_key in cost_engine.LOCAL_DISCOUNT_CAP_CATEGORIES:
+        exists = conn.execute("SELECT key FROM global_setting WHERE key=?", (setting_key,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (setting_key, f"Local - Max Discount allowed ({label}, % points off margin)", 2.0,
+             f"Independent of Export's own Max Discount caps, and of every other Local category's -- "
+             f"only applies to a Local line whose Stretch Ability is {label}."),
         )
     conn.commit()
 

@@ -5,10 +5,11 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>Local Pricing – New quotation</h2>
+    <h2 data-i18n="local_pricing_title">Local Pricing – New quotation</h2>
     <div class="panel-actions">
-      <button type="button" class="btn btn-primary" id="saveBtn">💾 Save</button>
-      <button type="button" class="btn btn-outline" id="calcBtn">⚡ Calculate</button>
+      <button type="button" class="btn btn-outline" id="langToggleBtn" style="font-size:0.8rem; padding:5px 10px;">🌐 العربية</button>
+      <button type="button" class="btn btn-primary" id="saveBtn">💾 <span data-i18n="save">Save</span></button>
+      <button type="button" class="btn btn-outline" id="calcBtn">⚡ <span data-i18n="calculate">Calculate</span></button>
     </div>
   </div>
 
@@ -26,66 +27,68 @@
 
   <div class="grid grid-4">
     <div class="field">
-      <label>Customer Class</label>
+      <label data-i18n="customer_class">Customer Class</label>
       <select id="customer_class">
         <option value="A">A</option>
         <option value="B">B</option>
       </select>
     </div>
     <div class="field">
-      <label>Destination</label>
+      <label data-i18n="destination">Destination</label>
       <select id="destination">
-        <option value="">Select...</option>
+        <option value="" data-i18n="select_ellipsis">Select...</option>
         {% for d in destinations %}
         <option value="{{ d.name }}">{{ d.name }} ({{ '%.2f'|format(d.transport_egp_kg) }} EGP/KG)</option>
         {% endfor %}
       </select>
     </div>
     <div class="field">
-      <label>Payment Term</label>
+      <label data-i18n="payment_term">Payment Term</label>
       <select id="payment_term">
         <option value="Cash">Cash</option>
         <option value="Credit">Credit</option>
       </select>
     </div>
     <div class="field">
-      <label>Global Discount %</label>
+      <label data-i18n="global_discount_pct">Global Discount %</label>
       <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
     </div>
   </div>
   <div class="grid grid-4">
-    <div class="field"><label>Customer Name</label><input type="text" id="customer_name"></div>
-    <div class="field"><label>Quotation No.</label><input type="text" id="quotation_no"></div>
+    <div class="field"><label data-i18n="customer_name">Customer Name</label><input type="text" id="customer_name"></div>
+    <div class="field"><label data-i18n="quotation_no">Quotation No.</label><input type="text" id="quotation_no"></div>
   </div>
 
-  <h3 style="margin-top:20px;">Quotation lines</h3>
+  <h3 style="margin-top:20px;" data-i18n="quotation_lines">Quotation lines</h3>
   <table class="lines-table lines-table-compact" id="linesTable">
     <thead>
       <tr>
         <th>#</th>
-        <th>Product</th>
-        <th>Pallet type</th>
-        <th>Packing type</th>
-        <th>Colored</th>
-        <th>UV</th>
-        <th>Width (mm)</th>
-        <th>Roll wt (kg)</th>
-        <th>Core wt (kg)</th>
-        <th>Rolls/Pallet</th>
-        <th>Qty (Pallets)</th>
-        <th>Discount %</th>
-        <th>Unit Price (EGP/KG)</th>
-        <th>Total (KG)</th>
-        <th>Line Total (EGP)</th>
+        <th data-i18n="col_product">Product</th>
+        <th data-i18n="col_pallet_type">Pallet type</th>
+        <th data-i18n="col_packing_type">Packing type</th>
+        <th data-i18n="col_colored">Colored</th>
+        <th data-i18n="col_uv">UV</th>
+        <th data-i18n="col_width_mm">Width (mm)</th>
+        <th data-i18n="col_roll_kg">Roll wt (kg)</th>
+        <th data-i18n="col_core_kg">Core wt (kg)</th>
+        <th data-i18n="col_rolls_pallet">Rolls/Pallet</th>
+        <th data-i18n="col_qty_pallets">Qty (Pallets)</th>
+        <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_unit_price">Unit Price (EGP/KG)</th>
+        <th data-i18n="col_total_kg">Total (KG)</th>
+        <th data-i18n="col_line_total">Line Total (EGP)</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="linesBody"></tbody>
   </table>
-  <button type="button" class="btn btn-outline" id="addLineBtn" style="margin-top:10px;">+ Add line</button>
+  <button type="button" class="btn btn-outline" id="addLineBtn" style="margin-top:10px;">+ <span data-i18n="add_line">Add line</span></button>
+
+  <div id="discountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-top:12px;"></div>
 
   <div class="totals-box" style="margin-top:20px;">
-    <div class="field"><label>Total (EGP)</label><div id="grandTotal" style="font-size:1.3rem; font-weight:600;">0.00 EGP</div></div>
+    <div class="field"><label data-i18n="total_egp">Total (EGP)</label><div id="grandTotal" style="font-size:1.3rem; font-weight:600;">0.00 EGP</div></div>
   </div>
 </div>
 
@@ -93,6 +96,99 @@
 const PRODUCTS = {{ products|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
+
+// v169 -- Arabic/English UI-chrome toggle, mirroring Export pricing.html's
+// own data-i18n/langToggleBtn mechanism (owner-requested: "نفس الانترفيس").
+// Scoped the same way as Export's: static page chrome (labels, buttons,
+// column headers) + the fixed Pallet/Packing/Payment-term option labels --
+// NOT a full runtime/product-catalog translation.
+let currentLang = (function () {
+  try { return localStorage.getItem('pricingLang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; }
+})();
+
+const I18N = {
+  en: {
+    local_pricing_title: 'Local Pricing – New quotation', save: 'Save', calculate: 'Calculate',
+    customer_class: 'Customer Class', destination: 'Destination', select_ellipsis: 'Select...',
+    payment_term: 'Payment Term', global_discount_pct: 'Global Discount %',
+    customer_name: 'Customer Name', quotation_no: 'Quotation No.',
+    quotation_lines: 'Quotation lines', add_line: 'Add line',
+    col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
+    col_colored: 'Colored', col_uv: 'UV', col_width_mm: 'Width (mm)',
+    col_roll_kg: 'Roll wt (kg)', col_core_kg: 'Core wt (kg)', col_rolls_pallet: 'Rolls/Pallet',
+    col_qty_pallets: 'Qty (Pallets)', col_discount_pct: 'Discount %',
+    col_unit_price: 'Unit Price (EGP/KG)', col_total_kg: 'Total (KG)', col_line_total: 'Line Total (EGP)',
+    total_egp: 'Total (EGP)',
+    discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
+    discount_capped_notice_prefix: '⚠️ Max Discount allowed — ',
+  },
+  ar: {
+    local_pricing_title: 'التسعير المحلي – عرض سعر جديد', save: 'حفظ', calculate: 'احسب',
+    customer_class: 'فئة العميل', destination: 'الوجهة', select_ellipsis: 'اختر...',
+    payment_term: 'شرط الدفع', global_discount_pct: 'الخصم العام %',
+    customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
+    quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
+    col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
+    col_colored: 'ملوّن', col_uv: 'UV', col_width_mm: 'العرض (مم)',
+    col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_rolls_pallet: 'رول/بالتة',
+    col_qty_pallets: 'الكمية (بالتة)', col_discount_pct: 'الخصم %',
+    col_unit_price: 'سعر الوحدة (جنيه/كجم)', col_total_kg: 'الإجمالي (كجم)', col_line_total: 'إجمالي السطر (جنيه)',
+    total_egp: 'الإجمالي (جنيه)',
+    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
+    discount_capped_notice_prefix: '⚠️ الحد الأقصى للخصم — ',
+  },
+};
+
+function t(key) {
+  return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
+}
+function tf(key, vars) {
+  let s = t(key);
+  for (const k in (vars || {})) { s = s.split('{' + k + '}').join(vars[k]); }
+  return s;
+}
+// v170 -- Local's own Max Discount cap notice: {key: {label, max}} per
+// capped category, rebuilt every recalcAll() -- same shape/behaviour as
+// Export pricing.html's own discountCapNotice, just against Local's
+// separate local_max_discount_pct_* settings/response fields.
+let lastCappedCategories = [];
+function buildDiscountCapNotice(categories) {
+  if (!categories || !categories.length) return '';
+  const list = categories.map(c => `${c.label}: ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
+  return tf('discount_capped_notice_prefix') + list;
+}
+
+// Same fixed-value lookup as Export pricing.html's TEXT_I18N_AR, reused here
+// since Local shares the identical Pallet type / Packing type / Payment term
+// option values.
+const TEXT_I18N_AR = {
+  'Standard Pallet': 'بالتة عادية', 'Euro Pallet': 'بالتة يورو',
+  'Automatic': 'أوتوماتيك', 'Manual(5kg)': 'يدوي (5 كجم)',
+  'Manual(2.3~3.5kg)': 'يدوي (2.3~3.5 كجم)', 'Manual(2.2kg)': 'يدوي (2.2 كجم)',
+  'Manual(1.5kg)': 'يدوي (1.5 كجم)', 'Cash': 'كاش', 'Credit': 'آجل',
+};
+function textLabel(value) {
+  return (currentLang === 'ar' && TEXT_I18N_AR[value]) || value;
+}
+
+function applyLanguage() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('#payment_term option, .f-pallet option, .f-packing option')
+    .forEach(opt => { opt.textContent = textLabel(opt.value); });
+  const btn = document.getElementById('langToggleBtn');
+  if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
+
+  const capNotice = document.getElementById('discountCapNotice');
+  if (capNotice && lastCappedCategories.length) {
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+  }
+}
+
+function setLanguage(lang) {
+  currentLang = lang;
+  try { localStorage.setItem('pricingLang', lang); } catch (e) {}
+  applyLanguage();
+}
 
 function previewAsUserId() {
   const sel = document.getElementById('actAsUser');
@@ -103,7 +199,7 @@ function buildProductOptions() {
   return PRODUCTS.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
 }
 function buildSelectOptions(arr) {
-  return arr.map(v => `<option value="${v}">${v}</option>`).join('');
+  return arr.map(v => `<option value="${v}">${textLabel(v)}</option>`).join('');
 }
 
 let lineCounter = 0;
@@ -172,6 +268,8 @@ async function calcLine(tr) {
 async function recalcAll() {
   const rows = document.querySelectorAll('#linesBody tr');
   let grandTotal = 0;
+  let anyCapped = false;
+  const cappedMap = {};
   for (const tr of rows) {
     const result = await calcLine(tr);
     if (!result) continue;
@@ -179,8 +277,29 @@ async function recalcAll() {
     tr.querySelector('.f-total-kg').textContent = result.total_kg.toFixed(1);
     tr.querySelector('.f-line-total').textContent = result.line_gross.toFixed(2);
     grandTotal += result.line_gross;
+
+    const discInput = tr.querySelector('.f-discount');
+    if (result.discount_capped) {
+      anyCapped = true;
+      cappedMap[result.discount_cap_key] = {label: result.discount_cap_label, max: result.discount_cap_max};
+      discInput.style.outline = '2px solid #d97706';
+      discInput.title = tf('discount_capped_tooltip', {max: result.discount_pct_applied, label: result.discount_cap_label});
+    } else {
+      discInput.style.outline = '';
+      discInput.title = '';
+    }
   }
   document.getElementById('grandTotal').textContent = grandTotal.toFixed(2) + ' EGP';
+
+  const capNotice = document.getElementById('discountCapNotice');
+  if (anyCapped) {
+    lastCappedCategories = Object.values(cappedMap);
+    capNotice.style.display = '';
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+  } else {
+    lastCappedCategories = [];
+    capNotice.style.display = 'none';
+  }
 }
 
 document.getElementById('addLineBtn').addEventListener('click', addLine);
@@ -229,6 +348,11 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     alert('Save failed.');
   }
 });
+
+document.getElementById('langToggleBtn').addEventListener('click', () => {
+  setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+});
+applyLanguage();
 
 addLine();
 </script>
