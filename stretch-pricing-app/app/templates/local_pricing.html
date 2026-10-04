@@ -9,7 +9,9 @@
     <div class="panel-actions">
       <button type="button" class="btn btn-outline" id="langToggleBtn" style="font-size:0.8rem; padding:5px 10px;">🌐 العربية</button>
       <button type="button" class="btn btn-primary" id="saveBtn">💾 <span data-i18n="save">Save</span></button>
-      <button type="button" class="btn btn-outline" id="calcBtn">⚡ <span data-i18n="calculate">Calculate</span></button>
+      <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ <span data-i18n="export_excel">Export Excel</span></button>
+      <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ <span data-i18n="export_pdf">Export PDF</span></button>
+      <button type="button" class="btn btn-primary" id="calcBtn">⚡ <span data-i18n="calculate">Calculate</span></button>
     </div>
   </div>
 
@@ -121,6 +123,7 @@ const I18N = {
     total_egp: 'Total (EGP)',
     discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
     discount_capped_notice_prefix: '⚠️ Max Discount allowed — ',
+    export_excel: 'Export Excel', export_pdf: 'Export PDF',
   },
   ar: {
     local_pricing_title: 'التسعير المحلي – عرض سعر جديد', save: 'حفظ', calculate: 'احسب',
@@ -136,6 +139,7 @@ const I18N = {
     total_egp: 'الإجمالي (جنيه)',
     discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
     discount_capped_notice_prefix: '⚠️ الحد الأقصى للخصم — ',
+    export_excel: 'تصدير Excel', export_pdf: 'تصدير PDF',
   },
 };
 
@@ -202,6 +206,7 @@ function buildSelectOptions(arr) {
   return arr.map(v => `<option value="${v}">${textLabel(v)}</option>`).join('');
 }
 
+let currentQuotationId = null;
 let lineCounter = 0;
 function addLine() {
   lineCounter += 1;
@@ -330,6 +335,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     });
   });
   const payload = {
+    id: currentQuotationId,
     quotation_no: document.getElementById('quotation_no').value,
     customer_name: document.getElementById('customer_name').value,
     customer_class: document.getElementById('customer_class').value,
@@ -343,7 +349,12 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   });
   if (resp.ok) {
     const data = await resp.json();
-    window.location.href = '/local/quotations/' + data.id;
+    currentQuotationId = data.id;
+    document.getElementById('exportBtn').disabled = false;
+    document.getElementById('exportBtn').onclick = () => window.open(`/local/quotations/${data.id}/pdf`, '_blank');
+    document.getElementById('exportExcelBtn').disabled = false;
+    document.getElementById('exportExcelBtn').onclick = () => window.open(`/local/quotations/${data.id}/excel`, '_blank');
+    alert('Quotation saved as ' + (data.quotation_no || ('#' + data.id)));
   } else {
     alert('Save failed.');
   }

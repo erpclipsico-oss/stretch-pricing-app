@@ -142,11 +142,16 @@ def compute_local_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pall
     material_cost += mat_cost("vista", comp["vista"])
     material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
 
-    # Shared-factory costs, reused from cost_engine as-is (see module docstring).
-    core_cost = cost_engine.core_cost_usd(conn, product)
-    packaging_cost = (cost_engine.packaging_cost_per_roll_usd(conn, product, pallet_type,
-                                                                rolls_per_pallet_override,
-                                                                box_packaging=box_packaging)
+    # v170.1 -- Local's own independent core/packaging/conversion costs
+    # (see cost_engine.py's "Local Market's own independent core/packaging/
+    # conversion costs" section) -- no longer Export's shared-factory
+    # functions (owner-requested: "زي ما انا بعتها لك بالظبط لللوكل ماركت
+    # بس"). box_packaging is accepted for call-signature compatibility with
+    # Export's own packaging function but has no effect here -- Local's
+    # own Pallet component sheet never modeled a no-box variant.
+    core_cost = cost_engine.local_core_cost_usd(conn, product)
+    packaging_cost = (cost_engine.local_packaging_cost_per_roll_usd(conn, product, pallet_type,
+                                                                      rolls_per_pallet_override)
                        if plastic_weight > 0 else 0.0)
 
     interest_rate = _local_setting(conn, "local_material_interest_rate", 0.0)
@@ -154,7 +159,7 @@ def compute_local_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pall
 
     roll_type = cost_engine.conversion_roll_type_for(product["stretch_ability"], product["micron"])
     micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
-    conv_usd_per_ton = cost_engine.conversion_cost_usd_per_ton(conn, micron, roll_type)
+    conv_usd_per_ton = cost_engine.local_conversion_cost_usd_per_ton(conn, micron, roll_type)
     width_mm = product["width_mm"] if "width_mm" in product.keys() else None
     width = width_mm or 500
     width_factor = (500 / width) if width and width < 500 else 1

@@ -7,7 +7,9 @@
   These are the Local system's OWN prices/margins, completely independent from Export's (Admin ▸ Costing).
   Nothing below is read by the Export pricing engine, and nothing in Export's Costing pages affects Local.
   The material-composition recipe (resin % per product) lives on its own page —
-  <a href="{{ url_for('local_admin_bom') }}">Local ▸ Local BOM</a>.
+  <a href="{{ url_for('local_admin_bom') }}">Local ▸ Local BOM</a> — and the Conversion Cost ($/ton by
+  micron/roll type) lives on its own page too —
+  <a href="{{ url_for('local_admin_conversion_cost') }}">Local ▸ Local Conversion Cost</a>.
 </div>
 <form method="post">
   <div class="panel">
@@ -68,6 +70,26 @@
         <td>{{ r.category }}</td>
         <td>{{ r.film_type or '-' }}</td>
         <td><input type="number" step="any" name="margin_{{ r.id }}" value="{{ r.margin_pct }}" style="width:100px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Pallet component (packaging quantities per pallet)</h2></div>
+    <p class="hint">From your own workbook's "Pallet component" sheet — priced at the "Material pricing — packaging" rates above.</p>
+    <table class="admin-table">
+      <thead><tr><th>Packing</th><th>Pallet (pcs)</th><th>Cardboard (pcs)</th><th>Cap (pcs)</th><th>Corrugated sheets (kg)</th><th>Stretch wrap (kg)</th></tr></thead>
+      <tbody>
+      {% for pc in pallet_components %}
+      <tr>
+        <td>{{ pc.label }}</td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_pallet_qty" value="{{ pc.pallet_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_cardboard_qty" value="{{ pc.cardboard_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_cap_qty" value="{{ pc.cap_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_corrugated_kg" value="{{ pc.corrugated_kg }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_stretch_kg" value="{{ pc.stretch_kg }}" style="width:80px;"></td>
       </tr>
       {% endfor %}
       </tbody>

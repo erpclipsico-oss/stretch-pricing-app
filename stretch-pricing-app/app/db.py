@@ -472,6 +472,45 @@ CREATE TABLE IF NOT EXISTS local_destination (
     transport_egp_kg REAL NOT NULL DEFAULT 0
 );
 
+-- local_conversion_cost_row -- v170.1 owner-reported ("فين الحتة... وليه
+-- مش مطبق الشيت بتاعه الاسترتش"): Local's own Conversion Cost ($/ton, by
+-- Micron x Roll type St/P/P_plus/RIGID), transcribed verbatim from the
+-- owner's own Stretch_Local_Pricing workbook's "Conversion cost" sheet
+-- ("$ Conversion Cost / Ton (USD) $" block -- the Variable+Fixed cost
+-- totals she already derived from her own Electricity/Wages/Fixed-cost
+-- sheets there). A flat lookup table rather than re-deriving from those
+-- underlying sheets live (same end numbers, far simpler to keep in sync
+-- and to admin-edit) -- completely independent from Export's own
+-- conversion_cost_usd_per_ton() (Electricity/variable_cost_item/fixed-cost
+-- tables), which this never reads.
+CREATE TABLE IF NOT EXISTS local_conversion_cost_row (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    micron REAL NOT NULL,
+    roll_type TEXT NOT NULL,      -- 'St' | 'P' | 'P_plus' | 'RIGID'
+    usd_per_ton REAL NOT NULL DEFAULT 0,
+    UNIQUE(micron, roll_type)
+);
+
+-- local_pallet_component -- v170.1 owner-reported: Local's own packaging
+-- line-items (Pallet/Cardboard/Cap/Corrugated sheets/Stretch wrap, by
+-- quantity per pallet), transcribed from the owner's own workbook's
+-- "Pallet component" sheet ("1) Automatic" / "2) Manual" blocks, priced at
+-- Local's own local_-prefixed material_rate rows -- NOT Export's own
+-- pallet_component table (which has many more pallet-type/box-variant
+-- rows; Local's own sheet only models two buckets, Automatic and Manual,
+-- so every Manual packing-type variant on the Local pricing screen prices
+-- off this same single 'manual' row).
+CREATE TABLE IF NOT EXISTS local_pallet_component (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    packing_key TEXT UNIQUE NOT NULL,   -- 'automatic' | 'manual'
+    label TEXT NOT NULL,
+    pallet_qty REAL NOT NULL DEFAULT 0,
+    cardboard_qty REAL NOT NULL DEFAULT 0,
+    cap_qty REAL NOT NULL DEFAULT 0,
+    corrugated_kg REAL NOT NULL DEFAULT 0,
+    stretch_kg REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS local_quotation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quotation_no TEXT UNIQUE,
@@ -565,6 +604,7 @@ def init_db():
     _migrate_v159_market_prices(conn)
     _migrate_v161_more_market_prices(conn)
     _seed_local_discount_cap_categories_v170(conn)
+    _fix_local_independent_costing_v170_1(conn)
     conn.close()
 
 
@@ -1990,6 +2030,116 @@ def _seed_local_discount_cap_categories_v170(conn):
              f"Independent of Export's own Max Discount caps, and of every other Local category's -- "
              f"only applies to a Local line whose Stretch Ability is {label}."),
         )
+    conn.commit()
+
+
+def _fix_local_independent_costing_v170_1(conn):
+    """v170.1 -- owner-reported, directly from her own Stretch_Local_Pricing
+    workbook: Local's resin/packaging material prices, Dollar Rate and
+    Material interest rate were seeded (v156) as a one-time COPY of
+    Export's own values at the time -- a placeholder, never actually her
+    own Local sheet's numbers -- and Local's EX-Work build-up was reading
+    Export's own shared core/packaging/conversion-cost functions outright
+    (see local_pricing.py's pre-v170.1 module docstring), so editing the
+    'Local - ...' rows in Admin > Local Costing had NO effect on the
+    computed price at all. This is the one-time fix: force-updates every
+    wrong value to what her own workbook's 'Material pricing' sheet says,
+    and seeds the two new tables (local_conversion_cost_row/
+    local_pallet_component, both transcribed from her own 'Conversion
+    cost'/'Pallet component' sheets) that local_pricing.py now reads
+    instead of Export's. Guarded by its own marker so it runs exactly once
+    and never clobbers anything the owner edits herself afterwards."""
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='local_system_v170_1_costing_fixed'"
+    ).fetchone()
+    if already_run:
+        return
+
+    # 1) Raw-resin $/ton, from her workbook's Material pricing sheet.
+    resin_fix = {
+        "local_c4": 1150, "local_exceed3518": 1550, "local_exceed3812": 2540,
+        "local_exceedxp": 2570, "local_vista6000": 3070, "local_enable": 2450,
+        "local_uvi": 6181, "local_ld": 2590, "local_vista": 4070,
+    }
+    for key, value in resin_fix.items():
+        conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (value, key))
+
+    # 2) Packaging material EGP prices, same sheet's "Packaging Material"
+    # block. local_stretch (packaging stretch-wrap, EGP 80/kilo) already
+    # matched and is left as-is; local_air_bag/local_pe_bag aren't in her
+    # sheet at all (Local's own packaging never uses them -- see
+    # local_pallet_component below) so they're left alone too.
+    packaging_fix = {
+        "local_core": 27, "local_pallet": 520, "local_box": 27, "local_cap": 52,
+        "local_cardboard": 20, "local_cartoon_angle": 19, "local_scotch_tape": 20,
+        "local_corrugated_sheets": 37, "local_core_prestretch": 32,
+    }
+    for key, value in packaging_fix.items():
+        conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (value, key))
+
+    # 3) Dollar Rate / Material interest rate / Color extra, same sheet's
+    # top-right summary cells (Dollar Rate=52, interest Rate=0.27, Color /
+    # TON=7500 EGP -> 7.5 EGP/KG).
+    def _force_setting(key, value):
+        conn.execute("UPDATE global_setting SET value=? WHERE key=?", (value, key))
+
+    _force_setting("local_dollar_rate", 52)
+    _force_setting("local_material_interest_rate", 0.27)
+    _force_setting("local_extra_color_egp_kg", 7.5)
+
+    # 4) local_conversion_cost_row -- transcribed from her "Conversion
+    # cost" sheet's "$ Conversion Cost / Ton (USD) $" block (Variable +
+    # Fixed cost, already summed to Total there).
+    conversion_rows = {
+        "St":     {8: 0.0, 9: 0.0, 10: 277.7021, 12: 230.8516, 15: 187.5531, 17: 175.2159,
+                   20: 153.1657, 23: 135.6715, 30: 133.528},
+        "P":      {8: 0.0, 9: 0.0, 10: 293.724, 12: 241.5363, 15: 195.4701, 17: 182.3411,
+                   20: 159.1747, 23: 143.292, 30: 133.528},
+        "P_plus": {8: 378.2791, 9: 336.9895, 10: 301.7437, 12: 245.4292, 15: 208.5991,
+                   17: 194.1572, 20: 169.2184, 23: 152.039, 30: 137.743},
+        "RIGID":  {8: 560.4087, 10: 453.9684, 12: 382.6353, 15: 306.3934, 17: 273.354,
+                   20: 233.0071, 23: 203.0478},
+    }
+    for roll_type, by_micron in conversion_rows.items():
+        for micron, usd_per_ton in by_micron.items():
+            exists = conn.execute(
+                "SELECT 1 FROM local_conversion_cost_row WHERE micron=? AND roll_type=?",
+                (micron, roll_type),
+            ).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                "INSERT INTO local_conversion_cost_row (micron, roll_type, usd_per_ton) VALUES (?,?,?)",
+                (micron, roll_type, usd_per_ton),
+            )
+
+    # 5) local_pallet_component -- transcribed from her "Pallet component"
+    # sheet's "1) Automatic" / "2) Manual" blocks (quantities per pallet;
+    # priced at Local's own material rates above, not these raw numbers).
+    pallet_rows = [
+        ("automatic", "Local - Automatic", 1, 0, 6, 2.5, 2),
+        ("manual", "Local - Manual", 1, 4, 0, 1.5, 1.1),
+    ]
+    for packing_key, label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg, stretch_kg in pallet_rows:
+        exists = conn.execute(
+            "SELECT 1 FROM local_pallet_component WHERE packing_key=?", (packing_key,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """INSERT INTO local_pallet_component
+               (packing_key, label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg, stretch_kg)
+               VALUES (?,?,?,?,?,?,?)""",
+            (packing_key, label, pallet_qty, cardboard_qty, cap_qty, corrugated_kg, stretch_kg),
+        )
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("local_system_v170_1_costing_fixed", "Local Pricing System v170.1 independent-costing fix (internal marker)",
+         1, "Internal marker: the one-time fix that made Local's resin/packaging prices, Dollar Rate, Material "
+            "interest rate and Conversion Cost genuinely independent from Export (previously a copied "
+            "placeholder that had no effect on the computed price). Never re-run even if these are later edited."),
+    )
     conn.commit()
 
 

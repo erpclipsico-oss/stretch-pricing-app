@@ -770,6 +770,103 @@ def core_cost_usd(conn, product):
     return core_weight * (core_rate / dollar_rate)
 
 
+# ---------------------------------------------------------------- Local Market's own
+# independent core/packaging/conversion costs (v170.1)
+#
+# v170.1 -- owner-reported, directly from her own Stretch_Local_Pricing
+# workbook ("مش مطبق الشيت بتاعه الاسترتش... زي ما انا بعتها لك بالظبط"):
+# Local used to reuse core_cost_usd()/packaging_cost_per_roll_usd()/
+# conversion_cost_usd_per_ton() above AS-IS, on the theory that those three
+# are genuine shared-factory-overhead costs identical regardless of which
+# market a roll sells into. The owner has now explicitly asked for Local to
+# be independent of Export for these too -- her own workbook carries its
+# own full parallel cost stack (its own packaging-material prices, its own
+# Pallet component sheet, its own Electricity/Wages/Fixed-cost-derived
+# Conversion Cost table) -- so these three functions are Local's own
+# counterparts, reading ONLY local_-prefixed data (local_dollar_rate,
+# local_<material> rates, local_pallet_component, local_conversion_cost_row)
+# and never touching Export's own tables/settings.
+
+def local_core_cost_usd(conn, product):
+    """Local's own counterpart to core_cost_usd() -- local_dollar_rate +
+    local_core material rate instead of Export's."""
+    dollar_rate = _get_setting(conn, "local_dollar_rate", 52)
+    core_rate = _material_rate(conn, "local_core")
+    core_weight = product["core_weight_kg"] or 0
+    if not dollar_rate:
+        return 0.0
+    return core_weight * (core_rate / dollar_rate)
+
+
+def local_pallet_component_total_usd(conn, packing_key):
+    """Local's own counterpart to pallet_component_total_usd() -- sums a
+    local_pallet_component row's line items at Local's own local_-prefixed
+    material rates (never Export's), converted at local_dollar_rate."""
+    pc = conn.execute(
+        "SELECT * FROM local_pallet_component WHERE packing_key=?", (packing_key,)
+    ).fetchone()
+    if pc is None:
+        return 0.0
+    dollar_rate = _get_setting(conn, "local_dollar_rate", 52)
+    if not dollar_rate:
+        return 0.0
+    total = 0.0
+    total += (pc["pallet_qty"] or 0) * _material_rate(conn, "local_pallet") / dollar_rate
+    total += (pc["cardboard_qty"] or 0) * _material_rate(conn, "local_cardboard") / dollar_rate
+    total += (pc["cap_qty"] or 0) * _material_rate(conn, "local_cap") / dollar_rate
+    total += (pc["corrugated_kg"] or 0) * _material_rate(conn, "local_corrugated_sheets") / dollar_rate
+    total += (pc["stretch_kg"] or 0) * _material_rate(conn, "local_stretch") / dollar_rate
+    return total
+
+
+def _local_pallet_key_for(auto_manual):
+    """Local's own packaging only models two buckets (her own 'Pallet
+    component' sheet has exactly 'Automatic' and 'Manual' blocks, no
+    Standard/Euro-pallet split and no per-box-size split) -- every
+    Manual(...) packing-type variant on the Local pricing screen prices off
+    the same single 'manual' row."""
+    am = (auto_manual or "Automatic").lower()
+    return "manual" if "manual" in am else "automatic"
+
+
+def local_packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+    """Local's own counterpart to packaging_cost_per_roll_usd(). Rolls/
+    pallet still comes from the same shared Details-sheet packing_tier
+    lookup (effective_rolls_per_pallet()) -- pure physical rolls-per-pallet
+    geometry, not a market-dependent price, so it's kept shared, same as
+    the module docstring's original reasoning for core/packaging/
+    conversion -- but the $ COST per component now comes from Local's own
+    local_pallet_component/local_ material rates exclusively."""
+    rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
+    if rolls_per_pallet <= 0:
+        return 0.0
+    key = _local_pallet_key_for(product["auto_manual"])
+    total = local_pallet_component_total_usd(conn, key)
+    return total / rolls_per_pallet
+
+
+def local_conversion_cost_usd_per_ton(conn, micron, roll_type):
+    """Local's own counterpart to conversion_cost_usd_per_ton() -- a plain
+    lookup against local_conversion_cost_row (transcribed from her own
+    workbook's 'Conversion cost' sheet) instead of live-deriving from
+    Export's own Electricity/variable_cost_item/fixed-cost tables. Exact
+    (micron, roll_type) match if seeded, else nearest micron for that same
+    roll_type (same fallback spirit as get_local_bom_row())."""
+    row = conn.execute(
+        "SELECT usd_per_ton FROM local_conversion_cost_row WHERE micron=? AND roll_type=?",
+        (micron, roll_type),
+    ).fetchone()
+    if row is not None:
+        return row["usd_per_ton"] or 0.0
+    candidates = conn.execute(
+        "SELECT * FROM local_conversion_cost_row WHERE roll_type=?", (roll_type,)
+    ).fetchall()
+    if not candidates:
+        return 0.0
+    nearest = min(candidates, key=lambda r: abs((r["micron"] or 0) - (micron or 0)))
+    return nearest["usd_per_ton"] or 0.0
+
+
 # ------------------------------------------------------------ Margin factor (v18)
 
 # roll_type_bucket() -> margin_factor.film_type. RIGID has no Regular/Super

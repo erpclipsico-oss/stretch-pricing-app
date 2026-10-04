@@ -2221,10 +2221,21 @@ def create_app():
                 if not exists:
                     db.execute("INSERT INTO local_destination (name, transport_egp_kg) VALUES (?,?)",
                                (new_dest_name, new_dest_rate))
+            # v170.1 -- Local's own Pallet component (packaging quantities
+            # per pallet, Automatic/Manual) -- see db.py's
+            # _fix_local_independent_costing_v170_1() for where the seed
+            # values came from.
+            for row in db.execute("SELECT id FROM local_pallet_component").fetchall():
+                rid = row["id"]
+                for field in ("pallet_qty", "cardboard_qty", "cap_qty", "corrugated_kg", "stretch_kg"):
+                    val = request.form.get(f"palletcomp_{rid}_{field}")
+                    if val is not None and val != "":
+                        db.execute(f"UPDATE local_pallet_component SET {field}=? WHERE id=?", (float(val), rid))
             db.commit()
             flash("Local Costing updated.", "success")
             return redirect(url_for("local_admin_costing"))
 
+        pallet_components = db.execute("SELECT * FROM local_pallet_component ORDER BY packing_key").fetchall()
         settings = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
             "ORDER BY label"
@@ -2240,7 +2251,34 @@ def create_app():
         ).fetchall()
         destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
         return render_template("local_admin_costing.html", settings=settings, resin=resin, packaging=packaging,
-                                margin_rows=margin_rows, destinations=destinations)
+                                margin_rows=margin_rows, destinations=destinations,
+                                pallet_components=pallet_components)
+
+    # ---------- Local Conversion Cost (admin/sub_admin) ----------
+    # v170.1 -- owner-reported: Local's own Conversion Cost ($/ton, by
+    # Micron x Roll type), transcribed from her own workbook's "Conversion
+    # cost" sheet (see db.py's _fix_local_independent_costing_v170_1()) --
+    # now actually read by local_pricing.py instead of Export's own
+    # Electricity/Fixed-cost-derived figure. Same per-row-form pattern as
+    # Local BOM below.
+    @app.route("/local/admin/conversion-cost", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_conversion_cost():
+        db = g.db
+        if request.method == "POST":
+            rid = request.form.get("row_id")
+            val = request.form.get("usd_per_ton")
+            if val is not None and val != "":
+                db.execute("UPDATE local_conversion_cost_row SET usd_per_ton=? WHERE id=?", (float(val), rid))
+                db.commit()
+                flash("Local Conversion Cost row updated.", "success")
+            return redirect(url_for("local_admin_conversion_cost"))
+        rows = db.execute(
+            "SELECT * FROM local_conversion_cost_row ORDER BY "
+            "CASE roll_type WHEN 'St' THEN 1 WHEN 'P' THEN 2 WHEN 'P_plus' THEN 3 ELSE 4 END, micron"
+        ).fetchall()
+        return render_template("local_admin_conversion_cost.html", rows=rows)
 
     # ---------- Local BOM (admin/sub_admin) ----------
     # v169 -- owner-reported ("مش لاقيه له اي بومز ورا"): local_bom_row has
