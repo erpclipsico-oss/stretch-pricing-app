@@ -29,25 +29,63 @@
       </select>
     </div>
   </div>
+  <!-- v160 -- owner-requested (2026-10-04 Arabic follow-up to v159): a real
+       bordered table (gridlines under every column header, like Excel), not
+       the flat .edit-grid rows used elsewhere -- and the column matching
+       whichever mode is currently the Default Pricing Mode above is
+       highlighted, so it's visually obvious at a glance which price is
+       actually live for sales reps right now. Scoped to just this table
+       (class="resin-price-table") so it doesn't touch any other admin
+       page's .edit-grid rows. -->
+  <style>
+    .resin-price-table { width:100%; border-collapse:collapse; margin-bottom:8px; }
+    .resin-price-table th, .resin-price-table td {
+      border:1px solid var(--border); padding:8px 18px; text-align:left;
+    }
+    .resin-price-table th {
+      font-size:0.7rem; text-transform:uppercase; color:var(--muted); font-weight:600;
+      background:#fafafa;
+    }
+    .resin-price-table td.dash { color:#999; text-align:center; }
+    .resin-price-table input[type=number] { width:100px; padding:6px 8px; font-size:0.85rem; }
+    /* v160 follow-up -- owner asked for visible breathing room between the
+       Actual and Market price columns specifically (not just the border
+       line between them), so the two numbers don't read as crammed
+       together right against the divider. */
+    .resin-price-table th:nth-child(3), .resin-price-table td:nth-child(3) {
+      padding-left:28px;
+    }
+    .resin-price-table th.col-active { background:#c8e6c9; color:#1b5e20; }
+    .resin-price-table td.col-active { background:#e8f5e9; }
+    .resin-price-table td.col-active input { font-weight:600; border-color:#66bb6a; }
+  </style>
   <form method="post" id="materialRatesForm">
-    <div class="edit-grid">
-      <div class="edit-row header-row">
-        <span style="width:220px;">Material</span>
-        <span style="width:100px;">Actual $/ton</span>
-        <span style="width:100px;">Market $/ton</span>
-      </div>
-      {% for m in resin %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.actual.label }}</span>
-        <input type="number" step="any" name="value_{{ m.actual.id }}" value="{{ m.actual.value }}" style="width:100px;">
-        {% if m.market %}
-        <input type="number" step="any" name="value_{{ m.market.id }}" value="{{ m.market.value }}" style="width:100px;">
-        {% else %}
-        <span style="width:100px; color:#999;">—</span>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
+    <table class="resin-price-table">
+      <thead>
+        <tr>
+          <th>Material</th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'actual' }}">Actual $/ton</th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'market' }}">Market $/ton</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in resin %}
+        <tr>
+          <td>{{ m.actual.label }}</td>
+          <td class="{{ 'col-active' if default_pricing_mode == 'actual' }}">
+            <input type="number" step="any" name="value_{{ m.actual.id }}" value="{{ m.actual.value }}">
+          </td>
+          {% if m.market %}
+          <td class="{{ 'col-active' if default_pricing_mode == 'market' }}">
+            <input type="number" step="any" name="value_{{ m.market.id }}" value="{{ m.market.value }}">
+          </td>
+          {% else %}
+          <td class="dash">—</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
     <div class="panel-header" style="margin-top:24px;"><h2>Material pricing — packaging (EGP/unit)</h2></div>
     <p class="hint" style="margin-bottom:14px;">
