@@ -106,16 +106,18 @@
       <a href="{{ url_for('admin_global_settings') }}">Dollar Rate</a> wherever they feed into a $ cost
       (Core cost, Pallet component packaging cost).
     </p>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
       {% for m in packaging %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <span style="width:80px;">{{ m.unit }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
     <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save all</button></div>
   </form>
 </div>

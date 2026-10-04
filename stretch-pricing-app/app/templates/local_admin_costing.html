@@ -10,78 +10,85 @@
 <form method="post">
   <div class="panel">
     <div class="panel-header"><h2>Local settings</h2></div>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:360px;">Setting</span><span style="width:100px;">Value</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody>
       {% for s in settings %}
-      <div class="edit-row">
-        <span style="width:360px;" title="{{ s.help }}">{{ s.label }}</span>
-        <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;">
-      </div>
+      <tr>
+        <td title="{{ s.help }}">{{ s.label }}</td>
+        <td><input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
   </div>
 
   <div class="panel">
     <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:100px;">$/ton</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>$/ton</th></tr></thead>
+      <tbody>
       {% for m in resin %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+      <tr>
+        <td>{{ m.label }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
   </div>
 
   <div class="panel">
     <div class="panel-header"><h2>Material pricing — packaging (EGP/unit)</h2></div>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
       {% for m in packaging %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <span style="width:80px;">{{ m.unit or '-' }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit or '-' }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
   </div>
 
   <div class="panel">
     <div class="panel-header"><h2>Margin Factors (Customer Class A/B)</h2></div>
     <p class="hint">From the owner's own Stretch_Local_Pricing workbook's "Factors" sheet.</p>
-    <div class="edit-grid">
-      <div class="edit-row header-row">
-        <span style="width:120px;">Customer</span><span style="width:160px;">Category</span>
-        <span style="width:120px;">Film type</span><span style="width:100px;">Margin %</span>
-      </div>
+    <table class="admin-table">
+      <thead><tr><th>Customer</th><th>Category</th><th>Film type</th><th>Margin %</th></tr></thead>
+      <tbody>
       {% for r in margin_rows %}
-      <div class="edit-row">
-        <span style="width:120px;">{{ r.customer_class }}</span>
-        <span style="width:160px;">{{ r.category }}</span>
-        <span style="width:120px;">{{ r.film_type or '-' }}</span>
-        <input type="number" step="any" name="margin_{{ r.id }}" value="{{ r.margin_pct }}" style="width:100px;">
-      </div>
+      <tr>
+        <td>{{ r.customer_class }}</td>
+        <td>{{ r.category }}</td>
+        <td>{{ r.film_type or '-' }}</td>
+        <td><input type="number" step="any" name="margin_{{ r.id }}" value="{{ r.margin_pct }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
   </div>
 
   <div class="panel">
     <div class="panel-header"><h2>Destinations (Transportation, EGP/KG)</h2></div>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Destination</span><span style="width:120px;">EGP/KG</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Destination</th><th>EGP/KG</th></tr></thead>
+      <tbody>
       {% for d in destinations %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ d.name }}</span>
-        <input type="number" step="any" name="dest_{{ d.id }}" value="{{ d.transport_egp_kg }}" style="width:120px;">
-      </div>
+      <tr>
+        <td>{{ d.name }}</td>
+        <td><input type="number" step="any" name="dest_{{ d.id }}" value="{{ d.transport_egp_kg }}" style="width:120px;"></td>
+      </tr>
       {% endfor %}
-      <div class="edit-row" style="margin-top:10px;">
-        <input type="text" name="new_destination_name" placeholder="New destination name" style="width:220px;">
-        <input type="number" step="any" name="new_destination_rate" placeholder="EGP/KG" style="width:120px;">
-      </div>
-    </div>
+      <tr>
+        <td><input type="text" name="new_destination_name" placeholder="New destination name" style="width:220px;"></td>
+        <td><input type="number" step="any" name="new_destination_rate" placeholder="EGP/KG" style="width:120px;"></td>
+      </tr>
+      </tbody>
+    </table>
   </div>
 
   <button type="submit" class="btn btn-primary" style="margin:16px 0;">Save all</button>

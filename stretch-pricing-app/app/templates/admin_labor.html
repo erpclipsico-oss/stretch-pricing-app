@@ -22,31 +22,34 @@
     pool = (2024 base / 8) × 4. These totals currently match the roster's own sheet total exactly, but (see
     the notice above) they do not flow into the Fixed Costs totals that pricing actually uses.
   </p>
-  <div class="edit-grid">
-    <div class="edit-row header-row">
-      <span style="width:220px;">Name</span><span style="width:150px;">Role</span>
-      <span style="width:110px;">2023 base (EGP)</span><span style="width:90px;">Increase %</span>
-      <span style="width:60px;">Active</span>
-    </div>
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Role</th>
+        <th>2023 base (EGP)</th><th>Increase %</th>
+        <th>Active</th><th></th><th></th>
+      </tr>
+    </thead>
+    <tbody>
     {% for e in employees %}
-    <div class="edit-row">
-      <form method="post">
-        <input type="hidden" name="employee_id" value="{{ e.id }}">
-        <input type="text" name="name" value="{{ e.name }}" style="width:220px;">
-        <input type="text" name="role" value="{{ e.role or '' }}" style="width:150px;">
-        <input type="number" step="any" name="base_2023_egp" value="{{ e.base_2023_egp }}" style="width:110px;">
-        <input type="number" step="any" name="increase_rate" value="{{ e.increase_rate }}" style="width:90px;">
-        <input type="checkbox" name="active" {% if e.active %}checked{% endif %} style="width:20px;">
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-      </form>
-      <form method="post" action="{{ url_for('admin_labor_delete', eid=e.id) }}" onsubmit="return confirm('Remove this employee?');">
-        <button type="submit" class="btn-remove" title="Delete">✕</button>
-      </form>
-    </div>
+      <tr>
+        <td><input type="text" name="name" value="{{ e.name }}" style="width:200px;" form="labor{{ e.id }}"></td>
+        <td><input type="text" name="role" value="{{ e.role or '' }}" style="width:140px;" form="labor{{ e.id }}"></td>
+        <td><input type="number" step="any" name="base_2023_egp" value="{{ e.base_2023_egp }}" style="width:100px;" form="labor{{ e.id }}"></td>
+        <td><input type="number" step="any" name="increase_rate" value="{{ e.increase_rate }}" style="width:80px;" form="labor{{ e.id }}"></td>
+        <td><input type="checkbox" name="active" {% if e.active %}checked{% endif %} form="labor{{ e.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="labor{{ e.id }}">Save</button></td>
+        <td><button type="submit" class="btn-remove" title="Delete" form="labordel{{ e.id }}">✕</button></td>
+      </tr>
     {% else %}
-    <p class="empty">No employees yet.</p>
+      <tr><td colspan="7" class="empty">No employees yet.</td></tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
+  {% for e in employees %}
+  <form id="labor{{ e.id }}" method="post"><input type="hidden" name="employee_id" value="{{ e.id }}"></form>
+  <form id="labordel{{ e.id }}" method="post" action="{{ url_for('admin_labor_delete', eid=e.id) }}" onsubmit="return confirm('Remove this employee?');"></form>
+  {% endfor %}
   <p class="hint" style="margin-top:14px;">
     Fixed wage pool (active employees, 2024 base): <strong>{{ "%.0f"|format(fixed_total) }} EGP/month</strong> ·
     Variable overtime pool: <strong>{{ "%.0f"|format(variable_total) }} EGP/month</strong>

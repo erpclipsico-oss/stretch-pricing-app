@@ -16,24 +16,26 @@
     Shipping cost per destination, shared by Stretch Film and PET/PP Strap (picked by the
     quotation's own Destination selector). Edit a row and click Save.
   </p>
-  <div class="edit-grid">
+  <table class="admin-table">
+    <thead><tr><th>Country / destination</th><th>Shipping rate (USD)</th><th></th><th></th></tr></thead>
+    <tbody>
     {% for f in freight %}
-    <div class="edit-row">
-      <form method="post">
-        <input type="hidden" name="freight_id" value="{{ f.id }}">
-        <div class="edit-cell"><span class="col-label">Country / destination</span><input type="text" name="country" value="{{ f.country }}" style="width:220px;"></div>
-        <div class="edit-cell"><span class="col-label">Shipping rate (USD)</span><input type="text" name="shipping_rate_usd" value="{{ f.shipping_rate_usd }}" style="width:120px;"></div>
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-      </form>
-      <form method="post" action="{{ url_for('admin_freight_delete', fid=f.id) }}" onsubmit="return confirm('Delete this freight route?');">
-        <button type="submit" class="btn-remove" title="Delete">✕</button>
-      </form>
-    </div>
+      <tr>
+        <td><input type="text" name="country" value="{{ f.country }}" style="width:220px;" form="freight{{ f.id }}"></td>
+        <td><input type="text" name="shipping_rate_usd" value="{{ f.shipping_rate_usd }}" style="width:120px;" form="freight{{ f.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="freight{{ f.id }}">Save</button></td>
+        <td><button type="submit" class="btn-remove" title="Delete" form="freightdel{{ f.id }}">✕</button></td>
+      </tr>
     {% else %}
-    <p class="empty">No freight routes yet.</p>
+      <tr><td colspan="4" class="empty">No freight routes yet.</td></tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
 </div>
+{% for f in freight %}
+<form id="freight{{ f.id }}" method="post"><input type="hidden" name="freight_id" value="{{ f.id }}"></form>
+<form id="freightdel{{ f.id }}" method="post" action="{{ url_for('admin_freight_delete', fid=f.id) }}" onsubmit="return confirm('Delete this freight route?');"></form>
+{% endfor %}
 
 <div class="panel">
   <div class="panel-header"><h2>Add freight route</h2></div>

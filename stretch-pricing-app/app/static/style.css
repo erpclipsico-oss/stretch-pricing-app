@@ -386,7 +386,7 @@ input[type=number] {
    combined with the existing overflow-x:auto for when it's still wider
    than that). A narrow table now reads as a normal, tightly-bordered
    table with ordinary page whitespace after it -- not a stretched box. */
-.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; width: fit-content; max-width: 100%; }
+.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; width: max-content; max-width: 100%; }
 .edit-row { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; padding: 0; border-bottom: 1px solid var(--border); }
 .edit-row:last-child { border-bottom: none; }
 .edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; background: var(--bg); align-items: center; }
@@ -404,6 +404,82 @@ input[type=number] {
 }
 .edit-row > button, .edit-row > form > button { margin: 0 6px 0 4px; flex-shrink: 0; }
 .edit-row input[type=text], .edit-row input[type=number] { font-size: 0.85rem; }
+
+/* v167 -- owner-requested, final form ("اعملي الكولم كله باين على بعضه من
+   اول التايتل لحد الفاليوز اللي تحتيه ... كل الحاجات اللي فيها داتا انتريز
+   في الباك اند تتعمل على شكل جدول، الكولم كله البوردر لاينز مظبوطة ماشية
+   من اول التايتل لحد اخر حتة تحت" -- every backend data-entry section
+   should be a real table, with every column's border lines running
+   unbroken from its title all the way to the last row): v164/v165/v166 all
+   patched the FLEXBOX .edit-grid/.edit-row pattern -- which fakes a table
+   by giving each row its own independent flex layout -- and every patch
+   fixed one symptom while leaving the underlying problem in place: a flex
+   row has no built-in concept of "this column is the same width in every
+   row", so two rows with different label lengths can legitimately end up
+   with their column boundary at two different x-positions (exactly what
+   she's pointing at here -- the Setting/Value divider lands in a different
+   place on every row of FOB & credit terms, because each row's own label
+   span is sized to ITS OWN text, not to the column's shared width). A real
+   HTML <table> does not have this failure mode: the browser's table
+   layout algorithm computes one width per COLUMN from every cell in that
+   column, in every row, and every row then uses that same set of column
+   widths -- it is architecturally impossible for a <table> to misalign a
+   column the way a column of independent flex rows can. `.admin-table` is
+   the shared class every converted page's <table> now carries (templates
+   use real <table>/<thead>/<tbody>/<tr>/<th>/<td> markup -- see individual
+   template comments); a per-row <form> that used to wrap that row's own
+   cells is now a small, invisible, SIBLING <form id="..."> placed right
+   after the table, with each cell's input/button pointing at it via the
+   HTML5 `form="..."` attribute -- a <form> can't be a child of <tr>/<td>
+   in valid HTML (browsers "fix" it by silently relocating it, which is
+   exactly the kind of inconsistent-across-browsers behavior this rewrite
+   exists to get away from), but `form="..."` submits an input anywhere on
+   the page together with a named form as if it were nested inside it,
+   fully standard HTML5, no JS required. */
+.admin-table { border-collapse: collapse; width: max-content; max-width: 100%; margin-bottom: 8px; background: var(--panel); border-radius: 6px; overflow: hidden; }
+.admin-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; width: max-content; max-width: 100%; margin-bottom: 8px; }
+.admin-table-scroll .admin-table { border: none; border-radius: 0; margin-bottom: 0; }
+.admin-table th, .admin-table td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.admin-table th:last-child, .admin-table td:last-child { border-right: none; }
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table thead th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  background: var(--bg);
+  border-bottom-width: 2px;
+}
+.admin-table td.wrap, .admin-table th.wrap { white-space: normal; }
+.admin-table input[type=number], .admin-table input[type=text] {
+  width: 100%;
+  min-width: 55px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+.admin-table select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 18px 6px 8px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 9px 6px;
+}
+.admin-table td.col-label-cell { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
+.admin-table .cell-label { display: block; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 3px; font-weight: 600; }
 /* v54 -- header/data column misalignment root cause: flex items default to
    min-width:auto, so a <select>/<input> whose OWN content (e.g. the "Sales
    rep" option text, or a number input's spinner chrome) needs more room

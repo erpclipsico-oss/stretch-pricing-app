@@ -13,21 +13,22 @@
     <a href="{{ url_for('admin_global_settings') }}">variable electricity tariff (EGP/kWh)</a> to get the
     variable electricity cost per ton that feeds the Conversion Cost.
   </p>
-  <div class="edit-grid">
-    <div class="edit-row header-row"><span style="width:80px;">Micron</span><span style="width:80px;">Roll type</span><span style="width:100px;">kW/ton</span></div>
+  <table class="admin-table">
+    <thead><tr><th>Micron</th><th>Roll type</th><th>kW/ton</th><th></th></tr></thead>
+    <tbody>
     {% for r in power %}
-    <div class="edit-row">
-      <form method="post">
-        <input type="hidden" name="table" value="power">
-        <input type="hidden" name="row_id" value="{{ r.id }}">
-        <span style="width:80px;">{{ r.micron }}</span>
-        <span style="width:80px;">{{ r.roll_type }}</span>
-        <input type="number" step="any" name="kw_per_ton" value="{{ r.kw_per_ton }}" style="width:100px;">
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-      </form>
-    </div>
+      <tr>
+        <td>{{ r.micron }}</td>
+        <td>{{ r.roll_type }}</td>
+        <td><input type="number" step="any" name="kw_per_ton" value="{{ r.kw_per_ton }}" style="width:100px;" form="power{{ r.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="power{{ r.id }}">Save</button></td>
+      </tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
+  {% for r in power %}
+  <form id="power{{ r.id }}" method="post"><input type="hidden" name="table" value="power"><input type="hidden" name="row_id" value="{{ r.id }}"></form>
+  {% endfor %}
 </div>
 
 {% set sync_table_key = 'production_capacity' %}
@@ -40,20 +41,21 @@
     <a href="{{ url_for('admin_global_settings') }}">Capacity Usage %</a> and 30 days to get monthly
     production tons, which is the base that total fixed costs are spread over.
   </p>
-  <div class="edit-grid">
-    <div class="edit-row header-row"><span style="width:80px;">Micron</span><span style="width:80px;">Roll type</span><span style="width:100px;">Tons/day</span></div>
+  <table class="admin-table">
+    <thead><tr><th>Micron</th><th>Roll type</th><th>Tons/day</th><th></th></tr></thead>
+    <tbody>
     {% for r in capacity %}
-    <div class="edit-row">
-      <form method="post">
-        <input type="hidden" name="table" value="capacity">
-        <input type="hidden" name="row_id" value="{{ r.id }}">
-        <span style="width:80px;">{{ r.micron }}</span>
-        <span style="width:80px;">{{ r.roll_type }}</span>
-        <input type="number" step="any" name="tons_per_day" value="{{ r.tons_per_day }}" style="width:100px;">
-        <button type="submit" class="btn btn-primary btn-sm">Save</button>
-      </form>
-    </div>
+      <tr>
+        <td>{{ r.micron }}</td>
+        <td>{{ r.roll_type }}</td>
+        <td><input type="number" step="any" name="tons_per_day" value="{{ r.tons_per_day }}" style="width:100px;" form="capacity{{ r.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="capacity{{ r.id }}">Save</button></td>
+      </tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
+  {% for r in capacity %}
+  <form id="capacity{{ r.id }}" method="post"><input type="hidden" name="table" value="capacity"><input type="hidden" name="row_id" value="{{ r.id }}"></form>
+  {% endfor %}
 </div>
 {% endblock %}
