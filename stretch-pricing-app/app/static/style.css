@@ -369,7 +369,24 @@ input[type=number] {
       (Save/Delete) are also left out of the bordered-cell padding so they
       keep the site's normal .btn/.btn-sm sizing instead of being stretched
       to match a table cell's padding. */
-.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; }
+/* v166 -- owner-reported (furious, with good reason): v165 widened the page
+   container on every Admin page so wide tables (BOM, Pallet) wouldn't need
+   to scroll -- but .edit-grid itself (a block-level flex container) still
+   defaulted to width:100% of THAT wide container, same as any ordinary
+   block div. A narrow table (the Strap "Stuffing" table is only 6 columns,
+   ~870px of real content) got stretched into a box 1800px+ wide, leaving a
+   huge dead strip of empty bordered table to the right of the last real
+   column -- exactly what she's pointing at: a border running sideways past
+   where the data actually ends, nothing a normal plain table ever does (a
+   real HTML <table> auto-distributes extra width across its own columns
+   instead; this flex-row layout does not, since each cell keeps its own
+   fixed px width and never grows). Fix: the table box now sizes itself to
+   its OWN content (width:fit-content) and only ever grows up to the full
+   available width if its content genuinely needs it (max-width:100%,
+   combined with the existing overflow-x:auto for when it's still wider
+   than that). A narrow table now reads as a normal, tightly-bordered
+   table with ordinary page whitespace after it -- not a stretched box. */
+.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; width: fit-content; max-width: 100%; }
 .edit-row { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; padding: 0; border-bottom: 1px solid var(--border); }
 .edit-row:last-child { border-bottom: none; }
 .edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; background: var(--bg); align-items: center; }
@@ -469,10 +486,12 @@ input[type=number] {
    without switching it to actual <table> markup (which would need a
    template rewrite of the row-loop below). */
 .stuffing-grid {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--panel);
+  /* v166 -- border/border-radius/background duplicate what .edit-grid (this
+     div carries both classes) now already provides; dropped the old
+     `overflow:hidden` specifically -- it was silently overriding .edit-
+     grid's own `overflow-x:auto` (same specificity, later in the file wins)
+     and would have clipped this table's columns instead of scrolling them
+     on a narrow screen. */
 }
 .stuffing-grid .edit-row {
   gap: 0;
