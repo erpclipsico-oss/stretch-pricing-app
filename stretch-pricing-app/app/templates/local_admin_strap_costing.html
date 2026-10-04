@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Local Strap Costing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">Local Pricing System - PET Strap (v173)</div>
+  These are Local Market's OWN PET Strap prices/margins, transcribed from the owner's own
+  PET_Local_pricing_1.14 workbook, completely independent from Export's PET/PP Strap Costing
+  and from Local's own Stretch Film costing. Nothing below is read by either of those.
+</div>
+<form method="post">
+  <div class="panel">
+    <div class="panel-header"><h2>Local Strap settings</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody>
+      {% for s in settings %}
+      <tr>
+        <td title="{{ s.help }}">{{ s.label }}</td>
+        <td><input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:120px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Material pricing — resin</h2></div>
+    <p class="hint">PET and Color are priced EGP/ton (no FX conversion); C4 is priced USD/ton (converted via the Dollar Rate above).</p>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>Value</th></tr></thead>
+      <tbody>
+      {% for m in resin %}
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit or '-' }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:120px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Material pricing — packaging (EGP/unit)</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
+      {% for m in packaging %}
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit or '-' }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:120px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>BOM recipes (composition %, profit %, waste %)</h2></div>
+    <p class="hint">From the owner's own PET_Local_pricing workbook's "Material cost" sheet (BOM/Factors sections).</p>
+    <table class="admin-table">
+      <thead><tr><th>Recipe</th><th>Mode</th><th>PET frac</th><th>C4 frac</th><th>Color frac</th><th>Profit %</th><th>Waste %</th></tr></thead>
+      <tbody>
+      {% for r in bom_rows %}
+      <tr>
+        <td>{{ r.label }}</td>
+        <td>{{ r.production_mode }}</td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_pet_frac" value="{{ r.pet_frac }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_c4_frac" value="{{ r.c4_frac }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_color_frac" value="{{ r.color_frac }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_profit_pct" value="{{ r.profit_pct }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_waste_pct" value="{{ r.waste_pct }}" style="width:80px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin:16px 0;">Save all</button>
+</form>
+{% endblock %}

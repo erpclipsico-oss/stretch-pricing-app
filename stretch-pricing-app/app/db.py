@@ -547,6 +547,23 @@ CREATE TABLE IF NOT EXISTS local_quotation_line (
     unit_price_full_egp_kg REAL,
     total_kg REAL
 );
+
+-- v173 -- Local Market PET Strap (local_strap_pricing.py), transcribed
+-- directly from the owner's own PET_Local_pricing_1.14 workbook's
+-- "Material cost" sheet (BOM/Factors sections). Three recipes, exactly as
+-- her sheet defines them -- there is no PET-Colors (Manual) recipe in her
+-- workbook, only these three.
+CREATE TABLE IF NOT EXISTS local_strap_bom (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_key TEXT UNIQUE NOT NULL,
+    label TEXT NOT NULL,
+    production_mode TEXT NOT NULL,   -- 'Automatic' | 'Manual'
+    pet_frac REAL NOT NULL DEFAULT 0,
+    c4_frac REAL NOT NULL DEFAULT 0,
+    color_frac REAL NOT NULL DEFAULT 0,
+    profit_pct REAL NOT NULL DEFAULT 0,
+    waste_pct REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -605,6 +622,7 @@ def init_db():
     _migrate_v161_more_market_prices(conn)
     _seed_local_discount_cap_categories_v170(conn)
     _fix_local_independent_costing_v170_1(conn)
+    _seed_local_strap_system_v173(conn)
     conn.close()
 
 
@@ -1053,6 +1071,29 @@ def _migrate(conn):
     line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation_line)").fetchall()}
     if "container_pref" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN container_pref TEXT NOT NULL DEFAULT '40ft'")
+        conn.commit()
+
+    # v173 -- Local Market PET/PP Strap (local_strap_pricing.py): reuses the
+    # existing local_quotation/local_quotation_line tables (same pattern as
+    # Export's own quotation_line.product_line split) rather than a whole
+    # separate quotation table -- a local_quotation_line row is either a
+    # Stretch Film line (product_id -> local_product, these new columns
+    # NULL) or a PET Strap line (product_id NULL, these new strap_* columns
+    # carry the full one-off width/thickness/coil spec, same spirit as
+    # Export's quotation_line.strap_custom_* columns).
+    local_line_cols = {row["name"] for row in conn.execute("PRAGMA table_info(local_quotation_line)").fetchall()}
+    if "product_line" not in local_line_cols:
+        conn.execute(
+            "ALTER TABLE local_quotation_line ADD COLUMN product_line TEXT NOT NULL DEFAULT 'stretch_film'"
+        )
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_recipe_key TEXT")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_width_mm REAL")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_thickness_mm REAL")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_meters_per_coil REAL")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_core_weight_kg REAL")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_has_box INTEGER")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_has_pallet INTEGER")
+        conn.execute("ALTER TABLE local_quotation_line ADD COLUMN strap_quantity_rolls REAL")
         conn.commit()
 
 
@@ -2140,6 +2181,92 @@ def _fix_local_independent_costing_v170_1(conn):
             "interest rate and Conversion Cost genuinely independent from Export (previously a copied "
             "placeholder that had no effect on the computed price). Never re-run even if these are later edited."),
     )
+    conn.commit()
+
+
+def _seed_local_strap_system_v173(conn):
+    """v173 -- owner-requested, directly from her own PET_Local_pricing_1.14
+    workbook ('Material cost'/'Fixed Cost'/'Electricity' sheets): PET Strap
+    Local Market pricing never existed as a system before this -- the Local
+    workspace only ever had Stretch Film. Every number below is transcribed
+    from her own sheet (see local_strap_pricing.py's module docstring for
+    the full formula-by-formula verification against her sheet's own
+    example row, reproduced to the cent). Idempotent per-key/row insert, so
+    it's safe to run on every boot and never clobbers an owner edit."""
+    resin = {
+        "local_strap_pet": ("PET (resin)", "ton", 35000),
+        "local_strap_c4": ("C4", "ton", 1700),
+        "local_strap_color": ("Color / Green S66", "ton", 16000),
+    }
+    for key, (label, unit, value) in resin.items():
+        exists = conn.execute("SELECT 1 FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+                (key, label, "resin", unit, value),
+            )
+
+    packaging = {
+        "local_strap_core": ("Core", "kilo", 38000),
+        "local_strap_stretch": ("Stretch wrap", "kilo", 90),
+        "local_strap_cardboard": ("Cardboard 400~500", "piece", 20),
+        "local_strap_pallet": ("Pallet", "piece", 460),
+        "local_strap_box": ("Box", "piece", 42),
+        "local_strap_jwan": ("Jwan", "piece", 4),
+    }
+    for key, (label, unit, value) in packaging.items():
+        exists = conn.execute("SELECT 1 FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+                (key, label, "packaging", unit, value),
+            )
+
+    settings = {
+        "local_strap_dollar_rate": ("Local Strap - Dollar Rate (EGP per USD)", 55,
+                                     "Converts the C4 resin's $/ton price to EGP. From her own sheet's "
+                                     "Material cost!F1."),
+        "local_strap_transport_per_roll_egp": ("Local Strap - Transportation / Roll (EGP)", 14,
+                                                "Flat EGP added per roll on top of Ex-Work -- her sheet's "
+                                                "Material cost!F4, not a per-destination table like Stretch."),
+        "local_strap_credit_surcharge_factor": ("Local Strap - Credit surcharge factor (x Dollar Rate)", 0.03,
+                                                 "Credit-term selling price adds this factor x the Dollar Rate "
+                                                 "(EGP/KG) on top of the Cash price -- her sheet's own "
+                                                 "0.03*DollarRate formula."),
+        "local_strap_max_discount_pct": ("Local Strap - Max Discount % (line+global combined)", 4.0,
+                                          "Her sheet's own 'Discount % (up to 4%)' cap -- completely separate "
+                                          "from Stretch Film's own Local discount caps."),
+        "local_strap_electricity_per_ton_egp": ("Local Strap - Electricity (EGP/ton)", 3233.8378874999994,
+                                                 "From her sheet's Electricity!C2."),
+        "local_strap_fixed_cost_per_kg_auto": ("Local Strap - Fixed Cost, Automatic (EGP/kg)", 6.617885317724122,
+                                                "From her sheet's 'Fixed Cost'!E7 (already per-kg)."),
+        "local_strap_fixed_cost_per_kg_manual": ("Local Strap - Fixed Cost, Manual (EGP/kg)", 3.0362550738479133,
+                                                  "From her sheet's 'Fixed Cost'!E11 (already per-kg)."),
+    }
+    for key, (label, value, help_text) in settings.items():
+        exists = conn.execute("SELECT 1 FROM global_setting WHERE key=?", (key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+                (key, label, value, help_text),
+            )
+
+    # BOM recipes -- exactly the 3 her sheet defines (see 'Material cost'
+    # sheet rows 27-29/33-45): green/colors fractions, profit %, waste %.
+    bom_rows = [
+        ("green_auto", "PET - Green (Automatic)", "Automatic", 0.97, 0.015, 0.015, 0.4, 0.01),
+        ("colors", "PET - Colors", "Automatic", 0.935, 0.02, 0.045, 0.4, 0.01),
+        ("green_manual", "PET - Green (Manual)", "Manual", 1.0, 0.0, 0.0, 0.2, 0.01),
+    ]
+    for recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste in bom_rows:
+        exists = conn.execute("SELECT 1 FROM local_strap_bom WHERE recipe_key=?", (recipe_key,)).fetchone()
+        if not exists:
+            conn.execute(
+                """INSERT INTO local_strap_bom
+                   (recipe_key, label, production_mode, pet_frac, c4_frac, color_frac, profit_pct, waste_pct)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste),
+            )
     conn.commit()
 
 

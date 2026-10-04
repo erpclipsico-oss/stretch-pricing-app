@@ -21,6 +21,7 @@ from . import cost_upload
 from . import table_sync
 from . import strap_pricing
 from . import local_pricing
+from . import local_strap_pricing
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -2005,6 +2006,63 @@ def create_app():
             "discount_cap_max": discount_cap_max,
         })
 
+    # ---------- Local Market PET Strap (v173) ----------
+    @app.route("/local/strap-pricing")
+    @login_required
+    @local_access_required
+    def local_strap_pricing_page():
+        db = g.db
+        recipes = [dict(r) for r in local_strap_pricing.get_recipes(db)]
+        preview_users = []
+        if g.user["role"] in ACT_AS_ROLES:
+            preview_users = db.execute(
+                "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
+                "ORDER BY full_name, username",
+                (g.user["id"],),
+            ).fetchall()
+        return render_template(
+            "local_strap_pricing.html", recipes=recipes, preview_users=preview_users,
+            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
+        )
+
+    @app.route("/local/api/calculate-strap-line", methods=["POST"])
+    @login_required
+    @local_access_required
+    def local_api_calculate_strap_line():
+        data = request.get_json(force=True)
+        db = g.db
+        recipe_key = data.get("recipe_key")
+        width_mm = float(data.get("width_mm") or 0)
+        thickness_mm = float(data.get("thickness_mm") or 0)
+        meters_per_coil = float(data.get("meters_per_coil") or 0)
+        core_weight_kg = float(data.get("core_weight_kg") or 0)
+        has_box = bool(data.get("has_box"))
+        has_pallet = bool(data.get("has_pallet"))
+        quantity_rolls = float(data.get("quantity_rolls") or 0)
+        payment_term = data.get("payment_term") or "Cash"
+        credit_term = payment_term != "Cash"
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        discount_pct, discount_capped, discount_cap_max = local_strap_pricing.local_strap_capped_discount_pct(
+            db, line_discount_pct, global_discount_pct
+        )
+        result = local_strap_pricing.compute_local_strap_line(
+            db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+            has_box=has_box, has_pallet=has_pallet, discount_pct=discount_pct, credit_term=credit_term,
+        )
+        total_kg = result["gross_weight_kg"] * quantity_rolls
+        line_gross = cost_engine.round_half_up(result["selling_price_kg"] * total_kg, 2)
+        return jsonify({
+            "unit_price_egp_kg": result["selling_price_kg"],
+            "selling_price_roll": result["selling_price_roll"],
+            "gross_weight_kg": result["gross_weight_kg"],
+            "total_kg": total_kg,
+            "line_gross": line_gross,
+            "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
+            "discount_cap_max": discount_cap_max,
+        })
+
     def _local_compute_totals(db, qid):
         lines = db.execute("SELECT * FROM local_quotation_line WHERE quotation_id=?", (qid,)).fetchall()
         subtotal = sum((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0) for l in lines)
@@ -2066,6 +2124,46 @@ def create_app():
                                  if creator and "local_markup_value" in creator.keys() else 0) or 0
 
         for line in (data.get("lines") or []):
+            if (line.get("product_line") or "stretch_film") == "pet_strap":
+                recipe_key = line.get("recipe_key")
+                width_mm = float(line.get("width_mm") or 0)
+                thickness_mm = float(line.get("thickness_mm") or 0)
+                meters_per_coil = float(line.get("meters_per_coil") or 0)
+                core_weight_kg = float(line.get("core_weight_kg") or 0)
+                has_box = bool(line.get("has_box"))
+                has_pallet = bool(line.get("has_pallet"))
+                quantity_rolls = float(line.get("quantity_rolls") or 0)
+                line_discount_pct = float(line.get("line_discount_pct") or 0)
+                credit_term = payment_term != "Cash"
+                # v173 -- same server-side cap as /local/api/calculate-strap-line
+                # above (Local Strap's own, independent 4%-style cap) --
+                # enforced here too so a saved quotation can never carry more
+                # discount than approved, regardless of what the UI sent.
+                discount_pct, _capped, _cap_max = local_strap_pricing.local_strap_capped_discount_pct(
+                    db, line_discount_pct, global_discount_pct
+                )
+                result = local_strap_pricing.compute_local_strap_line(
+                    db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+                    has_box=has_box, has_pallet=has_pallet, discount_pct=discount_pct, credit_term=credit_term,
+                )
+                result_full = local_strap_pricing.compute_local_strap_line(
+                    db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+                    has_box=has_box, has_pallet=has_pallet, discount_pct=0, credit_term=credit_term,
+                )
+                total_kg = result["gross_weight_kg"] * quantity_rolls
+                db.execute(
+                    """INSERT INTO local_quotation_line
+                       (quotation_id, product_line, strap_recipe_key, strap_width_mm, strap_thickness_mm,
+                        strap_meters_per_coil, strap_core_weight_kg, strap_has_box, strap_has_pallet,
+                        strap_quantity_rolls, line_discount_pct, unit_price_egp_kg, unit_price_full_egp_kg,
+                        total_kg)
+                       VALUES (?, 'pet_strap', ?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (quotation_id, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
+                     int(has_box), int(has_pallet), quantity_rolls, line_discount_pct,
+                     result["selling_price_kg"], result_full["selling_price_kg"], total_kg),
+                )
+                continue
+
             product = db.execute("SELECT * FROM local_product WHERE id=?", (line.get("product_id"),)).fetchone()
             if not product:
                 continue
@@ -2153,9 +2251,21 @@ def create_app():
         ).fetchall()
         lines = []
         for l in line_rows:
-            label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+            if (l["product_line"] if "product_line" in l.keys() else "stretch_film") == "pet_strap":
+                recipe = db.execute(
+                    "SELECT label FROM local_strap_bom WHERE recipe_key=?", (l["strap_recipe_key"],)
+                ).fetchone()
+                recipe_label = recipe["label"] if recipe else l["strap_recipe_key"]
+                label = f"PET Strap {l['strap_width_mm']:g}x{l['strap_thickness_mm']:g}mm – {recipe_label}"
+                quantity_display = l["strap_quantity_rolls"]
+                rolls_per_pallet_display = None
+            else:
+                label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+                quantity_display = l["quantity_pallets"]
+                rolls_per_pallet_display = l["custom_rolls_per_pallet"]
             line_total = cost_engine.round_half_up((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0), 2)
-            lines.append(dict(l, label=label, line_total=line_total))
+            lines.append(dict(l, label=label, line_total=line_total,
+                               quantity_pallets=quantity_display, custom_rolls_per_pallet=rolls_per_pallet_display))
         total = cost_engine.round_half_up(sum(l["line_total"] for l in lines), 2)
         return q, lines, total
 
@@ -2195,13 +2305,17 @@ def create_app():
         db = g.db
         if request.method == "POST":
             for row in db.execute(
-                "SELECT key FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded'"
+                "SELECT key FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
+                "AND key NOT LIKE 'local_strap_%'"
             ).fetchall():
                 key = row["key"]
                 val = request.form.get(f"value_{key}")
                 if val is not None and val != "":
                     db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
-            for row in db.execute("SELECT id FROM material_rate WHERE material_key LIKE 'local_%'").fetchall():
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key LIKE 'local_%' "
+                "AND material_key NOT LIKE 'local_strap_%'"
+            ).fetchall():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
                     db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
@@ -2238,13 +2352,15 @@ def create_app():
         pallet_components = db.execute("SELECT * FROM local_pallet_component ORDER BY packing_key").fetchall()
         settings = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
-            "ORDER BY label"
+            "AND key NOT LIKE 'local_strap_%' ORDER BY label"
         ).fetchall()
         resin = db.execute(
-            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_%' ORDER BY label"
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_%' "
+            "AND material_key NOT LIKE 'local_strap_%' ORDER BY label"
         ).fetchall()
         packaging = db.execute(
-            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_%' ORDER BY label"
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_%' "
+            "AND material_key NOT LIKE 'local_strap_%' ORDER BY label"
         ).fetchall()
         margin_rows = db.execute(
             "SELECT * FROM local_margin_factor ORDER BY customer_class, category, film_type"
@@ -2279,6 +2395,51 @@ def create_app():
             "CASE roll_type WHEN 'St' THEN 1 WHEN 'P' THEN 2 WHEN 'P_plus' THEN 3 ELSE 4 END, micron"
         ).fetchall()
         return render_template("local_admin_conversion_cost.html", rows=rows)
+
+    # ---------- Local Strap Costing (admin/sub_admin, v173) ----------
+    @app.route("/local/admin/strap-costing", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_strap_costing():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key LIKE 'local_strap_%'"
+            ).fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key LIKE 'local_strap_%'"
+            ).fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id FROM local_strap_bom").fetchall():
+                rid = row["id"]
+                for field in ("pet_frac", "c4_frac", "color_frac", "profit_pct", "waste_pct"):
+                    val = request.form.get(f"bom_{rid}_{field}")
+                    if val is not None and val != "":
+                        db.execute(f"UPDATE local_strap_bom SET {field}=? WHERE id=?", (float(val), rid))
+            db.commit()
+            flash("Local Strap Costing updated.", "success")
+            return redirect(url_for("local_admin_strap_costing"))
+
+        settings = db.execute(
+            "SELECT * FROM global_setting WHERE key LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        resin = db.execute(
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        packaging = db.execute(
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_strap_%' "
+            "ORDER BY label"
+        ).fetchall()
+        bom_rows = local_strap_pricing.get_recipes(db)
+        return render_template(
+            "local_admin_strap_costing.html", settings=settings, resin=resin, packaging=packaging, bom_rows=bom_rows
+        )
 
     # ---------- Local BOM (admin/sub_admin) ----------
     # v169 -- owner-reported ("مش لاقيه له اي بومز ورا"): local_bom_row has
