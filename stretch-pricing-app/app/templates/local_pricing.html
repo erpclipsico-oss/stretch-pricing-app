@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Local Pricing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-header">
+    <h2>Local Pricing – New quotation</h2>
+    <div class="panel-actions">
+      <button type="button" class="btn btn-primary" id="saveBtn">💾 Save</button>
+      <button type="button" class="btn btn-outline" id="calcBtn">⚡ Calculate</button>
+    </div>
+  </div>
+
+  {% if is_admin_role %}
+  <div class="field" style="max-width:320px;">
+    <label>Act as (preview prices as)</label>
+    <select id="actAsUser">
+      <option value="">Myself ({{ current_user.role|capitalize }})</option>
+      {% for u in preview_users or [] %}
+      <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-4">
+    <div class="field">
+      <label>Customer Class</label>
+      <select id="customer_class">
+        <option value="A">A</option>
+        <option value="B">B</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Destination</label>
+      <select id="destination">
+        <option value="">Select...</option>
+        {% for d in destinations %}
+        <option value="{{ d.name }}">{{ d.name }} ({{ '%.2f'|format(d.transport_egp_kg) }} EGP/KG)</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Payment Term</label>
+      <select id="payment_term">
+        <option value="Cash">Cash</option>
+        <option value="Credit">Credit</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Global Discount %</label>
+      <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
+    </div>
+  </div>
+  <div class="grid grid-4">
+    <div class="field"><label>Customer Name</label><input type="text" id="customer_name"></div>
+    <div class="field"><label>Quotation No.</label><input type="text" id="quotation_no"></div>
+  </div>
+
+  <h3 style="margin-top:20px;">Quotation lines</h3>
+  <table class="lines-table" id="linesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Product</th>
+        <th>Pallet type</th>
+        <th>Packing type</th>
+        <th>Colored</th>
+        <th>UV</th>
+        <th>Qty (Pallets)</th>
+        <th>Discount %</th>
+        <th>Unit Price (EGP/KG)</th>
+        <th>Total (KG)</th>
+        <th>Line Total (EGP)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="linesBody"></tbody>
+  </table>
+  <button type="button" class="btn btn-outline" id="addLineBtn" style="margin-top:10px;">+ Add line</button>
+
+  <div class="totals-box" style="margin-top:20px;">
+    <div class="field"><label>Total (EGP)</label><div id="grandTotal" style="font-size:1.3rem; font-weight:600;">0.00 EGP</div></div>
+  </div>
+</div>
+
+<script>
+const PRODUCTS = {{ products|tojson }};
+const PALLET_TYPES = {{ pallet_types|tojson }};
+const PACKING_TYPES = {{ packing_types|tojson }};
+
+function previewAsUserId() {
+  const sel = document.getElementById('actAsUser');
+  return (sel && sel.value) ? sel.value : null;
+}
+
+function buildProductOptions() {
+  return PRODUCTS.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+}
+function buildSelectOptions(arr) {
+  return arr.map(v => `<option value="${v}">${v}</option>`).join('');
+}
+
+let lineCounter = 0;
+function addLine() {
+  lineCounter += 1;
+  const tr = document.createElement('tr');
+  tr.dataset.lineId = lineCounter;
+  tr.innerHTML = `
+    <td>${lineCounter}</td>
+    <td><select class="f-product compact-input">${buildProductOptions()}</select></td>
+    <td><select class="f-pallet compact-input">${buildSelectOptions(PALLET_TYPES)}</select></td>
+    <td><select class="f-packing compact-input">${buildSelectOptions(PACKING_TYPES)}</select></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-colored"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-uv"></td>
+    <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
+    <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
+    <td class="num f-unit-price">-</td>
+    <td class="num f-total-kg">-</td>
+    <td class="num f-line-total">-</td>
+    <td><button type="button" class="btn btn-outline btn-sm f-remove">✕</button></td>
+  `;
+  document.getElementById('linesBody').appendChild(tr);
+  tr.querySelector('.f-remove').addEventListener('click', () => { tr.remove(); scheduleRecalc(); });
+  tr.querySelectorAll('select, input').forEach(el => {
+    el.addEventListener('change', scheduleRecalc);
+    el.addEventListener('input', scheduleRecalc);
+  });
+}
+
+let recalcTimer = null;
+function scheduleRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(recalcAll, 250);
+}
+
+async function calcLine(tr) {
+  const payload = {
+    product_id: tr.querySelector('.f-product').value,
+    pallet_type: tr.querySelector('.f-pallet').value,
+    packing_type: tr.querySelector('.f-packing').value,
+    colored: tr.querySelector('.f-colored').checked,
+    uv: tr.querySelector('.f-uv').checked,
+    quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+    line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    customer_class: document.getElementById('customer_class').value,
+    destination: document.getElementById('destination').value,
+    payment_term: document.getElementById('payment_term').value,
+    preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/calculate-line', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+async function recalcAll() {
+  const rows = document.querySelectorAll('#linesBody tr');
+  let grandTotal = 0;
+  for (const tr of rows) {
+    const result = await calcLine(tr);
+    if (!result) continue;
+    tr.querySelector('.f-unit-price').textContent = result.unit_price_egp_kg.toFixed(2);
+    tr.querySelector('.f-total-kg').textContent = result.total_kg.toFixed(1);
+    tr.querySelector('.f-line-total').textContent = result.line_gross.toFixed(2);
+    grandTotal += result.line_gross;
+  }
+  document.getElementById('grandTotal').textContent = grandTotal.toFixed(2) + ' EGP';
+}
+
+document.getElementById('addLineBtn').addEventListener('click', addLine);
+document.getElementById('calcBtn').addEventListener('click', recalcAll);
+['customer_class', 'destination', 'payment_term', 'global_discount_pct'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) { el.addEventListener('change', scheduleRecalc); el.addEventListener('input', scheduleRecalc); }
+});
+{% if is_admin_role %}
+document.getElementById('actAsUser').addEventListener('change', scheduleRecalc);
+{% endif %}
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const lines = [];
+  document.querySelectorAll('#linesBody tr').forEach(tr => {
+    lines.push({
+      product_id: tr.querySelector('.f-product').value,
+      pallet_type: tr.querySelector('.f-pallet').value,
+      packing_type: tr.querySelector('.f-packing').value,
+      colored: tr.querySelector('.f-colored').checked,
+      uv: tr.querySelector('.f-uv').checked,
+      quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    });
+  });
+  const payload = {
+    quotation_no: document.getElementById('quotation_no').value,
+    customer_name: document.getElementById('customer_name').value,
+    customer_class: document.getElementById('customer_class').value,
+    destination: document.getElementById('destination').value,
+    payment_term: document.getElementById('payment_term').value,
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    lines, preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/save-quotation', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    window.location.href = '/local/quotations/' + data.id;
+  } else {
+    alert('Save failed.');
+  }
+});
+
+addLine();
+</script>
+{% endblock %}

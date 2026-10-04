@@ -20,6 +20,7 @@ from . import cost_engine
 from . import cost_upload
 from . import table_sync
 from . import strap_pricing
+from . import local_pricing
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -129,15 +130,22 @@ def create_app():
     # ---------- Auth ----------
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        # v156 -- owner-requested (2026-10-04 Arabic spec, item 4, and its
+        # follow-up clarification: "بعد تسجيل الدخول" -- after login, not
+        # before it): ONE unified login (same username/password, same role
+        # system) for both workspaces -- Export and the new Local Pricing
+        # System -- then the FIRST thing shown after signing in is a
+        # chooser screen, not straight into the Export Pricing screen like
+        # before. See workspace_select() below.
         if g.user is not None:
-            return redirect(url_for("pricing_page"))
+            return redirect(url_for("workspace_select"))
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             row = g.db.execute("SELECT * FROM user WHERE username=? AND active=1", (username,)).fetchone()
             if row and check_password_hash(row["password_hash"], password):
                 session["user_id"] = row["id"]
-                return redirect(url_for("pricing_page"))
+                return redirect(url_for("workspace_select"))
             flash("Invalid username or password", "error")
         users = g.db.execute("SELECT * FROM user WHERE active=1 ORDER BY username").fetchall()
         return render_template("login.html", users=users)
@@ -146,6 +154,11 @@ def create_app():
     def logout():
         session.clear()
         return redirect(url_for("login"))
+
+    @app.route("/workspace")
+    @login_required
+    def workspace_select():
+        return render_template("workspace_select.html")
 
     # ---------- Pricing / quote builder ----------
     @app.route("/pricing")
@@ -1790,6 +1803,319 @@ def create_app():
 
         return {"subtotal": subtotal, "total": total, "fob_total": fob_total, "cif_total": cif_total}
 
+    # ======================================================================
+    # Local Pricing System (Stretch Film, Phase 1) -- 2026-10-04 Arabic spec
+    # item 4. Entirely separate tables/routes from everything above (see
+    # db.py's matching v156 schema comment) -- nothing in this section reads
+    # or writes any Export table (product/bom_row/quotation/margin_factor/
+    # the plain material_rate keys). PET/PP Local Strap is a later phase.
+    # ======================================================================
+
+    @app.route("/local/pricing")
+    @login_required
+    def local_pricing_page():
+        db = g.db
+        products_rows = db.execute(
+            "SELECT * FROM local_product ORDER BY stretch_ability, CAST(micron AS REAL)"
+        ).fetchall()
+        products = [dict(p, label=product_label(p)) for p in products_rows]
+        destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
+        pallet_types = ["Standard Pallet", "Euro Pallet"]
+        packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
+        preview_users = []
+        if g.user["role"] in ACT_AS_ROLES:
+            preview_users = db.execute(
+                "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
+                "ORDER BY full_name, username",
+                (g.user["id"],),
+            ).fetchall()
+        return render_template(
+            "local_pricing.html", products=products, destinations=destinations,
+            pallet_types=pallet_types, packing_types=packing_types, preview_users=preview_users,
+            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
+        )
+
+    def _local_resolve_pricing_user(data):
+        """Same 'Act as' preview idea as Export's _resolve_pricing_user(),
+        trimmed to what Local actually needs (its own local_markup_mode/
+        value, no seller_type -- Local has no Foreign-Seller concept)."""
+        if g.user["role"] in ACT_AS_ROLES and data.get("preview_as_user_id"):
+            u = g.db.execute(
+                "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
+            ).fetchone()
+            if u:
+                return u
+        return g.user
+
+    @app.route("/local/api/calculate-line", methods=["POST"])
+    @login_required
+    def local_api_calculate_line():
+        data = request.get_json(force=True)
+        db = g.db
+        product = db.execute("SELECT * FROM local_product WHERE id=?", (data.get("product_id"),)).fetchone()
+        if not product:
+            return jsonify({"error": "Unknown product"}), 400
+        customer_class = data.get("customer_class", "A")
+        qty = float(data.get("quantity_pallets") or 0)
+        pallet_type = data.get("pallet_type")
+        colored = bool(data.get("colored"))
+        uv = bool(data.get("uv"))
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        discount_pct = min(line_discount_pct + global_discount_pct, 100)
+        payment_term = data.get("payment_term") or "Cash"
+        destination = data.get("destination") or None
+        auto_manual_override = data.get("packing_type") or None
+        custom_roll_weight_kg = data.get("custom_roll_weight_kg")
+        custom_core_weight_kg = data.get("custom_core_weight_kg")
+        custom_width_mm = data.get("custom_width_mm")
+        custom_rolls_per_pallet = data.get("custom_rolls_per_pallet")
+
+        pricing_user = _local_resolve_pricing_user(data)
+        hidden_markup_mode = pricing_user["local_markup_mode"] if "local_markup_mode" in pricing_user.keys() else None
+        hidden_markup_value = (pricing_user["local_markup_value"]
+                                if "local_markup_value" in pricing_user.keys() else 0) or 0
+
+        unit_price, total_kg = local_pricing.compute_local_line(
+            db, product, customer_class, qty, pallet_type=pallet_type,
+            rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+            colored=colored, uv=uv, discount_pct=discount_pct, payment_term=payment_term,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+            width_mm=custom_width_mm,
+        )
+        unit_price_full, _ = local_pricing.compute_local_line(
+            db, product, customer_class, qty, pallet_type=pallet_type,
+            rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+            colored=colored, uv=uv, discount_pct=0, payment_term=payment_term,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+            width_mm=custom_width_mm,
+        )
+        gross = cost_engine.round_half_up(unit_price * total_kg, 2)
+        gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
+        effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
+                                                         custom_width_mm, auto_manual=auto_manual_override)
+        rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective_product, pallet_type,
+                                                                    custom_rolls_per_pallet)
+        return jsonify({
+            "unit_price_egp_kg": unit_price,
+            "unit_price_full_egp_kg": unit_price_full,
+            "total_kg": total_kg,
+            "line_gross": gross,
+            "line_gross_full": gross_full,
+            "roll_weight_kg": effective_product["roll_weight_kg"] or 0,
+            "core_weight_kg": effective_product["core_weight_kg"] or 0,
+            "rolls_per_pallet": rolls_per_pallet,
+            "discount_pct_applied": discount_pct,
+        })
+
+    def _local_compute_totals(db, qid):
+        lines = db.execute("SELECT * FROM local_quotation_line WHERE quotation_id=?", (qid,)).fetchall()
+        subtotal = sum((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0) for l in lines)
+        return cost_engine.round_half_up(subtotal, 2)
+
+    @app.route("/local/api/save-quotation", methods=["POST"])
+    @login_required
+    def local_api_save_quotation():
+        data = request.get_json(force=True)
+        db = g.db
+        q_id = data.get("id")
+
+        if q_id:
+            existing = db.execute("SELECT * FROM local_quotation WHERE id=?", (q_id,)).fetchone()
+            existing_saved_by = existing["saved_by_id"] if existing and "saved_by_id" in existing.keys() else None
+            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]
+                                 and existing_saved_by != g.user["id"]):
+                abort(403)
+
+        quotation_no = data.get("quotation_no") or None
+        customer_name = data.get("customer_name")
+        customer_class = data.get("customer_class", "A")
+        destination = data.get("destination")
+        payment_term = data.get("payment_term", "Cash")
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+
+        acting_as_user = None
+        if not q_id and g.user["role"] in ACT_AS_ROLES and data.get("preview_as_user_id"):
+            acting_as_user = db.execute(
+                "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
+            ).fetchone()
+
+        if q_id:
+            db.execute(
+                """UPDATE local_quotation SET quotation_no=?, customer_name=?, customer_class=?, destination=?,
+                   payment_term=?, global_discount_pct=?, status='saved', saved_by_id=? WHERE id=?""",
+                (quotation_no, customer_name, customer_class, destination, payment_term,
+                 global_discount_pct, g.user["id"], q_id),
+            )
+            db.execute("DELETE FROM local_quotation_line WHERE quotation_id=?", (q_id,))
+            quotation_id = q_id
+        else:
+            new_created_by_id = acting_as_user["id"] if acting_as_user else g.user["id"]
+            cur = db.execute(
+                """INSERT INTO local_quotation
+                   (quotation_no, customer_name, customer_class, destination, payment_term,
+                    global_discount_pct, status, created_by_id, saved_by_id, created_at)
+                   VALUES (?,?,?,?,?,?, 'saved', ?,?,?)""",
+                (quotation_no, customer_name, customer_class, destination, payment_term,
+                 global_discount_pct, new_created_by_id, g.user["id"], datetime.now(timezone.utc).isoformat()),
+            )
+            quotation_id = cur.lastrowid
+
+        creator_id = existing["created_by_id"] if q_id else new_created_by_id
+        creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
+        creator_markup_mode = creator["local_markup_mode"] if creator and "local_markup_mode" in creator.keys() else None
+        creator_markup_value = (creator["local_markup_value"]
+                                 if creator and "local_markup_value" in creator.keys() else 0) or 0
+
+        for line in (data.get("lines") or []):
+            product = db.execute("SELECT * FROM local_product WHERE id=?", (line.get("product_id"),)).fetchone()
+            if not product:
+                continue
+            qty = float(line.get("quantity_pallets") or 0)
+            pallet_type = line.get("pallet_type")
+            colored = bool(line.get("colored"))
+            uv = bool(line.get("uv"))
+            line_discount_pct = float(line.get("line_discount_pct") or 0)
+            discount_pct = min(line_discount_pct + global_discount_pct, 100)
+            auto_manual_override = line.get("packing_type") or None
+            custom_roll_weight_kg = line.get("custom_roll_weight_kg")
+            custom_core_weight_kg = line.get("custom_core_weight_kg")
+            custom_width_mm = line.get("custom_width_mm")
+            custom_rolls_per_pallet = line.get("custom_rolls_per_pallet")
+
+            unit_price, total_kg = local_pricing.compute_local_line(
+                db, product, customer_class, qty, pallet_type=pallet_type,
+                rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+                colored=colored, uv=uv, discount_pct=discount_pct, payment_term=payment_term,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                destination=destination, roll_weight_kg=custom_roll_weight_kg,
+                core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
+            )
+            unit_price_full, _ = local_pricing.compute_local_line(
+                db, product, customer_class, qty, pallet_type=pallet_type,
+                rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+                colored=colored, uv=uv, discount_pct=0, payment_term=payment_term,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                destination=destination, roll_weight_kg=custom_roll_weight_kg,
+                core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
+            )
+            db.execute(
+                """INSERT INTO local_quotation_line
+                   (quotation_id, product_id, pallet_type, packing_type, colored, quantity_pallets,
+                    line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
+                    custom_rolls_per_pallet, unit_price_egp_kg, unit_price_full_egp_kg, total_kg)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (quotation_id, product["id"], pallet_type, auto_manual_override, int(colored), qty,
+                 line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
+                 custom_rolls_per_pallet, unit_price, unit_price_full, total_kg),
+            )
+        db.commit()
+        total = _local_compute_totals(db, quotation_id)
+        return jsonify({"id": quotation_id, "quotation_no": quotation_no, "total": total})
+
+    @app.route("/local/quotations")
+    @login_required
+    def local_history():
+        db = g.db
+        if g.user["role"] == "admin":
+            rows = db.execute(
+                """SELECT q.*, u.username as creator_username, u.full_name as creator_name
+                   FROM local_quotation q LEFT JOIN user u ON u.id = q.created_by_id
+                   ORDER BY q.created_at DESC"""
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """SELECT q.*, u.username as creator_username, u.full_name as creator_name
+                   FROM local_quotation q LEFT JOIN user u ON u.id = q.created_by_id
+                   WHERE q.created_by_id=? OR q.saved_by_id=? ORDER BY q.created_at DESC""",
+                (g.user["id"], g.user["id"]),
+            ).fetchall()
+        quotations = [dict(r, total=_local_compute_totals(db, r["id"])) for r in rows]
+        return render_template("local_history.html", quotations=quotations)
+
+    def _load_local_quotation(db, qid):
+        q = db.execute("SELECT * FROM local_quotation WHERE id=?", (qid,)).fetchone()
+        if not q:
+            abort(404)
+        q_saved_by = q["saved_by_id"] if "saved_by_id" in q.keys() else None
+        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"] and q_saved_by != g.user["id"]:
+            abort(403)
+        line_rows = db.execute(
+            """SELECT ql.*, p.stretch_ability, p.micron
+               FROM local_quotation_line ql LEFT JOIN local_product p ON p.id = ql.product_id
+               WHERE ql.quotation_id=?""",
+            (qid,),
+        ).fetchall()
+        lines = []
+        for l in line_rows:
+            label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+            line_total = cost_engine.round_half_up((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0), 2)
+            lines.append(dict(l, label=label, line_total=line_total))
+        total = cost_engine.round_half_up(sum(l["line_total"] for l in lines), 2)
+        return q, lines, total
+
+    @app.route("/local/quotations/<int:qid>")
+    @login_required
+    def local_view_quotation(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        return render_template("local_view_quotation.html", q=q, lines=lines, total=total)
+
+    # ---------- Local Costing (admin/sub_admin) ----------
+    @app.route("/local/admin/costing", methods=["GET", "POST"])
+    @factors_admin_required
+    def local_admin_costing():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded'"
+            ).fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+            for row in db.execute("SELECT id FROM material_rate WHERE material_key LIKE 'local_%'").fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id FROM local_margin_factor").fetchall():
+                val = request.form.get(f"margin_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE local_margin_factor SET margin_pct=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id FROM local_destination").fetchall():
+                val = request.form.get(f"dest_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE local_destination SET transport_egp_kg=? WHERE id=?",
+                               (float(val), row["id"]))
+            new_dest_name = (request.form.get("new_destination_name") or "").strip()
+            if new_dest_name:
+                new_dest_rate = float(request.form.get("new_destination_rate") or 0)
+                exists = db.execute("SELECT 1 FROM local_destination WHERE name=?", (new_dest_name,)).fetchone()
+                if not exists:
+                    db.execute("INSERT INTO local_destination (name, transport_egp_kg) VALUES (?,?)",
+                               (new_dest_name, new_dest_rate))
+            db.commit()
+            flash("Local Costing updated.", "success")
+            return redirect(url_for("local_admin_costing"))
+
+        settings = db.execute(
+            "SELECT * FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
+            "ORDER BY label"
+        ).fetchall()
+        resin = db.execute(
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_%' ORDER BY label"
+        ).fetchall()
+        packaging = db.execute(
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_%' ORDER BY label"
+        ).fetchall()
+        margin_rows = db.execute(
+            "SELECT * FROM local_margin_factor ORDER BY customer_class, category, film_type"
+        ).fetchall()
+        destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
+        return render_template("local_admin_costing.html", settings=settings, resin=resin, packaging=packaging,
+                                margin_rows=margin_rows, destinations=destinations)
+
     # ---------- Simple admin: users ----------
     @app.route("/admin/users", methods=["GET", "POST"])
     @admin_required
@@ -2112,7 +2438,12 @@ def create_app():
         # strap_dollar_rate, which lives on the Strap Costing page along
         # with everything else strap_-prefixed -- see db.py's migration.)
         if request.method == "POST":
-            for row in db.execute("SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%'").fetchall():
+            # v156 -- also exclude local_% (its own Local Costing admin page
+            # now owns those rows), same reasoning as the existing strap_%
+            # exclusion.
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%' AND key NOT LIKE 'local_%'"
+            ).fetchall():
                 key = row["key"]
                 val = request.form.get(f"value_{key}")
                 if val is not None and val != "":
@@ -2126,7 +2457,8 @@ def create_app():
         # pricing any more) but no longer shown here, so it can't be
         # mistaken for a setting that still does anything.
         settings = db.execute(
-            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' AND key != 'max_discount_pct' "
+            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' AND key NOT LIKE 'local_%' "
+            "AND key != 'max_discount_pct' "
             "ORDER BY (key LIKE 'max_discount_pct_%') DESC, label"
         ).fetchall()
         last_upload = table_sync.get_last_upload(db, "global_setting")
@@ -2138,9 +2470,11 @@ def create_app():
         db = g.db
         # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on
         # the dedicated Strap Costing page instead, so they're excluded here.
+        # v156 -- same for local_% (its own Local Costing admin page).
         if request.method == "POST":
             for row in db.execute(
-                "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%'"
+                "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%' "
+                "AND material_key NOT LIKE 'local_%'"
             ).fetchall():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
@@ -2150,11 +2484,11 @@ def create_app():
             return redirect(url_for("admin_material_rates"))
         resin = db.execute(
             "SELECT * FROM material_rate WHERE category='resin' AND material_key NOT LIKE 'pet_%' "
-            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' ORDER BY label"
         ).fetchall()
         packaging = db.execute(
             "SELECT * FROM material_rate WHERE category='packaging' AND material_key NOT LIKE 'pet_%' "
-            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' ORDER BY label"
         ).fetchall()
         last_upload = table_sync.get_last_upload(db, "material_rate")
         return render_template("admin_material_rates.html", resin=resin, packaging=packaging,

@@ -379,6 +379,135 @@ CREATE TABLE IF NOT EXISTS margin_factor (
     roll_size TEXT NOT NULL,       -- 'Standard Roll size' | 'Jumbo Roll size' | 'Manual Roll size' | 'Prestretch Roll size'
     margin_pct REAL NOT NULL DEFAULT 0
 );
+
+-- v156 -- Local Pricing System (owner's big 2026-10-04 Arabic spec, item 4:
+-- "Local Pricing System ... with a different backend ... own recipe/BOM/
+-- factors ... admin/sub_admin/users with different markup fees ... for
+-- Stretch Film / PET Strap / PP Strap"; explicitly "اوعي تغير في اي حاجة
+-- من اللي متنفذه دلوقتي" -- don't touch anything already implemented for
+-- Export). Every table below is NEW and additive -- nothing here is read
+-- or written by any existing Export route/function. Phase 1 (this
+-- version) covers Stretch Film only; PET/PP Strap Local is a later phase
+-- (same pattern, its own local_strap_* tables, not yet built).
+--
+-- Deliberately reuses the SAME physical-factory tables Export already has
+-- for shared production costs that don't change between an Export and a
+-- Local sale (same machines, same electricity bill, same labor, same
+-- packaging recipe quantities): bom_row's roll_tier bucket SHAPE, the
+-- pallet_component/packing_tier physical quantities (how many cardboard
+-- sheets per pallet, etc.), and the labor/electricity/fixed-cost tables
+-- behind cost_engine.conversion_cost_usd_per_ton(). Only the *prices* feeding
+-- those physical quantities, and the product catalog + recipe fractions +
+-- margin + destination/transport, are kept in Local's own tables below, so
+-- she can price Local independently of Export without re-entering the
+-- shared physical-production data twice.
+--
+-- local_product -- mirrors `product`'s columns (same catalog shape), but
+-- its OWN rows: seeded as a one-time COPY of product's current rows the
+-- first time this table is created (see _seed_local_system_v156 below), so
+-- she starts from today's catalog instead of an empty one, then can edit
+-- the Local catalog independently from then on without touching `product`.
+CREATE TABLE IF NOT EXISTS local_product (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stretch_ability TEXT NOT NULL,
+    micron TEXT NOT NULL,
+    pallet_size TEXT,
+    auto_manual TEXT,
+    color TEXT,
+    rolls_per_pallet REAL,
+    roll_weight_kg REAL,
+    core_weight_kg REAL,
+    width_mm REAL
+);
+
+-- local_bom_row -- same shape as `bom_row` (recipe fractions by stretch
+-- multiplier/micron/roll tier), its own rows, seeded as a one-time COPY of
+-- bom_row's current data (matches the recipe fractions confirmed against
+-- the owner's own Stretch_Local_Pricing workbook's "BOM" sheet -- identical
+-- values to Export's for every row checked).
+CREATE TABLE IF NOT EXISTS local_bom_row (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stretch_multiplier REAL NOT NULL,
+    micron REAL NOT NULL,
+    roll_tier TEXT NOT NULL,
+    exceed3518 REAL NOT NULL DEFAULT 0,
+    exceed3812 REAL NOT NULL DEFAULT 0,
+    exceedxp REAL NOT NULL DEFAULT 0,
+    vista6000 REAL NOT NULL DEFAULT 0,
+    enable REAL NOT NULL DEFAULT 0,
+    ld258 REAL NOT NULL DEFAULT 0,
+    vista6202 REAL NOT NULL DEFAULT 0,
+    UNIQUE(stretch_multiplier, micron, roll_tier)
+);
+
+-- local_margin_factor -- the Local system's OWN margin table, seeded
+-- verbatim from the owner's Stretch_Local_Pricing workbook's "Factors"
+-- sheet (a completely different shape from Export's margin_factor: keyed
+-- by CUSTOMER CLASSIFICATION (A/B) only -- no Country Classification at
+-- all in the Local sheet -- crossed with a micron-group/packing "category"
+-- and, for the two Automatic micron-group categories only, a Standard/
+-- Power/Power_Plus film_type column; every other category (Manual/UVI/
+-- Rigid/UV_Rigid) has a single flat rate with film_type left NULL).
+-- category is one of: 'auto_8_9' (Automatic+Manual (8&9)µ), 'auto_10_12'
+-- (Automatic+Manual (10&12)µ), 'auto_other' (Automatic (Other µ)),
+-- 'manual', 'uvi', 'rigid', 'uv_rigid'.
+CREATE TABLE IF NOT EXISTS local_margin_factor (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_class TEXT NOT NULL,     -- 'A' | 'B'
+    category TEXT NOT NULL,
+    film_type TEXT,                   -- 'Standard' | 'Power' | 'Power_Plus' | NULL
+    margin_pct REAL NOT NULL DEFAULT 0,
+    UNIQUE(customer_class, category, film_type)
+);
+
+-- local_destination -- Local's own "where is this going" table, standing
+-- in for Export's loading_port/freight pair: no FOB/CIF/container here at
+-- all (per the owner's confirmed design: "EX-Work + local transport =
+-- selling price"), just a flat EGP/KG transport add-on per destination/
+-- zone, admin-editable (starts empty -- the owner fills in her real
+-- zones/rates; Export's loading_port/freight tables are never read here).
+CREATE TABLE IF NOT EXISTS local_destination (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    transport_egp_kg REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS local_quotation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quotation_no TEXT UNIQUE,
+    customer_name TEXT,
+    customer_class TEXT DEFAULT 'A',
+    destination TEXT,
+    payment_term TEXT DEFAULT 'Cash',   -- 'Cash' | 'Credit' -- Local's own
+                                         -- simpler two-way split, matching
+                                         -- the Stretch_Local_Pricing sheet's
+                                         -- own "Cash (EGP)"/"Credit (EGP)"
+                                         -- columns (not Export's 30/60/90-
+                                         -- day tiers).
+    global_discount_pct REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_by_id INTEGER REFERENCES user(id),
+    saved_by_id INTEGER REFERENCES user(id),
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS local_quotation_line (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quotation_id INTEGER NOT NULL REFERENCES local_quotation(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES local_product(id),
+    pallet_type TEXT,
+    packing_type TEXT,
+    colored INTEGER NOT NULL DEFAULT 0,
+    quantity_pallets REAL NOT NULL DEFAULT 0,
+    line_discount_pct REAL NOT NULL DEFAULT 0,
+    custom_roll_weight_kg REAL,
+    custom_core_weight_kg REAL,
+    custom_width_mm REAL,
+    custom_rolls_per_pallet REAL,
+    unit_price_egp_kg REAL,
+    unit_price_full_egp_kg REAL,
+    total_kg REAL
+);
 """
 
 
@@ -432,6 +561,7 @@ def init_db():
     _fix_v151_cap_price_update(conn)
     _fix_v153_prestretch_extra_120(conn)
     _seed_4_micron_power_v153(conn)
+    _seed_local_system_v156(conn)
     conn.close()
 
 
@@ -622,6 +752,17 @@ def _migrate(conn):
         conn.execute("ALTER TABLE quotation ADD COLUMN saved_by_id INTEGER REFERENCES user(id)")
         conn.commit()
 
+    user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(user)").fetchall()}
+    if "local_markup_mode" not in user_cols:
+        # v156 -- Local Pricing System: its own independent hidden per-user
+        # markup, same shape/meaning as stretch_markup_mode/value and
+        # strap_markup_mode/value above ('percent' or 'cents_per_kg' --
+        # here, EGP/KG) -- see local_pricing.py's apply_hidden_markup() use.
+        conn.execute("ALTER TABLE user ADD COLUMN local_markup_mode TEXT NOT NULL DEFAULT 'percent'")
+        conn.execute("ALTER TABLE user ADD COLUMN local_markup_value REAL NOT NULL DEFAULT 0")
+        conn.commit()
+
+    quotation_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation)").fetchall()}
     if "pricing_mode" not in quotation_cols:
         # v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04
         # Arabic spec, item 4): 'actual' (default, today's existing behavior,
@@ -1476,6 +1617,159 @@ def _seed_4_micron_power_v153(conn):
              source["rolls_per_pallet"], source["roll_weight_kg"], source["core_weight_kg"],
              source["width_mm"], source["packaging_group"], source["id"]),
         )
+    conn.commit()
+
+
+# v156 -- Local Pricing System (Stretch Film phase). One-time, idempotent
+# (gated behind a single global_setting marker row, same pattern as
+# _seed_4_micron_power_v153 above) seed of every local_* table from (a) a
+# one-time COPY of the current Export product/bom_row/material_rate data
+# (so the Local catalog/recipes/raw-material prices start out matching
+# Export's today, then are edited completely independently from then on --
+# nothing here is ever read again from `product`/`bom_row`/the plain
+# material_rate keys after this one seed) and (b) the owner's own
+# Stretch_Local_Pricing_H1.3 workbook's "Factors" sheet, transcribed
+# verbatim for local_margin_factor (see LOCAL_MARGIN_FACTOR_ROWS below).
+LOCAL_MARGIN_FACTOR_ROWS = [
+    # customer_class, category, film_type, margin_pct (as a raw %, e.g. 25 = 25%)
+    # -- "Automatic + Manual (8&9) micron": a single flat rate, no Standard/
+    # Power/Power_Plus split in the owner's own sheet.
+    ("A", "auto_8_9", None, 25),
+    ("B", "auto_8_9", None, 20),
+    # "Automatic + Manual (10&12 micron)": Standard/Power/Power+ columns.
+    ("A", "auto_10_12", "Standard", 20),
+    ("A", "auto_10_12", "Power", 25),
+    ("A", "auto_10_12", "Power_Plus", 30),
+    ("B", "auto_10_12", "Standard", 15),
+    ("B", "auto_10_12", "Power", 20),
+    ("B", "auto_10_12", "Power_Plus", 25),
+    # "Automatic (Other micron)": Standard/Power/Power+ columns.
+    ("A", "auto_other", "Standard", 15),
+    ("A", "auto_other", "Power", 20),
+    ("A", "auto_other", "Power_Plus", 25),
+    ("B", "auto_other", "Standard", 10),
+    ("B", "auto_other", "Power", 15),
+    ("B", "auto_other", "Power_Plus", 20),
+    # Manual / UVI / Rigid / UV&Rigid: one flat rate each.
+    ("A", "manual", None, 15),
+    ("B", "manual", None, 10),
+    ("A", "uvi", None, 25),
+    ("B", "uvi", None, 20),
+    ("A", "rigid", None, 25),
+    ("B", "rigid", None, 20),
+    ("A", "uv_rigid", None, 25),
+    ("B", "uv_rigid", None, 20),
+]
+
+
+def _seed_local_system_v156(conn):
+    already_run = conn.execute(
+        "SELECT 1 FROM global_setting WHERE key='local_system_v156_seeded'"
+    ).fetchone()
+    if already_run:
+        return
+
+    # 1) local_product -- one-time copy of today's `product` catalog.
+    # Pre-Stretch rows (is_prestretch=1) and the 4-micron "derived price"
+    # row (price_source_product_id set -- see db.py's v153 note) are both
+    # skipped here: both borrow another SKU's own finished price rather
+    # than pricing off plain BOM + margin, a mechanism local_pricing.py
+    # (Phase 1, plain stretch film only) doesn't implement yet.
+    for p in conn.execute(
+        "SELECT * FROM product WHERE is_prestretch=0 AND price_source_product_id IS NULL"
+    ).fetchall():
+        conn.execute(
+            """INSERT INTO local_product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, width_mm)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (p["stretch_ability"], p["micron"], p["pallet_size"], p["auto_manual"], p["color"],
+             p["rolls_per_pallet"], p["roll_weight_kg"], p["core_weight_kg"],
+             p["width_mm"] if "width_mm" in p.keys() else None),
+        )
+
+    # 2) local_bom_row -- one-time copy of today's `bom_row` recipes
+    # (confirmed identical to the owner's own Local workbook's BOM sheet).
+    for b in conn.execute("SELECT * FROM bom_row").fetchall():
+        conn.execute(
+            """INSERT INTO local_bom_row
+               (stretch_multiplier, micron, roll_tier, exceed3518, exceed3812, exceedxp,
+                vista6000, enable, ld258, vista6202)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (b["stretch_multiplier"], b["micron"], b["roll_tier"], b["exceed3518"], b["exceed3812"],
+             b["exceedxp"], b["vista6000"], b["enable"], b["ld258"], b["vista6202"]),
+        )
+
+    # 3) local_<key> material_rate rows -- one-time copy of every current
+    # Stretch Film raw-material/packaging price (never the pet_/pp_/strap_
+    # prefixed Strap-only rows), so Local starts out priced identically to
+    # Export and is then edited completely independently from the Admin >
+    # Local Costing page (not yet built as of this phase -- see app.py).
+    for m in conn.execute(
+        "SELECT * FROM material_rate WHERE material_key NOT LIKE 'pet_%' "
+        "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'strap_%' "
+        "AND material_key NOT LIKE 'local_%'"
+    ).fetchall():
+        local_key = "local_" + m["material_key"]
+        exists = conn.execute("SELECT 1 FROM material_rate WHERE material_key=?", (local_key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+                (local_key, "Local - " + m["label"], m["category"], m["unit"], m["value"]),
+            )
+
+    # 4) local_margin_factor -- transcribed verbatim from the owner's own
+    # Stretch_Local_Pricing_H1.3 workbook's "Factors" sheet.
+    for customer_class, category, film_type, margin_pct in LOCAL_MARGIN_FACTOR_ROWS:
+        conn.execute(
+            "INSERT INTO local_margin_factor (customer_class, category, film_type, margin_pct) "
+            "VALUES (?,?,?,?)",
+            (customer_class, category, film_type, margin_pct),
+        )
+
+    # 5) Local's own Dollar Rate / waste / scrap-interest / material-
+    # interest / Color extra / Credit extra settings -- seeded from
+    # whatever Export's own equivalents are worth RIGHT NOW (same pattern
+    # as v88's strap_dollar_rate above), then fully independent from here
+    # on via Admin > Local Costing.
+    def _seed_local_setting(key, label, source_key, fallback, help_text):
+        exists = conn.execute("SELECT 1 FROM global_setting WHERE key=?", (key,)).fetchone()
+        if exists:
+            return
+        current = (conn.execute("SELECT value FROM global_setting WHERE key=?", (source_key,)).fetchone()
+                   if source_key else None)
+        value = current["value"] if current and current["value"] is not None else fallback
+        conn.execute(
+            "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+            (key, label, value, help_text),
+        )
+
+    _seed_local_setting("local_dollar_rate", "Local - Dollar Rate (EGP per $1)", "dollar_rate", 52,
+                         "Converts Local's own packaging material prices (quoted in EGP, same as Export's) "
+                         "into USD for the EX-Work cost build-up, and converts the final USD EX-Work+margin "
+                         "price back into EGP before adding Transportation -- see local_pricing.py.")
+    _seed_local_setting("local_waste_factor", "Local - Waste factor", "waste_factor", 1.01,
+                         "Same meaning as Export's own Waste factor, applied to Local's raw-material cost.")
+    _seed_local_setting("local_scrap_interest_factor", "Local - Scrap/interest factor", "scrap_interest_factor",
+                         1.04, "Same meaning as Export's own Scrap/interest factor, applied to Local's raw-"
+                         "material cost.")
+    _seed_local_setting("local_material_interest_rate", "Local - Material interest rate", "material_interest_rate",
+                         0.0, "Same meaning as Export's own Material interest rate.")
+    _seed_local_setting("local_extra_color_egp_kg", "Local - Color extra (EGP/KG)", None, 0,
+                         "Added to the unit price of any Local line whose product color isn't Transparent/"
+                         "Clear/Natural -- the Local/EGP counterpart of Export's own 'Color extra'.")
+    _seed_local_setting("local_extra_credit_egp_kg", "Local - Credit payment term extra (EGP/KG)", None, 0,
+                         "Added to the unit price of every Local line whose quotation's Payment Term is "
+                         "'Credit' (not 'Cash') -- matches the Stretch_Local_Pricing sheet's own Cash (EGP) / "
+                         "Credit (EGP) two-way split (not Export's 30/60/90-day tiers).")
+
+    conn.execute(
+        "INSERT INTO global_setting (key, label, value, help) VALUES (?, ?, ?, ?)",
+        ("local_system_v156_seeded", "Local Pricing System v156 seed (internal marker)", 1,
+         "Internal marker: the one-time copy-from-Export seed for the Local Pricing System "
+         "(local_product/local_bom_row/local_<material>/local_margin_factor/local_* settings) has run. "
+         "Never re-run even if the owner later empties these tables back out."),
+    )
     conn.commit()
 
     conn.execute(

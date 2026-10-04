@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ q.quotation_no or ('Local Quotation #' ~ q.id) }}{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header">
+    <h2>{{ q.quotation_no or ('Local Quotation #' ~ q.id) }}</h2>
+  </div>
+  <div class="grid grid-4">
+    <div class="field"><label>Customer</label><div>{{ q.customer_name or '-' }}</div></div>
+    <div class="field"><label>Customer Class</label><div>{{ q.customer_class or '-' }}</div></div>
+    <div class="field"><label>Destination</label><div>{{ q.destination or '-' }}</div></div>
+    <div class="field"><label>Payment Term</label><div>{{ q.payment_term or '-' }}</div></div>
+    <div class="field"><label>Discount</label><div>{{ q.global_discount_pct or 0 }}%</div></div>
+  </div>
+  <table class="lines-table" style="margin-top:16px;">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Qty (Pallets)</th>
+        <th>Rolls/Pallet</th>
+        <th>Unit Price (EGP/KG)</th>
+        <th>Total (KG)</th>
+        <th>Line Total (EGP)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lines %}
+      <tr>
+        <td>{{ l.label }}</td>
+        <td class="num">{{ l.quantity_pallets }}</td>
+        <td class="num">{{ l.custom_rolls_per_pallet or '-' }}</td>
+        <td class="num">{{ '%.2f'|format(l.unit_price_egp_kg or 0) }}</td>
+        <td class="num">{{ '%.1f'|format(l.total_kg or 0) }}</td>
+        <td class="num">{{ '%.2f'|format(l.line_total) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No lines.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="totals-box">
+    <div class="field"><label>Total (EGP)</label><div style="font-size:1.3rem; font-weight:600;">{{ '%.2f'|format(total) }} EGP</div></div>
+  </div>
+</div>
+{% endblock %}

@@ -76,9 +76,27 @@
           </div>
         </div>
         {% endif %}
+        <!-- v156 -- Local Pricing System (Stretch Film, Phase 1): its own
+             nav section, visible to everyone (same as Export's own Pricing/
+             Quotations links above) -- Local Costing is admin/sub_admin
+             only, same gating as Export's own Margin Factors/Material
+             Rates. -->
+        <span class="nav-sep">|</span>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-link nav-dropdown-btn">Local &#9662;</button>
+          <div class="nav-dropdown-menu">
+            <a href="{{ url_for('local_pricing_page') }}">Local Pricing</a>
+            <a href="{{ url_for('local_history') }}">Local Quotations</a>
+            {% if current_user.role in ('admin', 'sub_admin') %}
+            <span class="nav-dropdown-sep"></span>
+            <a href="{{ url_for('local_admin_costing') }}">Local Costing</a>
+            {% endif %}
+          </div>
+        </div>
       </nav>
     </div>
     <div class="topbar-right">
+      <a href="{{ url_for('workspace_select') }}" class="btn btn-outline">Workspace</a>
       <span class="user-chip">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</span>
       <a href="{{ url_for('logout') }}" class="btn btn-outline">Logout</a>
     </div>
