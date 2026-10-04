@@ -15,15 +15,36 @@
   <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">
     From the workbook's 'Material pricing' sheet. These are already in USD/ton and are used directly
-    (no exchange-rate conversion) in the material-composition cost for every product's BOM.
+    (no exchange-rate conversion) in the material-composition cost for every product's BOM. The imported
+    grades also have their own Market price, independently editable, in the column next to Actual.
   </p>
-  <form method="post">
+  <div class="price-note price-note-ok" style="margin-bottom:14px;">
+    <div class="price-note-title">Default Pricing Mode (for sales reps)</div>
+    A plain sales rep's quotes always use this default — Actual or Market. Admin/sub_admin can still
+    preview either mode per-quote from the Pricing Mode dropdown on the Pricing page, regardless of this.
+    <div style="margin-top:8px;">
+      <select name="default_pricing_mode" form="materialRatesForm">
+        <option value="actual" {% if default_pricing_mode == 'actual' %}selected{% endif %}>Actual Prices</option>
+        <option value="market" {% if default_pricing_mode == 'market' %}selected{% endif %}>Market Prices</option>
+      </select>
+    </div>
+  </div>
+  <form method="post" id="materialRatesForm">
     <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:100px;">$/ton</span></div>
+      <div class="edit-row header-row">
+        <span style="width:220px;">Material</span>
+        <span style="width:100px;">Actual $/ton</span>
+        <span style="width:100px;">Market $/ton</span>
+      </div>
       {% for m in resin %}
       <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
+        <span style="width:220px;">{{ m.actual.label }}</span>
+        <input type="number" step="any" name="value_{{ m.actual.id }}" value="{{ m.actual.value }}" style="width:100px;">
+        {% if m.market %}
+        <input type="number" step="any" name="value_{{ m.market.id }}" value="{{ m.market.value }}" style="width:100px;">
+        {% else %}
+        <span style="width:100px; color:#999;">—</span>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

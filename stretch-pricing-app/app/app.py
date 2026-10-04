@@ -103,6 +103,38 @@ def create_app():
     # on the Pricing screen exactly like an admin does.
     ACT_AS_ROLES = ("admin", "sub_admin")
 
+    # v158 -- owner-requested (2026-10-04 Arabic follow-up): per-user
+    # workspace access, set by the admin on the Users page
+    # (user.workspace_access: 'both' | 'export' | 'local'). These two
+    # decorators gate the actual routes server-side (not just hide the nav
+    # links in base.html) -- a user typing /pricing or /local/pricing
+    # directly still gets stopped if they're not allowed in, same spirit
+    # as factors_admin_required above. Redirects (rather than 403) back to
+    # the workspace chooser with a flash, since "wrong workspace" is a
+    # normal everyday mistake for a restricted user, not a security
+    # incident worth a bare 403 page.
+    def export_access_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["workspace_access"] == "local":
+                flash("Your account is set to Local Pricing only.", "error")
+                return redirect(url_for("workspace_select"))
+            return view(*args, **kwargs)
+        return wrapped
+
+    def local_access_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["workspace_access"] == "export":
+                flash("Your account is set to Export only.", "error")
+                return redirect(url_for("workspace_select"))
+            return view(*args, **kwargs)
+        return wrapped
+
     def table_sync_access_required(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -158,11 +190,20 @@ def create_app():
     @app.route("/workspace")
     @login_required
     def workspace_select():
+        # v158 -- a user locked to a single workspace never needs to see
+        # the chooser at all -- skip straight to the one page they're
+        # allowed to use (this is what makes login() land them directly in
+        # their workspace, since login() redirects here first).
+        if g.user["workspace_access"] == "export":
+            return redirect(url_for("pricing_page"))
+        if g.user["workspace_access"] == "local":
+            return redirect(url_for("local_pricing_page"))
         return render_template("workspace_select.html")
 
     # ---------- Pricing / quote builder ----------
     @app.route("/pricing")
     @login_required
+    @export_access_required
     def pricing_page():
         products_rows = g.db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
@@ -259,6 +300,7 @@ def create_app():
 
     @app.route("/api/calculate-line", methods=["POST"])
     @login_required
+    @export_access_required
     def api_calculate_line():
         data = request.get_json(force=True)
         # v137 -- owner-requested: the v136 "what price gives me what
@@ -603,17 +645,32 @@ def create_app():
             return ""
         return payment_term
 
+    def _default_pricing_mode():
+        """v159 -- owner-requested (2026-10-04 Arabic follow-up): the mode a
+        plain sales rep is priced under when they have no dropdown of their
+        own to choose it -- set by the admin from Admin > Material Rates
+        (global_setting 'default_pricing_mode_is_market'). Defaults to
+        'actual' (today's existing behavior) if the row is somehow missing."""
+        row = g.db.execute(
+            "SELECT value FROM global_setting WHERE key='default_pricing_mode_is_market'"
+        ).fetchone()
+        return "market" if (row and row["value"]) else "actual"
+
     def _resolve_pricing_mode(data):
         """v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04
         Arabic spec, item 4): admin/sub_admin only (same gating as the
-        existing margin-probe / "Act as" tools -- ACT_AS_ROLES). A plain
-        sales rep's request is always forced to 'actual' even if a stray/
-        tampered 'pricing_mode':'market' somehow made it into the JSON body,
-        so this is the single place that decides the mode, never trusting
-        the client-sent role. Returns the plain string 'actual' or 'market'
-        (never anything else, whatever the client sends)."""
+        existing margin-probe / "Act as" tools -- ACT_AS_ROLES) get to
+        choose per-quote via the Pricing Mode dropdown. A plain sales rep
+        has no such dropdown -- their request always resolves to the
+        admin-set default (see _default_pricing_mode() above) even if a
+        stray/tampered 'pricing_mode':'market' somehow made it into the
+        JSON body, so this is the single place that decides the mode, never
+        trusting the client-sent role. Returns the plain string 'actual' or
+        'market' (never anything else, whatever the client sends). v159 --
+        was hardcoded 'actual' for every non-admin/sub_admin request; now
+        follows the admin's own default instead."""
         if g.user["role"] not in ACT_AS_ROLES:
-            return "actual"
+            return _default_pricing_mode()
         return "market" if (data.get("pricing_mode") == "market") else "actual"
 
     def _apply_pricing_mode(mode):
@@ -834,6 +891,7 @@ def create_app():
 
     @app.route("/api/save-quotation", methods=["POST"])
     @login_required
+    @export_access_required
     def api_save_quotation():
         data = request.get_json(force=True)
         db = g.db
@@ -1255,6 +1313,7 @@ def create_app():
     # ---------- History ----------
     @app.route("/quotations")
     @login_required
+    @export_access_required
     def history():
         db = g.db
         if g.user["role"] == "admin":
@@ -1281,12 +1340,14 @@ def create_app():
 
     @app.route("/quotations/<int:qid>")
     @login_required
+    @export_access_required
     def view_quotation(qid):
         q, lines, totals = load_quotation(g.db, qid)
         return render_template("view_quotation.html", q=q, lines=lines, totals=totals)
 
     @app.route("/quotations/<int:qid>/pdf")
     @login_required
+    @export_access_required
     def quotation_pdf(qid):
         q, lines, totals = load_quotation(g.db, qid)
         buf = build_pdf(q, lines, totals)
@@ -1295,6 +1356,7 @@ def create_app():
 
     @app.route("/quotations/<int:qid>/excel")
     @login_required
+    @export_access_required
     def quotation_excel(qid):
         q, lines, totals = load_quotation(g.db, qid)
         buf = build_xlsx(q, lines, totals)
@@ -1813,6 +1875,7 @@ def create_app():
 
     @app.route("/local/pricing")
     @login_required
+    @local_access_required
     def local_pricing_page():
         db = g.db
         products_rows = db.execute(
@@ -1849,6 +1912,7 @@ def create_app():
 
     @app.route("/local/api/calculate-line", methods=["POST"])
     @login_required
+    @local_access_required
     def local_api_calculate_line():
         data = request.get_json(force=True)
         db = g.db
@@ -1917,6 +1981,7 @@ def create_app():
 
     @app.route("/local/api/save-quotation", methods=["POST"])
     @login_required
+    @local_access_required
     def local_api_save_quotation():
         data = request.get_json(force=True)
         db = g.db
@@ -2017,6 +2082,7 @@ def create_app():
 
     @app.route("/local/quotations")
     @login_required
+    @local_access_required
     def local_history():
         db = g.db
         if g.user["role"] == "admin":
@@ -2058,6 +2124,7 @@ def create_app():
 
     @app.route("/local/quotations/<int:qid>")
     @login_required
+    @local_access_required
     def local_view_quotation(qid):
         q, lines, total = _load_local_quotation(g.db, qid)
         return render_template("local_view_quotation.html", q=q, lines=lines, total=total)
@@ -2065,6 +2132,7 @@ def create_app():
     # ---------- Local Costing (admin/sub_admin) ----------
     @app.route("/local/admin/costing", methods=["GET", "POST"])
     @factors_admin_required
+    @local_access_required
     def local_admin_costing():
         db = g.db
         if request.method == "POST":
@@ -2127,13 +2195,17 @@ def create_app():
             role = request.form.get("role", "sales_rep")
             region = request.form.get("region", "").strip()
             seller_type = request.form.get("seller_type", "local")
+            workspace_access = request.form.get("workspace_access", "both")
+            if workspace_access not in ("both", "export", "local"):
+                workspace_access = "both"
             password = request.form.get("password") or "ChangeMe123!"
             exists = db.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
             if username and not exists:
                 db.execute(
-                    """INSERT INTO user (username, full_name, password_hash, role, region, seller_type)
-                       VALUES (?,?,?,?,?,?)""",
-                    (username, full_name, generate_password_hash(password), role, region, seller_type),
+                    """INSERT INTO user (username, full_name, password_hash, role, region, seller_type,
+                       workspace_access) VALUES (?,?,?,?,?,?,?)""",
+                    (username, full_name, generate_password_hash(password), role, region, seller_type,
+                     workspace_access),
                 )
                 db.commit()
                 flash(f"User {username} created.", "success")
@@ -2156,10 +2228,18 @@ def create_app():
         # user.stretch_markup_mode/value + strap_markup_mode/value.
         stretch_markup_mode = clean_mode("stretch_markup_mode")
         strap_markup_mode = clean_mode("strap_markup_mode")
+        # v158 -- admin-assigned per-user workspace access (Export only /
+        # Local only / both) -- see export_access_required/
+        # local_access_required above and db.py's user.workspace_access
+        # migration. Falls back to 'both' for any stray/unrecognized value
+        # rather than ever locking an admin out of everything by accident.
+        workspace_access = request.form.get("workspace_access", "both")
+        if workspace_access not in ("both", "export", "local"):
+            workspace_access = "both"
         db.execute(
             """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
                seller_type=?, stretch_markup_mode=?, stretch_markup_value=?,
-               strap_markup_mode=?, strap_markup_value=? WHERE id=?""",
+               strap_markup_mode=?, strap_markup_value=?, workspace_access=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
@@ -2171,6 +2251,7 @@ def create_app():
                 float(request.form.get("stretch_markup_value") or 0),
                 strap_markup_mode,
                 float(request.form.get("strap_markup_value") or 0),
+                workspace_access,
                 uid,
             ),
         )
@@ -2471,6 +2552,12 @@ def create_app():
         # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on
         # the dedicated Strap Costing page instead, so they're excluded here.
         # v156 -- same for local_% (its own Local Costing admin page).
+        # v159 -- market_% rows (the 5 imported resins' Market prices) are
+        # still plain material_rate rows, so the existing generic
+        # "value_<id>" save loop below updates them exactly like any Actual
+        # row -- no special-case save logic needed, only the SELECT that
+        # builds the page needs to pair each one with its Actual row (done
+        # in the GET branch below) instead of listing it as its own line.
         if request.method == "POST":
             for row in db.execute(
                 "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%' "
@@ -2479,20 +2566,50 @@ def create_app():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
                     db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            # v159 -- owner-requested (2026-10-04 Arabic follow-up): admin
+            # sets, from this same page, which mode a plain sales rep (who
+            # never sees the per-quote Pricing Mode dropdown) is priced
+            # under by default. admin/sub_admin can still preview either
+            # mode per-quote regardless of this default.
+            default_mode = request.form.get("default_pricing_mode")
+            if default_mode in ("actual", "market"):
+                db.execute(
+                    "UPDATE global_setting SET value=? WHERE key='default_pricing_mode_is_market'",
+                    (1.0 if default_mode == "market" else 0.0,),
+                )
             db.commit()
             flash("Material rates updated.", "success")
             return redirect(url_for("admin_material_rates"))
-        resin = db.execute(
+
+        # v159 -- pair each of the 5 imported resins' Actual row with its
+        # new Market row (material_key 'market_<grade>') so the template
+        # can render them side by side in the same table row. Every other
+        # resin (Vista 6000, LD, Vista, UVI) has no Market row at all --
+        # they're not imported, so `market` stays None and the template
+        # shows a plain "-" there instead of an input.
+        resin_rows = db.execute(
             "SELECT * FROM material_rate WHERE category='resin' AND material_key NOT LIKE 'pet_%' "
-            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' ORDER BY label"
+            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' "
+            "AND material_key NOT LIKE 'market_%' ORDER BY label"
         ).fetchall()
+        market_rows = {
+            row["material_key"][len("market_"):]: row
+            for row in db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'market_%'"
+            ).fetchall()
+        }
+        resin = [{"actual": row, "market": market_rows.get(row["material_key"])} for row in resin_rows]
         packaging = db.execute(
             "SELECT * FROM material_rate WHERE category='packaging' AND material_key NOT LIKE 'pet_%' "
             "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' ORDER BY label"
         ).fetchall()
+        default_mode_row = db.execute(
+            "SELECT value FROM global_setting WHERE key='default_pricing_mode_is_market'"
+        ).fetchone()
+        default_pricing_mode = "market" if (default_mode_row and default_mode_row["value"]) else "actual"
         last_upload = table_sync.get_last_upload(db, "material_rate")
         return render_template("admin_material_rates.html", resin=resin, packaging=packaging,
-                                last_upload=last_upload)
+                                default_pricing_mode=default_pricing_mode, last_upload=last_upload)
 
     @app.route("/admin/strap-costing", methods=["GET", "POST"])
     @admin_required

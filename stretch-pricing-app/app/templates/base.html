@@ -20,8 +20,16 @@
            /closed instead of the links just wrapping into a messy stack. -->
       <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">&#9776;</button>
       <nav class="nav-links" id="navLinks">
+        <!-- v158 -- admin-assigned per-user workspace access
+             (user.workspace_access: 'both'/'export'/'local'): hides the
+             Export and/or Local nav sections the user isn't allowed into.
+             This is purely what's shown -- app.py's export_access_required/
+             local_access_required still gate the actual routes server-side,
+             same spirit as the sub_admin role check below. -->
+        {% if current_user.workspace_access != 'local' %}
         <a href="{{ url_for('pricing_page') }}" class="nav-link">Pricing</a>
         <a href="{{ url_for('history') }}" class="nav-link">Quotations</a>
+        {% endif %}
         {% if current_user.role == 'sub_admin' %}
         <span class="nav-sep">|</span>
         <!-- v102 -- owner-requested restricted role: this user can see
@@ -81,6 +89,7 @@
              Quotations links above) -- Local Costing is admin/sub_admin
              only, same gating as Export's own Margin Factors/Material
              Rates. -->
+        {% if current_user.workspace_access != 'export' %}
         <span class="nav-sep">|</span>
         <div class="nav-dropdown">
           <button type="button" class="nav-link nav-dropdown-btn">Local &#9662;</button>
@@ -93,10 +102,17 @@
             {% endif %}
           </div>
         </div>
+        {% endif %}
       </nav>
     </div>
     <div class="topbar-right">
+      <!-- v158 -- a user locked to a single workspace never needs the
+           chooser (workspace_select() itself redirects them straight past
+           it), so the button is just a dead end for them -- hidden rather
+           than shown and immediately bouncing them back. -->
+      {% if current_user.workspace_access == 'both' %}
       <a href="{{ url_for('workspace_select') }}" class="btn btn-outline">Workspace</a>
+      {% endif %}
       <span class="user-chip">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</span>
       <a href="{{ url_for('logout') }}" class="btn btn-outline">Logout</a>
     </div>

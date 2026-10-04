@@ -562,6 +562,7 @@ def init_db():
     _fix_v153_prestretch_extra_120(conn)
     _seed_4_micron_power_v153(conn)
     _seed_local_system_v156(conn)
+    _migrate_v159_market_prices(conn)
     conn.close()
 
 
@@ -760,6 +761,19 @@ def _migrate(conn):
         # here, EGP/KG) -- see local_pricing.py's apply_hidden_markup() use.
         conn.execute("ALTER TABLE user ADD COLUMN local_markup_mode TEXT NOT NULL DEFAULT 'percent'")
         conn.execute("ALTER TABLE user ADD COLUMN local_markup_value REAL NOT NULL DEFAULT 0")
+        conn.commit()
+
+    if "workspace_access" not in user_cols:
+        # v158 -- owner-requested (2026-10-04 Arabic follow-up): admin
+        # assigns, per user, which workspace(s) they're allowed into --
+        # 'both' (default, today's existing behavior for every account
+        # created before this column existed -- nobody loses access they
+        # already had), 'export' (Export Pricing only, Local hidden/
+        # blocked), or 'local' (Local Pricing only, Export hidden/
+        # blocked). Enforced in app.py's workspace_required_for()/
+        # workspace_select()/login() and read by base.html to hide the
+        # nav links the user isn't allowed to use anyway.
+        conn.execute("ALTER TABLE user ADD COLUMN workspace_access TEXT NOT NULL DEFAULT 'both'")
         conn.commit()
 
     quotation_cols = {row["name"] for row in conn.execute("PRAGMA table_info(quotation)").fetchall()}
@@ -1392,33 +1406,20 @@ EXTRAS_GLOBAL_SETTINGS = [
     ("extra_credit_term_90_usd_kg", "Extras - Credit payment terms extra, 90 days ($/KG)", 0.04,
      "Added to the unit price of every Stretch Film / Pre-Stretch line "
      "whose quotation's Payment Term is '90 days'."),
-    # v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04,
-    # big multi-part Arabic spec, item 4): two new admin-editable "Market"
-    # base prices for C4 and Exceed 3518 only. Deliberately separate
-    # global_setting rows, NOT the existing material_rate rows for c4/
-    # exceed3518 (those stay the single source of truth for Actual mode) --
-    # see cost_engine.market_material_overrides() for how Exceed 3812/
-    # Exceed XP/Enable's Market prices are then derived automatically from
-    # the Market Exceed 3518 price via the owner's fixed deltas
-    # (+$100/+$190/+$50 per ton), and _material_rate() for how a line
-    # actually picks Actual vs Market (via Flask's request-scoped
-    # g.material_overrides, set by app.py from quotation.pricing_mode).
-    # Defaults match the live Actual material_rate seed values for c4/
-    # exceed3518 at the time this setting was introduced, purely so a fresh
-    # Market toggle starts out identical to Actual until the admin edits it.
-    ("market_price_c4_usd_ton", "Actual/Market toggle - Market price for C4 ($/TON)", 1240,
-     "Only used for quotations whose Payment/Pricing mode dropdown is set "
-     "to 'Market Prices' (admin/sub-admin only). Has no effect at all on "
-     "'Actual Prices' mode, which always uses the normal C4 row in Material "
-     "Rates."),
-    ("market_price_exceed3518_usd_ton", "Actual/Market toggle - Market price for Exceed 3518 ($/TON)", 1440,
-     "Only used for quotations whose Payment/Pricing mode dropdown is set "
-     "to 'Market Prices' (admin/sub-admin only). Also drives the Market "
-     "price automatically used for Exceed 3812 (+$100/ton over this), "
-     "Exceed XP (+$190/ton over this) and Enable (+$50/ton over this) -- "
-     "the owner's fixed formula, not independently editable. Has no effect "
-     "at all on 'Actual Prices' mode, which always uses the normal Exceed "
-     "3518 row in Material Rates."),
+    # v159 -- owner-requested (2026-10-04 Arabic follow-up to v155): who
+    # gets Market prices by default. A plain sales rep never sees the
+    # per-quote Pricing Mode dropdown (that stays admin/sub_admin-only, for
+    # previewing either mode's final price), so this is the admin-set
+    # default THEY are priced under -- 0 = Actual (default, today's
+    # existing behavior, unchanged), 1 = Market. See app.py's
+    # _resolve_pricing_mode(). Edited from its own control on the Material
+    # Rates page (next to the new per-material Market columns), not this
+    # generic numeric Global Settings list, but the row lives here like any
+    # other setting.
+    ("default_pricing_mode_is_market", "Default Pricing Mode -- 1=Market for all sales reps, 0=Actual", 0,
+     "Controls what every plain sales rep is priced under by default (admin/"
+     "sub_admin can still override per-quote via the Pricing Mode dropdown "
+     "on the Pricing page). Set from Admin > Material Rates."),
 ]
 
 
@@ -1434,6 +1435,72 @@ def _seed_extras_settings(conn):
             "INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
             (key, label, value, help_text),
         )
+    conn.commit()
+
+
+def _migrate_v159_market_prices(conn):
+    """v159 -- owner-requested redesign of the v155 Actual/Market toggle
+    (2026-10-04 Arabic follow-up): "I wanted the Market price here, laid
+    out in a table, bordered, material next to its price, material next to
+    its price, in the same table border next to the Actual prices, and
+    everything changeable, but only for the imported materials." Each of
+    the 5 imported resin grades (C4, Exceed 3518, Exceed 3812, Exceed XP,
+    Enable) now gets its own directly-editable Market price as a
+    material_rate row (material_key 'market_<grade>'), rendered side by
+    side with its Actual price in the same Material Rates table row --
+    replacing the old scheme where only C4 and Exceed 3518 were editable
+    (as global_setting rows) and the other three were auto-derived via
+    fixed +$100/+$190/+$50 deltas.
+
+    Migrates forward whatever the owner had already typed under the old
+    scheme (global_setting market_price_c4_usd_ton /
+    market_price_exceed3518_usd_ton, with exceed3812/exceedxp/enable
+    derived from the Exceed 3518 one) so nothing she'd already entered is
+    lost, then removes the two old global_setting rows. Gated on
+    'market_c4' not existing yet as a material_rate row, so this runs (and
+    migrates real data) exactly once per database -- a no-op on every
+    later startup, and on a brand-new database it just seeds Market
+    starting out identical to Actual (same spirit as v155's original
+    defaults)."""
+    already_migrated = conn.execute(
+        "SELECT id FROM material_rate WHERE material_key='market_c4'"
+    ).fetchone()
+    if already_migrated:
+        return
+
+    def _actual_rate(key, default=0.0):
+        row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        return row["value"] if row is not None and row["value"] is not None else default
+
+    def _old_setting(key):
+        row = conn.execute("SELECT value FROM global_setting WHERE key=?", (key,)).fetchone()
+        return row["value"] if row is not None and row["value"] is not None else None
+
+    old_c4 = _old_setting("market_price_c4_usd_ton")
+    old_3518 = _old_setting("market_price_exceed3518_usd_ton")
+
+    market_values = {
+        "market_c4": old_c4 if old_c4 is not None else _actual_rate("c4"),
+        "market_exceed3518": old_3518 if old_3518 is not None else _actual_rate("exceed3518"),
+        "market_exceed3812": (old_3518 + 100) if old_3518 is not None else _actual_rate("exceed3812"),
+        "market_exceedxp": (old_3518 + 190) if old_3518 is not None else _actual_rate("exceedxp"),
+        "market_enable": (old_3518 + 50) if old_3518 is not None else _actual_rate("enable"),
+    }
+    market_labels = {
+        "market_c4": "C4 (Market)",
+        "market_exceed3518": "Exceed 3518 (Market)",
+        "market_exceed3812": "Exceed 3812 (Market)",
+        "market_exceedxp": "Exceed XP (Market)",
+        "market_enable": "Enable (Market)",
+    }
+    for key, value in market_values.items():
+        conn.execute(
+            "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,'resin',NULL,?)",
+            (key, market_labels[key], value),
+        )
+    conn.execute(
+        "DELETE FROM global_setting WHERE key IN ('market_price_c4_usd_ton','market_price_exceed3518_usd_ton')"
+    )
     conn.commit()
 
 

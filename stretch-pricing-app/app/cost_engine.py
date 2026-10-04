@@ -96,33 +96,29 @@ def _material_rate(conn, key, default=0.0):
     return row["value"] if row is not None and row["value"] is not None else default
 
 
-def market_material_overrides(conn):
-    """v155 -- owner-requested Actual/Market price dropdown (Arabic spec,
-    2026-10-04 big multi-part message, item 4): "add a dropdown that allows
-    the admin/sub admin users to choose whether the pricing should be based
-    on ... Market price have different raw material prices in the C4 and
-    Exceed 3518, and add those markups over the rest of the materials
-    automatic: Exceed 3812 = +$100/ton over the exceed 3518 price, Exceed
-    XP = +$190/ton over the exceed 3518 price, Enable = +$50/ton over the
-    exceed 3518 price."
+MARKET_MATERIAL_KEYS = ("c4", "exceed3518", "exceed3812", "exceedxp", "enable")
 
-    Two new admin-editable "market" base prices (global_setting rows,
-    market_price_c4_usd_ton / market_price_exceed3518_usd_ton -- deliberately
-    NOT material_rate rows, since those are the existing *Actual* prices and
-    must stay untouched) drive everything else by the owner's exact fixed
-    deltas above. Only these 5 keys are ever returned; every other raw
-    material (Vista 6000, LD, Vista, UVI, all PET/PP resins, all packaging)
-    is intentionally absent so _material_rate() falls through to its normal
-    Actual-price lookup for them regardless of pricing_mode."""
-    market_c4 = _get_setting(conn, "market_price_c4_usd_ton", _material_rate(conn, "c4"))
-    market_3518 = _get_setting(conn, "market_price_exceed3518_usd_ton", _material_rate(conn, "exceed3518"))
-    return {
-        "c4": market_c4,
-        "exceed3518": market_3518,
-        "exceed3812": market_3518 + 100,
-        "exceedxp": market_3518 + 190,
-        "enable": market_3518 + 50,
-    }
+
+def market_material_overrides(conn):
+    """v159 -- owner-requested redesign of the v155 Actual/Market toggle
+    (2026-10-04 Arabic follow-up): each of the 5 imported resin grades the
+    owner named (C4, Exceed 3518, Exceed 3812, Exceed XP, Enable) now has
+    its OWN directly-editable Market price -- shown side by side with its
+    Actual price in the same Material Rates table row (material_rate rows
+    'market_c4'/'market_exceed3518'/'market_exceed3812'/'market_exceedxp'/
+    'market_enable') -- instead of only C4 and Exceed 3518 being editable
+    with the other three auto-derived via fixed +$100/+$190/+$50 deltas.
+    Every other raw material (Vista 6000, LD, Vista, UVI, all PET/PP
+    resins, all packaging) is intentionally absent from the returned dict,
+    so _material_rate() falls through to its normal Actual-price lookup
+    for them regardless of pricing_mode -- unchanged from v155."""
+    overrides = {}
+    for key in MARKET_MATERIAL_KEYS:
+        row = conn.execute(
+            "SELECT value FROM material_rate WHERE material_key=?", (f"market_{key}",)
+        ).fetchone()
+        overrides[key] = row["value"] if row is not None and row["value"] is not None else _material_rate(conn, key)
+    return overrides
 
 
 def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None, auto_manual=None):
