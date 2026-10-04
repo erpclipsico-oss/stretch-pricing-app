@@ -504,6 +504,48 @@ document.getElementById('langToggleBtn').addEventListener('click', () => {
 });
 applyLanguage();
 
+// v175 -- owner-reported: Local never had the Left/Right arrow-key cell
+// navigation Export's own pricing.html already has (v99 there) -- ported
+// over verbatim, scoped to Local's own two lines tables (#linesTable /
+// #strapLinesTable). Every writable field here is a <select>, a checkbox,
+// or a number input, so Left/Right always jumps straight to the next/
+// previous field rather than trying to detect a caret position.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'radio') return;
+  const root = el.closest('#linesTable, #strapLinesTable');
+  if (!root) return;
+  const fields = [...root.querySelectorAll(
+    'input:not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled])'
+  )].filter(f => f.offsetParent !== null);
+  const idx = fields.indexOf(el);
+  if (idx === -1) return;
+  const nextIdx = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+  if (nextIdx < 0 || nextIdx >= fields.length) return;
+  e.preventDefault();
+  const target = fields[nextIdx];
+  target.focus();
+  try { if (typeof target.select === 'function') target.select(); } catch (err) {}
+});
+
+// v175 -- same Enter-key fix as Export's pricing.html (v99 there): Enter on
+// a checkbox toggles it, Enter on a <select> opens its dropdown.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    e.preventDefault();
+    el.checked = !el.checked;
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  } else if (el.tagName === 'SELECT') {
+    e.preventDefault();
+    try { if (typeof el.showPicker === 'function') el.showPicker(); } catch (err) {}
+  }
+});
+
 addLine();
 </script>
 {% endblock %}
