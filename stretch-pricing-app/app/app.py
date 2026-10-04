@@ -49,7 +49,27 @@ def create_app():
 
     @app.context_processor
     def inject_globals():
-        return {"current_user": g.get("user"), "now": datetime.now(timezone.utc)}
+        # v163 -- owner-reported layout bugs on live (Strap Costing/Cost
+        # Preview pages looked broken/clipped in her screenshot but
+        # rendered perfectly in a clean test browser at the same window
+        # width) traced back to static asset caching, not a real CSS bug:
+        # url_for('static', filename='style.css') always points at the
+        # exact same URL across every deploy, and Safari (like any
+        # browser) caches a static file by that URL -- so once she'd
+        # loaded style.css once, her browser could keep reusing that
+        # cached copy on later visits even after a new deploy shipped a
+        # fixed stylesheet, until something forced a hard reload. Appending
+        # the CSS file's own last-modified time as a ?v= query string
+        # makes the URL itself change the moment style.css's content
+        # changes, so the browser treats it as a new resource and always
+        # fetches the current one -- no manual version bump needed, and
+        # completely unaffected by stale caching from here on.
+        css_path = os.path.join(BASE_DIR, "static", "style.css")
+        try:
+            css_version = int(os.path.getmtime(css_path))
+        except OSError:
+            css_version = 0
+        return {"current_user": g.get("user"), "now": datetime.now(timezone.utc), "css_version": css_version}
 
     def login_required(view):
         @wraps(view)

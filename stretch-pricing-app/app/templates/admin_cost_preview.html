@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Cost Preview · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Cost engine preview</h2></div>
@@ -11,7 +12,17 @@
   </p>
   <div class="edit-grid">
     <div class="edit-row header-row">
-      <span style="width:170px;">Product</span><span style="width:55px;">Type</span>
+      <!-- v163 -- owner flagged this as looking truncated ("...Standard
+           St" running straight into a number with no gap) -- the Product
+           and Type columns were never actually clipped (every label
+           renders in full; "St"/"P"/"P_plus" are Type's own short roll-
+           type codes, a separate column), but sitting flush against each
+           other with only the row's normal 8px gap, "...Standard" + "St"
+           reads exactly like one word cut off mid-truncation. A right
+           border on the Product cell makes it unmistakably a column
+           boundary instead. -->
+      <span style="width:170px; border-right:1px solid var(--border); padding-right:10px;">Product</span>
+      <span style="width:55px;">Type</span>
       <span style="width:80px;">Material $</span><span style="width:60px;">Core $</span>
       <span style="width:80px;">Packaging $</span><span style="width:70px;">Interest $</span>
       <span style="width:110px;">Conv./ton $</span><span style="width:80px;">Other $</span>
@@ -19,7 +30,7 @@
     </div>
     {% for row in rows %}
     <div class="edit-row">
-      <span style="width:170px;">{{ row.label }}</span>
+      <span style="width:170px; border-right:1px solid var(--border); padding-right:10px;">{{ row.label }}</span>
       <span style="width:55px;">{{ row.breakdown.roll_type }}</span>
       <span style="width:80px;">{{ row.breakdown.material_cost_usd }}</span>
       <span style="width:60px;">{{ row.breakdown.core_cost_usd }}</span>

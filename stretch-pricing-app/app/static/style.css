@@ -333,11 +333,60 @@ input[type=number] {
 .margin-probe-td .f-margin-probe { border-color: #f0c36d; background: #fff; }
 .margin-probe-td .f-margin-probe-out { color: #92400e; font-weight: 600; }
 
-.edit-grid { display: flex; flex-direction: column; gap: 6px; }
-.edit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--border); }
-.edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; }
-.edit-row form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
-.edit-row input[type=text], .edit-row input[type=number] { padding: 6px 8px; font-size: 0.85rem; }
+/* v164 -- owner-requested, applied SITE-WIDE ("kol colom yekoon el title
+   beta3o fo2eh w kol 7agto ta7t ba3do we mafesh overlapping fel kalam wel
+   arkam, wad7a wel space box wade7 bel dimensions beta3to -- this should be
+   applied all over the website"): fixes the shared .edit-grid/.edit-row
+   pattern itself (used by BOM, Material Rates, Electricity, Labor, Freight,
+   Loading Ports, Pallet, Products, Margin Factors, Packing Tiers, Fixed/
+   Variable Costs, Global Settings, Pre-Stretch, Local Costing -- every Admin
+   table that isn't already its own special case like Users/Stuffing/Resin
+   Rates), not one page at a time. Two compounding bugs:
+   1) MISALIGNMENT root cause (the exact bug already fixed for Users in v55,
+      never generalized to the rest of Admin): a data row's fields are
+      usually wrapped in a nested <form>, which used to be its own
+      `display:flex; flex-wrap:wrap` box -- a SEPARATE wrapping context from
+      the header row's cells (which flex directly under .edit-row). Two
+      independent flex-wrap contexts can wrap at a different point for any
+      small reason (a longer word, a narrower window), so a column's header
+      can end up sitting over a different column's data below it -- not
+      literal CSS overlap, but unreadable the same way. `.edit-row form {
+      display:contents }` removes the <form> from the box tree entirely, so
+      its fields lay out exactly like the header row's cells, in the SAME
+      flex context -- one row, one wrap point, always.
+   2) BOX/SPACING clarity: every .edit-grid now gets the same real
+      bordered-table look that Stuffing (v144)/Material Rates (v160)/Users
+      (v55) already had on their own -- an outer box border, a vertical
+      divider between every column so each value sits in a clearly
+      dimensioned cell directly under its own header, and rows that no
+      longer wrap (nowrap) but scroll horizontally instead on a narrow
+      screen or a wide table (BOM's 11 columns) -- so a header is never
+      pushed onto a 2nd line out of step with the single-line data row under
+      it. Scoped to NOT touch the self-labelled ".edit-cell" pattern's
+      internal label/input stack (Products, Freight, Loading Ports, Pallet,
+      Pre-Stretch) -- the whole .edit-cell gets the bordered box, but the
+      col-label above its input stays undivided, same as before. Buttons
+      (Save/Delete) are also left out of the bordered-cell padding so they
+      keep the site's normal .btn/.btn-sm sizing instead of being stretched
+      to match a table cell's padding. */
+.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; }
+.edit-row { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; padding: 0; border-bottom: 1px solid var(--border); }
+.edit-row:last-child { border-bottom: none; }
+.edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; background: var(--bg); align-items: center; }
+.edit-row form { display: contents; }
+.edit-row > span, .edit-row > input, .edit-row > select, .edit-row > strong, .edit-row > label, .edit-row > .edit-cell,
+.edit-row > form > span, .edit-row > form > input, .edit-row > form > select, .edit-row > form > strong, .edit-row > form > label, .edit-row > form > .edit-cell {
+  border-right: 1px solid var(--border);
+  padding: 8px 10px;
+  margin: 0;
+  box-sizing: border-box;
+}
+.edit-row > span:last-child, .edit-row > input:last-child, .edit-row > select:last-child, .edit-row > strong:last-child, .edit-row > label:last-child, .edit-row > .edit-cell:last-child,
+.edit-row > form > span:last-child, .edit-row > form > input:last-child, .edit-row > form > select:last-child, .edit-row > form > strong:last-child, .edit-row > form > label:last-child, .edit-row > form > .edit-cell:last-child {
+  border-right: none;
+}
+.edit-row > button, .edit-row > form > button { margin: 0 6px 0 4px; flex-shrink: 0; }
+.edit-row input[type=text], .edit-row input[type=number] { font-size: 0.85rem; }
 /* v54 -- header/data column misalignment root cause: flex items default to
    min-width:auto, so a <select>/<input> whose OWN content (e.g. the "Sales
    rep" option text, or a number input's spinner chrome) needs more room
@@ -475,14 +524,24 @@ input[type=number] {
 .users-row {
   display: grid;
   /* v92 -- last column widened 76px -> 230px to fit the new inline "New
-     password" input alongside Save/Delete (was just the two buttons). */
-  grid-template-columns: 110px 130px 100px 100px 90px 200px 200px 64px 230px;
+     password" input alongside Save/Delete (was just the two buttons).
+     v158 -- a new "Workspace" column (150px) was inserted between Seller
+     type and Stretch commission in the HTML, but this template wasn't
+     updated to match -- the grid had 9 slots for what became 10 cells, so
+     every column from Workspace onward silently overlapped the next
+     (Active landing on top of Save/Delete, etc.). Grid only lays out
+     columns it's told about; it never reflows to fit however many
+     children actually show up, however obvious that sounds in hindsight.
+     Lesson for next time: adding/removing a .users-row cell ALWAYS means
+     updating grid-template-columns (and min-width below) in the same
+     change, never the HTML alone. */
+  grid-template-columns: 110px 130px 100px 100px 90px 150px 200px 200px 64px 230px;
   column-gap: 10px;
   row-gap: 4px;
   align-items: center;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border);
-  min-width: 1200px;
+  min-width: 1350px;
 }
 .users-row.header-row {
   font-size: 0.7rem;
