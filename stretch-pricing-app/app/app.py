@@ -1906,6 +1906,12 @@ def create_app():
         destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
         pallet_types = ["Standard Pallet", "Euro Pallet"]
         packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
+        # v174 -- PET Strap lines live on this same screen now (owner-
+        # requested: "زي ما انت عامل في الاكسبورت") -- see local_pricing.html's
+        # matching v174 comment. Only 'pet' recipes exist so far; PP Strap
+        # will join this same dropdown once the owner sends her
+        # PP_Local_pricing workbook (no PP Local numbers exist yet).
+        strap_recipes = [dict(r) for r in local_strap_pricing.get_recipes(db)]
         preview_users = []
         if g.user["role"] in ACT_AS_ROLES:
             preview_users = db.execute(
@@ -1916,7 +1922,7 @@ def create_app():
         return render_template(
             "local_pricing.html", products=products, destinations=destinations,
             pallet_types=pallet_types, packing_types=packing_types, preview_users=preview_users,
-            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
+            strap_recipes=strap_recipes, is_admin_role=(g.user["role"] in ACT_AS_ROLES),
         )
 
     def _local_resolve_pricing_user(data):
@@ -2006,24 +2012,18 @@ def create_app():
             "discount_cap_max": discount_cap_max,
         })
 
-    # ---------- Local Market PET Strap (v173) ----------
+    # ---------- Local Market PET Strap (v173; folded into /local/pricing
+    # itself as of v174 -- see local_pricing_page()/local_pricing.html) ----------
     @app.route("/local/strap-pricing")
     @login_required
     @local_access_required
     def local_strap_pricing_page():
-        db = g.db
-        recipes = [dict(r) for r in local_strap_pricing.get_recipes(db)]
-        preview_users = []
-        if g.user["role"] in ACT_AS_ROLES:
-            preview_users = db.execute(
-                "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
-                "ORDER BY full_name, username",
-                (g.user["id"],),
-            ).fetchall()
-        return render_template(
-            "local_strap_pricing.html", recipes=recipes, preview_users=preview_users,
-            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
-        )
+        # v174 -- the standalone Strap screen is gone; Strap lines now live
+        # directly on /local/pricing's own "Strap lines (PET)" table, same
+        # spirit as Export's pricing.html (one Stretch table + one Strap
+        # table, one quotation). Kept as a redirect so an old bookmark/link
+        # still lands somewhere useful instead of 404ing.
+        return redirect(url_for("local_pricing_page"))
 
     @app.route("/local/api/calculate-strap-line", methods=["POST"])
     @login_required

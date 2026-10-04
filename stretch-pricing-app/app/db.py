@@ -555,6 +555,9 @@ CREATE TABLE IF NOT EXISTS local_quotation_line (
 -- workbook, only these three.
 CREATE TABLE IF NOT EXISTS local_strap_bom (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    line_key TEXT NOT NULL DEFAULT 'pet',   -- 'pet' | 'pp' (PP not built yet -- no
+                                             -- PP_Local_pricing workbook received
+                                             -- from the owner yet)
     recipe_key TEXT UNIQUE NOT NULL,
     label TEXT NOT NULL,
     production_mode TEXT NOT NULL,   -- 'Automatic' | 'Manual'
@@ -2254,18 +2257,19 @@ def _seed_local_strap_system_v173(conn):
     # BOM recipes -- exactly the 3 her sheet defines (see 'Material cost'
     # sheet rows 27-29/33-45): green/colors fractions, profit %, waste %.
     bom_rows = [
-        ("green_auto", "PET - Green (Automatic)", "Automatic", 0.97, 0.015, 0.015, 0.4, 0.01),
-        ("colors", "PET - Colors", "Automatic", 0.935, 0.02, 0.045, 0.4, 0.01),
-        ("green_manual", "PET - Green (Manual)", "Manual", 1.0, 0.0, 0.0, 0.2, 0.01),
+        ("pet", "green_auto", "PET - Green (Automatic)", "Automatic", 0.97, 0.015, 0.015, 0.4, 0.01),
+        ("pet", "colors", "PET - Colors", "Automatic", 0.935, 0.02, 0.045, 0.4, 0.01),
+        ("pet", "green_manual", "PET - Green (Manual)", "Manual", 1.0, 0.0, 0.0, 0.2, 0.01),
     ]
-    for recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste in bom_rows:
+    for line_key, recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste in bom_rows:
         exists = conn.execute("SELECT 1 FROM local_strap_bom WHERE recipe_key=?", (recipe_key,)).fetchone()
         if not exists:
             conn.execute(
                 """INSERT INTO local_strap_bom
-                   (recipe_key, label, production_mode, pet_frac, c4_frac, color_frac, profit_pct, waste_pct)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste),
+                   (line_key, recipe_key, label, production_mode, pet_frac, c4_frac, color_frac, profit_pct,
+                    waste_pct)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (line_key, recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste),
             )
     conn.commit()
 

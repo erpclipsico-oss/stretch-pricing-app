@@ -89,6 +89,38 @@
 
   <div id="discountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-top:12px;"></div>
 
+  <!-- v174 -- owner-requested: PET Strap lines live on this SAME quotation
+       screen, same spirit as Export's own pricing.html (one Stretch Film
+       table + one Strap table, same page, same quotation/total) -- not a
+       separate "Local Strap Pricing" page (v173's original, now folded in
+       here). PP Strap isn't in this dropdown yet -- no PP_Local_pricing
+       workbook received from the owner yet, see STRAP_RECIPES below. -->
+  <h3 style="margin-top:28px;">Strap lines (PET)</h3>
+  <table class="lines-table lines-table-compact" id="strapLinesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Recipe</th>
+        <th>Width (mm)</th>
+        <th>Thickness (mm)</th>
+        <th>Meters/Coil</th>
+        <th>Core wt (kg)</th>
+        <th>Box</th>
+        <th>Pallet</th>
+        <th>Qty (Rolls)</th>
+        <th>Discount %</th>
+        <th>Unit Price (EGP/KG)</th>
+        <th>Total (KG)</th>
+        <th>Line Total (EGP)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="strapLinesBody"></tbody>
+  </table>
+  <button type="button" class="btn btn-outline" id="addStrapLineBtn" style="margin-top:10px;">+ Add strap line</button>
+
+  <div id="strapDiscountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-top:12px;"></div>
+
   <div class="totals-box" style="margin-top:20px;">
     <div class="field"><label data-i18n="total_egp">Total (EGP)</label><div id="grandTotal" style="font-size:1.3rem; font-weight:600;">0.00 EGP</div></div>
   </div>
@@ -98,6 +130,8 @@
 const PRODUCTS = {{ products|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
+const STRAP_RECIPES = {{ strap_recipes|tojson }};
+let currentQuotationId = null;
 
 // v169 -- Arabic/English UI-chrome toggle, mirroring Export pricing.html's
 // own data-i18n/langToggleBtn mechanism (owner-requested: "نفس الانترفيس").
@@ -206,7 +240,6 @@ function buildSelectOptions(arr) {
   return arr.map(v => `<option value="${v}">${textLabel(v)}</option>`).join('');
 }
 
-let currentQuotationId = null;
 let lineCounter = 0;
 function addLine() {
   lineCounter += 1;
@@ -270,6 +303,96 @@ async function calcLine(tr) {
   return resp.json();
 }
 
+// v174 -- PET Strap lines, same table on the same quotation page (see this
+// template's v174 comment near the Strap lines <table> above).
+function buildStrapRecipeOptions() {
+  return STRAP_RECIPES.map(r => `<option value="${r.recipe_key}">${r.label}</option>`).join('');
+}
+let strapLineCounter = 0;
+function addStrapLine() {
+  strapLineCounter += 1;
+  const tr = document.createElement('tr');
+  tr.className = 'strap-line-row';
+  tr.dataset.lineId = strapLineCounter;
+  tr.innerHTML = `
+    <td>${strapLineCounter}</td>
+    <td><select class="f-recipe">${buildStrapRecipeOptions()}</select></td>
+    <td><input type="number" class="f-width compact-input" min="0" step="0.1" value="15"></td>
+    <td><input type="number" class="f-thickness compact-input" min="0" step="0.01" value="1"></td>
+    <td><input type="number" class="f-meters compact-input" min="0" step="10" value="1200"></td>
+    <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" value="0"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-box"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-pallet" checked></td>
+    <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
+    <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
+    <td class="num f-unit-price">-</td>
+    <td class="num f-total-kg">-</td>
+    <td class="num f-line-total">-</td>
+    <td><button type="button" class="btn btn-outline btn-sm f-remove">✕</button></td>
+  `;
+  document.getElementById('strapLinesBody').appendChild(tr);
+  tr.querySelector('.f-remove').addEventListener('click', () => { tr.remove(); scheduleRecalc(); });
+  tr.querySelectorAll('select, input').forEach(el => {
+    el.addEventListener('change', scheduleRecalc);
+    el.addEventListener('input', scheduleRecalc);
+  });
+}
+
+async function calcStrapLine(tr) {
+  const payload = {
+    recipe_key: tr.querySelector('.f-recipe').value,
+    width_mm: parseFloat(tr.querySelector('.f-width').value || 0),
+    thickness_mm: parseFloat(tr.querySelector('.f-thickness').value || 0),
+    meters_per_coil: parseFloat(tr.querySelector('.f-meters').value || 0),
+    core_weight_kg: parseFloat(tr.querySelector('.f-corewt').value || 0),
+    has_box: tr.querySelector('.f-box').checked,
+    has_pallet: tr.querySelector('.f-pallet').checked,
+    quantity_rolls: parseFloat(tr.querySelector('.f-qty').value || 0),
+    line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    payment_term: document.getElementById('payment_term').value,
+    preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/calculate-strap-line', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+async function recalcStrapAll() {
+  const rows = document.querySelectorAll('#strapLinesBody tr');
+  let grandTotal = 0;
+  let anyCapped = false;
+  let cappedMax = 0;
+  for (const tr of rows) {
+    const result = await calcStrapLine(tr);
+    if (!result) continue;
+    tr.querySelector('.f-unit-price').textContent = result.unit_price_egp_kg.toFixed(2);
+    tr.querySelector('.f-total-kg').textContent = result.total_kg.toFixed(1);
+    tr.querySelector('.f-line-total').textContent = result.line_gross.toFixed(2);
+    grandTotal += result.line_gross;
+    const discInput = tr.querySelector('.f-discount');
+    if (result.discount_capped) {
+      anyCapped = true;
+      cappedMax = result.discount_cap_max;
+      discInput.style.outline = '2px solid #d97706';
+      discInput.title = `Discount capped at ${result.discount_cap_max}%`;
+    } else {
+      discInput.style.outline = '';
+      discInput.title = '';
+    }
+  }
+  const capNotice = document.getElementById('strapDiscountCapNotice');
+  if (anyCapped) {
+    capNotice.style.display = '';
+    capNotice.textContent = `⚠️ Max Discount allowed — PET Strap: ${cappedMax}%`;
+  } else {
+    capNotice.style.display = 'none';
+  }
+  return grandTotal;
+}
+
 async function recalcAll() {
   const rows = document.querySelectorAll('#linesBody tr');
   let grandTotal = 0;
@@ -294,6 +417,7 @@ async function recalcAll() {
       discInput.title = '';
     }
   }
+  grandTotal += await recalcStrapAll();
   document.getElementById('grandTotal').textContent = grandTotal.toFixed(2) + ' EGP';
 
   const capNotice = document.getElementById('discountCapNotice');
@@ -308,6 +432,7 @@ async function recalcAll() {
 }
 
 document.getElementById('addLineBtn').addEventListener('click', addLine);
+document.getElementById('addStrapLineBtn').addEventListener('click', addStrapLine);
 document.getElementById('calcBtn').addEventListener('click', recalcAll);
 ['customer_class', 'destination', 'payment_term', 'global_discount_pct'].forEach(id => {
   const el = document.getElementById(id);
@@ -331,6 +456,20 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
       custom_rolls_per_pallet: tr.querySelector('.f-rpp').value ? parseFloat(tr.querySelector('.f-rpp').value) : null,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    });
+  });
+  document.querySelectorAll('#strapLinesBody tr').forEach(tr => {
+    lines.push({
+      product_line: 'pet_strap',
+      recipe_key: tr.querySelector('.f-recipe').value,
+      width_mm: parseFloat(tr.querySelector('.f-width').value || 0),
+      thickness_mm: parseFloat(tr.querySelector('.f-thickness').value || 0),
+      meters_per_coil: parseFloat(tr.querySelector('.f-meters').value || 0),
+      core_weight_kg: parseFloat(tr.querySelector('.f-corewt').value || 0),
+      has_box: tr.querySelector('.f-box').checked,
+      has_pallet: tr.querySelector('.f-pallet').checked,
+      quantity_rolls: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     });
   });

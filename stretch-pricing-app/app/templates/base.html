@@ -95,7 +95,6 @@
           <button type="button" class="nav-link nav-dropdown-btn">Local &#9662;</button>
           <div class="nav-dropdown-menu">
             <a href="{{ url_for('local_pricing_page') }}">Local Pricing</a>
-            <a href="{{ url_for('local_strap_pricing_page') }}">Local Strap Pricing</a>
             <a href="{{ url_for('local_history') }}">Local Quotations</a>
             {% if current_user.role in ('admin', 'sub_admin') %}
             <span class="nav-dropdown-sep"></span>
