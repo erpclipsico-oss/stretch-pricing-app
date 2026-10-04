@@ -96,19 +96,26 @@ def _material_rate(conn, key, default=0.0):
     return row["value"] if row is not None and row["value"] is not None else default
 
 
-MARKET_MATERIAL_KEYS = ("c4", "exceed3518", "exceed3812", "exceedxp", "enable")
+MARKET_MATERIAL_KEYS = (
+    "c4", "exceed3518", "exceed3812", "exceedxp", "enable",
+    # v161 -- owner confirmed (2026-10-04 Arabic follow-up) these 4 are
+    # imported too, same as the original 5 -- see market_material_overrides()
+    # below.
+    "vista6000", "uvi", "ld", "vista",
+)
 
 
 def market_material_overrides(conn):
     """v159 -- owner-requested redesign of the v155 Actual/Market toggle
-    (2026-10-04 Arabic follow-up): each of the 5 imported resin grades the
-    owner named (C4, Exceed 3518, Exceed 3812, Exceed XP, Enable) now has
-    its OWN directly-editable Market price -- shown side by side with its
+    (2026-10-04 Arabic follow-up): each imported resin grade now has its
+    OWN directly-editable Market price -- shown side by side with its
     Actual price in the same Material Rates table row (material_rate rows
-    'market_c4'/'market_exceed3518'/'market_exceed3812'/'market_exceedxp'/
-    'market_enable') -- instead of only C4 and Exceed 3518 being editable
-    with the other three auto-derived via fixed +$100/+$190/+$50 deltas.
-    Every other raw material (Vista 6000, LD, Vista, UVI, all PET/PP
+    'market_c4'/'market_exceed3518'/etc.) -- instead of only C4 and Exceed
+    3518 being editable with the other three auto-derived via fixed
+    +$100/+$190/+$50 deltas. v161 -- owner confirmed Vista 6000, UVI, LD
+    and Vista are imported too (originally excluded by mistake, thinking
+    they were locally sourced), so all 9 resin grades in MARKET_MATERIAL_KEYS
+    now get their own Market price. Every other raw material (all PET/PP
     resins, all packaging) is intentionally absent from the returned dict,
     so _material_rate() falls through to its normal Actual-price lookup
     for them regardless of pricing_mode -- unchanged from v155."""

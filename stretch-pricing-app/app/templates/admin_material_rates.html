@@ -15,17 +15,20 @@
   <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">
     From the workbook's 'Material pricing' sheet. These are already in USD/ton and are used directly
-    (no exchange-rate conversion) in the material-composition cost for every product's BOM. The imported
-    grades also have their own Market price, independently editable, in the column next to Actual.
+    (no exchange-rate conversion) in the material-composition cost for every product's BOM. "Our Price" is
+    what the company actually prices with; "Market Price" is today's reference market price, kept here for
+    comparison and for the Market Pricing Mode below — each is independently editable per material.
+    This page (and both price columns) is only ever visible to Admin/Sub-admin — a plain sales rep never
+    sees it or either price.
   </p>
   <div class="price-note price-note-ok" style="margin-bottom:14px;">
     <div class="price-note-title">Default Pricing Mode (for sales reps)</div>
-    A plain sales rep's quotes always use this default — Actual or Market. Admin/sub_admin can still
-    preview either mode per-quote from the Pricing Mode dropdown on the Pricing page, regardless of this.
+    A plain sales rep's quotes always use this default — Our Price or Market Price. Admin/sub_admin can
+    still preview either mode per-quote from the Pricing Mode dropdown on the Pricing page, regardless of this.
     <div style="margin-top:8px;">
       <select name="default_pricing_mode" form="materialRatesForm">
-        <option value="actual" {% if default_pricing_mode == 'actual' %}selected{% endif %}>Actual Prices</option>
-        <option value="market" {% if default_pricing_mode == 'market' %}selected{% endif %}>Market Prices</option>
+        <option value="actual" {% if default_pricing_mode == 'actual' %}selected{% endif %}>Our Price (what we actually use)</option>
+        <option value="market" {% if default_pricing_mode == 'market' %}selected{% endif %}>Current Market Price</option>
       </select>
     </div>
   </div>
@@ -58,14 +61,23 @@
     .resin-price-table th.col-active { background:#c8e6c9; color:#1b5e20; }
     .resin-price-table td.col-active { background:#e8f5e9; }
     .resin-price-table td.col-active input { font-weight:600; border-color:#66bb6a; }
+    /* v162 -- owner said the old "Actual"/"Market" column headers weren't
+       clear about what each one means -- a 2-line header now spells it
+       out: the bold top line is the short name (kept short so the column
+       stays narrow), the small line under it says what it actually is. */
+    .resin-price-table th .col-sub { display:block; font-weight:400; text-transform:none; font-size:0.68rem; margin-top:2px; }
   </style>
   <form method="post" id="materialRatesForm">
     <table class="resin-price-table">
       <thead>
         <tr>
           <th>Material</th>
-          <th class="{{ 'col-active' if default_pricing_mode == 'actual' }}">Actual $/ton</th>
-          <th class="{{ 'col-active' if default_pricing_mode == 'market' }}">Market $/ton</th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'actual' }}">
+            Our Price<span class="col-sub">(Actual — what we use at the company)</span>
+          </th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'market' }}">
+            Market Price<span class="col-sub">(current price in the market today)</span>
+          </th>
         </tr>
       </thead>
       <tbody>

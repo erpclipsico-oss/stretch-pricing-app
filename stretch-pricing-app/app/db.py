@@ -563,6 +563,7 @@ def init_db():
     _seed_4_micron_power_v153(conn)
     _seed_local_system_v156(conn)
     _migrate_v159_market_prices(conn)
+    _migrate_v161_more_market_prices(conn)
     conn.close()
 
 
@@ -1501,6 +1502,42 @@ def _migrate_v159_market_prices(conn):
     conn.execute(
         "DELETE FROM global_setting WHERE key IN ('market_price_c4_usd_ton','market_price_exceed3518_usd_ton')"
     )
+    conn.commit()
+
+
+def _migrate_v161_more_market_prices(conn):
+    """v161 -- owner confirmed (2026-10-04 Arabic follow-up to v159/v160)
+    that Vista 6000, UVI, LD and Vista are imported too, same as the
+    original 5 (C4/Exceed 3518/Exceed 3812/Exceed XP/Enable) -- she'd only
+    excluded them from v159's Market columns on the assumption they were
+    locally sourced. Adds the same kind of directly-editable Market
+    material_rate row ('market_vista6000'/'market_uvi'/'market_ld'/
+    'market_vista') for each, starting out identical to its Actual price
+    (same spirit as v159's own defaults) so nothing changes for her until
+    she edits them. Gated on 'market_ld' not existing yet, so this is a
+    no-op after the first run."""
+    already_migrated = conn.execute(
+        "SELECT id FROM material_rate WHERE material_key='market_ld'"
+    ).fetchone()
+    if already_migrated:
+        return
+
+    def _actual_rate(key, default=0.0):
+        row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        return row["value"] if row is not None and row["value"] is not None else default
+
+    market_labels = {
+        "market_vista6000": "Vista 6000 (Market)",
+        "market_uvi": "UVI (Market)",
+        "market_ld": "LD (Market)",
+        "market_vista": "Vista (Market)",
+    }
+    for key, label in market_labels.items():
+        base_key = key[len("market_"):]
+        conn.execute(
+            "INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,'resin',NULL,?)",
+            (key, label, _actual_rate(base_key)),
+        )
     conn.commit()
 
 

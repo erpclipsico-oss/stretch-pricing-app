@@ -2581,17 +2581,32 @@ def create_app():
             flash("Material rates updated.", "success")
             return redirect(url_for("admin_material_rates"))
 
-        # v159 -- pair each of the 5 imported resins' Actual row with its
-        # new Market row (material_key 'market_<grade>') so the template
-        # can render them side by side in the same table row. Every other
-        # resin (Vista 6000, LD, Vista, UVI) has no Market row at all --
-        # they're not imported, so `market` stays None and the template
-        # shows a plain "-" there instead of an input.
+        # v159 -- pair each imported resin's Actual row with its new Market
+        # row (material_key 'market_<grade>') so the template can render
+        # them side by side in the same table row. v161 -- all 9 resin
+        # grades are imported (owner-confirmed), so every row now gets a
+        # Market column; RESIN_EXCEL_ORDER's absence would just mean a row
+        # sorts last, not that it's excluded.
+        # v161 -- owner asked the rows to appear in the same order as her
+        # own Material Pricing Excel sheet (not alphabetical by label,
+        # which is what 'ORDER BY label' gave -- C4/Enable/Exceed.../LD/
+        # UVI/Vista/Vista 6000). This is that sheet's row order, taken from
+        # the original seed data (data/cost_seed.json's material_rates
+        # list, which was transcribed from the workbook in that order).
+        RESIN_EXCEL_ORDER = (
+            "c4", "exceed3518", "exceed3812", "exceedxp", "vista6000",
+            "enable", "uvi", "ld", "vista",
+        )
         resin_rows = db.execute(
             "SELECT * FROM material_rate WHERE category='resin' AND material_key NOT LIKE 'pet_%' "
             "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' "
             "AND material_key NOT LIKE 'market_%' ORDER BY label"
         ).fetchall()
+        resin_rows = sorted(
+            resin_rows,
+            key=lambda r: RESIN_EXCEL_ORDER.index(r["material_key"])
+            if r["material_key"] in RESIN_EXCEL_ORDER else len(RESIN_EXCEL_ORDER),
+        )
         market_rows = {
             row["material_key"][len("market_"):]: row
             for row in db.execute(
