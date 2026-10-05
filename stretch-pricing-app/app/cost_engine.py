@@ -482,6 +482,7 @@ def pallet_component_total_usd(conn, packing_key):
 # roll_weight_kg>=25; any other packaging_group always applies regardless
 # of weight.
 _WEIGHT_GATED_PACKAGING_GROUPS = {"box_12m300"}
+_PACKAGING_GROUP_STEM = {"box_any": "box_12m300"}
 
 # v112 -- which pallet-size suffixes ('usd'/'eur') actually have seeded
 # pallet_component data for a given packaging_group. 'box_12m300' has both
@@ -545,10 +546,14 @@ def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_
     is_eur = "euro" in (pallet_size or "").lower()
     suffix = "eur" if is_eur else "usd"
     if packaging_group:
+        # v178 -- 'box_any': the SAME bag-then-box pallet_component bucket as
+        # 'box_12m300', but picked explicitly by the owner for a SKU (e.g. the
+        # 50kg jumbo) so it is NOT weight-gated like the legacy 12m/300% rule.
+        stem = _PACKAGING_GROUP_STEM.get(packaging_group, packaging_group)
         weight_gates_out = packaging_group in _WEIGHT_GATED_PACKAGING_GROUPS and (roll_weight_kg or 0) >= 25
-        suffix_available = suffix in _PACKAGING_GROUP_SUFFIXES.get(packaging_group, {"usd", "eur"})
+        suffix_available = suffix in _PACKAGING_GROUP_SUFFIXES.get(stem, {"usd", "eur"})
         if not weight_gates_out and suffix_available:
-            return f"{packaging_group}_{suffix}"
+            return f"{stem}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
         # v120 -- the sheet only has this "No Boxes" structure confirmed

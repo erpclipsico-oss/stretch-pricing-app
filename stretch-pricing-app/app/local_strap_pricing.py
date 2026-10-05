@@ -71,11 +71,42 @@ def _material_rate(conn, key):
 
 
 def get_recipes(conn):
-    """All 3 recipes (Local ▸ Strap Costing dropdown), in a stable order."""
+    """All recipes (PET first, then PP -- v179), in a stable order."""
     return conn.execute(
-        "SELECT * FROM local_strap_bom ORDER BY CASE recipe_key "
-        "WHEN 'green_auto' THEN 1 WHEN 'colors' THEN 2 WHEN 'green_manual' THEN 3 ELSE 4 END"
+        "SELECT * FROM local_strap_bom ORDER BY CASE line_key WHEN 'pet' THEN 1 ELSE 2 END, "
+        "CASE recipe_key WHEN 'green_auto' THEN 1 WHEN 'colors' THEN 2 WHEN 'green_manual' THEN 3 ELSE 4 END, id"
     ).fetchall()
+
+
+# v179 -- PP resin components: key -> (material_rate key, currency, extra
+# multiplier). Same structure as Export's strap_pricing.LINE_CONFIG['pp']
+# (5032 is USD/ton with the 1.035 scrap factor; the rest are EGP/ton).
+PP_COMPONENTS = {
+    "5032": ("local_strap_pp_5032", "usd", 1.035),
+    "coco3": ("local_strap_pp_coco3", "egp", 1.0),
+    "recycled_colored": ("local_strap_pp_recycled_colored", "egp", 1.0),
+    "recycled_pure": ("local_strap_pp_recycled_pure", "egp", 1.0),
+    "color": ("local_strap_pp_color", "egp", 1.0),
+}
+
+
+def pp_components(recipe):
+    import json
+    try:
+        return json.loads(recipe["components_json"] or "{}")
+    except Exception:
+        return {}
+
+
+def pp_meter_weight_g_per_m(width_mm, thickness_mm, components):
+    """Export PP's own density-weighted formula (strap_pricing.meter_weight_g_per_m)."""
+    if not (width_mm and thickness_mm):
+        return 0.0
+    coco3 = components.get("coco3", 0.0)
+    other = (components.get("5032", 0.0) + components.get("recycled_colored", 0.0)
+             + components.get("recycled_pure", 0.0))
+    density = coco3 * 1.5 + other * 0.9
+    return (width_mm - 0.2) * (thickness_mm * 0.7) * density
 
 
 def _get_recipe(conn, recipe_key):
@@ -115,37 +146,58 @@ def compute_local_strap_line(conn, recipe_key, width_mm, thickness_mm, meters_pe
     recipe = _get_recipe(conn, recipe_key)
     dollar_rate = _get_setting(conn, "local_strap_dollar_rate", 55)
 
-    gm_per_m = meter_weight_g_per_m(width_mm, thickness_mm)
+    is_pp = recipe["line_key"] == "pp"
+    if is_pp:
+        pp_comps = pp_components(recipe)
+        gm_per_m = pp_meter_weight_g_per_m(width_mm, thickness_mm, pp_comps)
+    else:
+        gm_per_m = meter_weight_g_per_m(width_mm, thickness_mm)
     roll_net_kg = (meters_per_coil or 0) * gm_per_m / 1000.0
     core_weight_kg = core_weight_kg or 0
     gross_weight_kg = roll_net_kg + core_weight_kg
 
-    # -- Material cost (BOM: PET + C4 + Color/Green-S66), her sheet's G:J --
-    pet_rate = _material_rate(conn, "local_strap_pet")       # EGP/ton, no FX
-    c4_rate_usd = _material_rate(conn, "local_strap_c4")      # USD/ton
-    c4_rate_egp = c4_rate_usd * dollar_rate
-    color_rate = _material_rate(conn, "local_strap_color")    # EGP/ton, no FX
-
-    pet_cost = roll_net_kg * (recipe["pet_frac"] or 0) * pet_rate / 1000.0
-    c4_cost = roll_net_kg * (recipe["c4_frac"] or 0) * c4_rate_egp / 1000.0 * 1.04
-    color_cost = roll_net_kg * (recipe["color_frac"] or 0) * color_rate / 1000.0
-    material_cost = _roundup2((pet_cost + c4_cost + color_cost) * (1 + (recipe["waste_pct"] or 0)))
-
-    # -- Electricity + Fixed Cost, her sheet's K:L --
-    electricity_per_ton = _get_setting(conn, "local_strap_electricity_per_ton_egp", 0)
-    electricity_cost = roll_net_kg * electricity_per_ton / 1000.0
-
-    if recipe["production_mode"] == "Manual":
-        fixed_cost_per_kg = _get_setting(conn, "local_strap_fixed_cost_per_kg_manual", 0)
+    if is_pp:
+        # -- v179 PP: same shape as Export PP (resin-mix BOM, + electricity,
+        # fixed and direct labor per ton), priced in EGP --
+        mat = 0.0
+        for comp_key, frac in pp_comps.items():
+            rate_key, currency, mult = PP_COMPONENTS[comp_key]
+            rate = _material_rate(conn, rate_key)
+            if currency == "usd":
+                rate = rate * dollar_rate
+            mat += roll_net_kg * frac * rate / 1000.0 * mult
+        material_cost = _roundup2(mat * (1 + (recipe["waste_pct"] or 0)))
+        electricity_cost = roll_net_kg * _get_setting(conn, "local_strap_pp_electricity_per_ton_egp", 0) / 1000.0
+        fixed_cost = (roll_net_kg * _get_setting(conn, "local_strap_pp_fixed_cost_per_ton_egp", 0) / 1000.0
+                      + roll_net_kg * _get_setting(conn, "local_strap_pp_direct_labor_per_ton_egp", 0) / 1000.0)
     else:
-        fixed_cost_per_kg = _get_setting(conn, "local_strap_fixed_cost_per_kg_auto", 0)
-    fixed_cost = roll_net_kg * fixed_cost_per_kg
+        # -- Material cost (BOM: PET + C4 + Color/Green-S66), her sheet's G:J --
+        pet_rate = _material_rate(conn, "local_strap_pet")       # EGP/ton, no FX
+        c4_rate_usd = _material_rate(conn, "local_strap_c4")      # USD/ton
+        c4_rate_egp = c4_rate_usd * dollar_rate
+        color_rate = _material_rate(conn, "local_strap_color")    # EGP/ton, no FX
+
+        pet_cost = roll_net_kg * (recipe["pet_frac"] or 0) * pet_rate / 1000.0
+        c4_cost = roll_net_kg * (recipe["c4_frac"] or 0) * c4_rate_egp / 1000.0 * 1.04
+        color_cost = roll_net_kg * (recipe["color_frac"] or 0) * color_rate / 1000.0
+        material_cost = _roundup2((pet_cost + c4_cost + color_cost) * (1 + (recipe["waste_pct"] or 0)))
+
+        # -- Electricity + Fixed Cost, her sheet's K:L --
+        electricity_per_ton = _get_setting(conn, "local_strap_electricity_per_ton_egp", 0)
+        electricity_cost = roll_net_kg * electricity_per_ton / 1000.0
+
+        if recipe["production_mode"] == "Manual":
+            fixed_cost_per_kg = _get_setting(conn, "local_strap_fixed_cost_per_kg_manual", 0)
+        else:
+            fixed_cost_per_kg = _get_setting(conn, "local_strap_fixed_cost_per_kg_auto", 0)
+        fixed_cost = roll_net_kg * fixed_cost_per_kg
+
 
     ex_work_roll = material_cost + electricity_cost + fixed_cost
 
     # -- Coil price: Ex-Work with profit margin + core raw material, her
     # sheet's X4 --
-    core_rate_egp = _material_rate(conn, "local_strap_core")
+    core_rate_egp = _material_rate(conn, "local_strap_pp_core" if is_pp else "local_strap_core")
     coil_price = ex_work_roll * (1 + (recipe["profit_pct"] or 0)) + core_weight_kg * core_rate_egp * (1 + CORE_FACTOR)
 
     # -- Packaging add-ons (Jwan/Stretch/Box/Cardboard/Pallet), her sheet's
@@ -216,6 +268,7 @@ def compute_local_strap_line(conn, recipe_key, width_mm, thickness_mm, meters_pe
 
     return {
         "recipe_label": recipe["label"] if recipe else "-",
+        "line_key": recipe["line_key"] if recipe else "pet",
         "gm_per_m": gm_per_m,
         "roll_net_kg": roll_net_kg,
         "gross_weight_kg": gross_weight_kg,

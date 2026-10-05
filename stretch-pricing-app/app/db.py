@@ -626,6 +626,8 @@ def init_db():
     _seed_local_discount_cap_categories_v170(conn)
     _fix_local_independent_costing_v170_1(conn)
     _seed_local_strap_system_v173(conn)
+    _seed_local_pp_strap_v179(conn)
+    _seed_12micron_300_jumbo_v176(conn)
     conn.close()
 
 
@@ -2271,6 +2273,48 @@ def _seed_local_strap_system_v173(conn):
                    VALUES (?,?,?,?,?,?,?,?,?)""",
                 (line_key, recipe_key, label, mode, pet_frac, c4_frac, color_frac, profit, waste),
             )
+    conn.commit()
+
+
+def _seed_12micron_300_jumbo_v176(conn):
+    """v176 -- owner-requested: a catalog SKU for 12-micron 300% (Power plus)
+    at the 50kg jumbo roll weight (the existing 12m/300% SKU is 16kg only).
+    Roll specs (16 rolls/pallet, 1.8kg core, Standard pallet, Automatic,
+    Transparent) are identical to every other 50kg jumbo SKU already in the
+    catalog; its recipe is the existing bom_row/local_bom_row jumbo tier for
+    multiplier 3.0 / 12 micron, which already existed (BOM is keyed by
+    multiplier+micron+tier, not by SKU). Idempotent. Export `product` only (v177: not in Local)."""
+    from . import cost_engine
+    ability, micron = "300% (Power plus)", "12"
+    exists = conn.execute(
+        "SELECT 1 FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=50", (ability, micron)
+    ).fetchone()
+    if not exists:
+        conn.execute(
+            """INSERT INTO product
+               (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
+                roll_weight_kg, core_weight_kg, ex_work_usd_kg)
+               VALUES (?,?,?,?,?,?,?,?,0)""",
+            (ability, micron, "Standard", "Automatic", "Transparent", 16, 50, 1.8),
+        )
+        row = conn.execute(
+            "SELECT * FROM product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=50", (ability, micron)
+        ).fetchone()
+        conn.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?",
+                     (cost_engine.compute_ex_work_usd_kg(conn, row), row["id"]))
+    # v177 -- this SKU is an EXPORT-only product (owner correction), so the
+    # Local catalog must not carry it. v176 had added it there; remove that
+    # row on already-deployed DBs, but only if no saved Local quotation line
+    # references it (never break saved history).
+    row = conn.execute(
+        "SELECT id FROM local_product WHERE stretch_ability=? AND micron=? AND roll_weight_kg=50", (ability, micron)
+    ).fetchone()
+    if row:
+        used = conn.execute(
+            "SELECT 1 FROM local_quotation_line WHERE product_id=? LIMIT 1", (row["id"],)
+        ).fetchone()
+        if not used:
+            conn.execute("DELETE FROM local_product WHERE id=?", (row["id"],))
     conn.commit()
 
 
@@ -4298,4 +4342,62 @@ def _seed_strap_stuffing_config_v124(conn):
                      10, 20,
                      STRAP_STUFFING_CONFIG_SEED_MAX_ROLL_WEIGHT_KG[line_key]),
                 )
+    conn.commit()
+
+
+def _seed_local_pp_strap_v179(conn):
+    """v179 -- owner-requested ("اعمل انت لل PP زي ما انت عامل للتصدير"): Local
+    Market PP Strap, built the same way Export's PP Strap is (strap_pricing.py:
+    resin-mix BOM as JSON components, density-weighted g/m, electricity +
+    fixed + direct-labor per ton) but priced in EGP with Local's own
+    EX-Work + transport structure (local_strap_pricing.py). No PP_Local
+    workbook exists yet, so every starting number below is COPIED from the
+    Export PP seed (STRAP_BOM_SEED / STRAP_LINE_CONFIG_SEED / PP material
+    rates) -- all editable in Local > Local Strap Costing. Independent
+    local_strap_pp_* rows; Export PP is not touched. Idempotent."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(local_strap_bom)").fetchall()}
+    if "components_json" not in cols:
+        conn.execute("ALTER TABLE local_strap_bom ADD COLUMN components_json TEXT")
+    rates = [
+        ("local_strap_pp_5032", "PP: 5032 PP (USD/ton)", "resin", "ton", 1375),
+        ("local_strap_pp_coco3", "PP: COCO3 (EGP/ton)", "resin", "ton", 23000),
+        ("local_strap_pp_recycled_colored", "PP: Recycled Colored PP (EGP/ton)", "resin", "ton", 36500),
+        ("local_strap_pp_recycled_pure", "PP: Recycled Pure PP (EGP/ton)", "resin", "ton", 32000),
+        ("local_strap_pp_color", "PP: Color (EGP/ton)", "resin", "ton", 172500),
+        ("local_strap_pp_core", "PP: Core", "packaging", "kilo", 42),
+    ]
+    for key, label, cat, unit, value in rates:
+        if not conn.execute("SELECT 1 FROM material_rate WHERE material_key=?", (key,)).fetchone():
+            conn.execute("INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+                         (key, label, cat, unit, value))
+    settings = [
+        ("local_strap_pp_electricity_per_ton_egp", "Local PP Strap - Electricity (EGP/ton)", 4937.625783806608,
+         "Copied from Export PP's electricity figure until a PP_Local workbook is available."),
+        ("local_strap_pp_fixed_cost_per_ton_egp", "Local PP Strap - Fixed Cost (EGP/ton)", 5627.2592620600435,
+         "Copied from Export PP's fixed cost (EGP/ton)."),
+        ("local_strap_pp_direct_labor_per_ton_egp", "Local PP Strap - Direct Labor (EGP/ton)", 1061.3064583333335,
+         "Copied from Export PP's direct labor (EGP/ton)."),
+    ]
+    for key, label, value, help_text in settings:
+        if not conn.execute("SELECT 1 FROM global_setting WHERE key=?", (key,)).fetchone():
+            conn.execute("INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+                         (key, label, value, help_text))
+    import json as _json
+    recipes = [
+        ("pp_pure_white", "PP - Pure White", 0.12, 0.04, {"5032": 0.97, "coco3": 0.03}),
+        ("pp_pure_color", "PP - Pure Colored", 0.12, 0.08, {"5032": 0.955, "color": 0.045}),
+        ("pp_recycled_pure_white", "PP - Recycled Pure White", 0.16, 0.04,
+         {"5032": 0.5, "recycled_pure": 0.45, "coco3": 0.05}),
+        ("pp_recycled_color", "PP - Recycled Colored", 0.20, 0.08, {"recycled_colored": 0.99, "color": 0.01}),
+        ("pp_recycled_pure_colors", "PP - Recycled Pure Colored", 0.16, 0.08,
+         {"5032": 0.5, "recycled_pure": 0.45, "color": 0.05}),
+    ]
+    for key, label, profit, waste, comps in recipes:
+        if not conn.execute("SELECT 1 FROM local_strap_bom WHERE recipe_key=?", (key,)).fetchone():
+            conn.execute(
+                """INSERT INTO local_strap_bom (line_key, recipe_key, label, production_mode, profit_pct, waste_pct,
+                                                components_json)
+                   VALUES ('pp', ?, ?, 'Automatic', ?, ?, ?)""",
+                (key, label, profit, waste, _json.dumps(comps)),
+            )
     conn.commit()

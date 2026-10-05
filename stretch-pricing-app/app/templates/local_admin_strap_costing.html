@@ -3,7 +3,7 @@
 {% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 <div class="price-note price-note-ok">
-  <div class="price-note-title">Local Pricing System - PET Strap (v173)</div>
+  <div class="price-note-title">Local Pricing System - PET &amp; PP Strap (v173/v179)</div>
   These are Local Market's OWN PET Strap prices/margins, transcribed from the owner's own
   PET_Local_pricing_1.14 workbook, completely independent from Export's PET/PP Strap Costing
   and from Local's own Stretch Film costing. Nothing below is read by either of those.
@@ -70,6 +70,27 @@
         <td><input type="number" step="any" name="bom_{{ r.id }}_pet_frac" value="{{ r.pet_frac }}" style="width:80px;"></td>
         <td><input type="number" step="any" name="bom_{{ r.id }}_c4_frac" value="{{ r.c4_frac }}" style="width:80px;"></td>
         <td><input type="number" step="any" name="bom_{{ r.id }}_color_frac" value="{{ r.color_frac }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_profit_pct" value="{{ r.profit_pct }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="bom_{{ r.id }}_waste_pct" value="{{ r.waste_pct }}" style="width:80px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>PP Strap BOM recipes (resin mix, profit %, waste %)</h2></div>
+    <p class="hint">v179 -- Local PP Strap follows Export PP's structure (resin mix by component; g/m weighted by resin density).
+      Starting values were copied from Export PP and can be edited here; set a component to 0 to drop it. 5032 PP is priced in USD/ton, the rest EGP/ton.</p>
+    <table class="admin-table">
+      <thead><tr><th>Recipe</th>{% for c in pp_components %}<th>{{ c }}</th>{% endfor %}<th>Profit %</th><th>Waste %</th></tr></thead>
+      <tbody>
+      {% for r in pp_rows %}
+      <tr>
+        <td>{{ r.label }}</td>
+        {% for c in pp_components %}
+        <td><input type="number" step="any" name="ppbom_{{ r.id }}_{{ c }}" value="{{ r.comps.get(c, 0) }}" style="width:80px;"></td>
+        {% endfor %}
         <td><input type="number" step="any" name="bom_{{ r.id }}_profit_pct" value="{{ r.profit_pct }}" style="width:80px;"></td>
         <td><input type="number" step="any" name="bom_{{ r.id }}_waste_pct" value="{{ r.waste_pct }}" style="width:80px;"></td>
       </tr>

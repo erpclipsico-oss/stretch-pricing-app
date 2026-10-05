@@ -95,7 +95,7 @@
        separate "Local Strap Pricing" page (v173's original, now folded in
        here). PP Strap isn't in this dropdown yet -- no PP_Local_pricing
        workbook received from the owner yet, see STRAP_RECIPES below. -->
-  <h3 style="margin-top:28px;">Strap lines (PET)</h3>
+  <h3 style="margin-top:28px;">Strap lines (PET / PP)</h3>
   <table class="lines-table lines-table-compact" id="strapLinesTable">
     <thead>
       <tr>
@@ -306,7 +306,9 @@ async function calcLine(tr) {
 // v174 -- PET Strap lines, same table on the same quotation page (see this
 // template's v174 comment near the Strap lines <table> above).
 function buildStrapRecipeOptions() {
-  return STRAP_RECIPES.map(r => `<option value="${r.recipe_key}">${r.label}</option>`).join('');
+  const opt = r => `<option value="${r.recipe_key}">${r.label}</option>`;
+  return '<optgroup label="PET Strap">' + STRAP_RECIPES.filter(r => r.line_key !== 'pp').map(opt).join('') + '</optgroup>' +
+         '<optgroup label="PP Strap">' + STRAP_RECIPES.filter(r => r.line_key === 'pp').map(opt).join('') + '</optgroup>';
 }
 let strapLineCounter = 0;
 function addStrapLine() {
@@ -386,7 +388,7 @@ async function recalcStrapAll() {
   const capNotice = document.getElementById('strapDiscountCapNotice');
   if (anyCapped) {
     capNotice.style.display = '';
-    capNotice.textContent = `⚠️ Max Discount allowed — PET Strap: ${cappedMax}%`;
+    capNotice.textContent = `⚠️ Max Discount allowed — Strap: ${cappedMax}%`;
   } else {
     capNotice.style.display = 'none';
   }

@@ -2256,7 +2256,10 @@ def create_app():
                     "SELECT label FROM local_strap_bom WHERE recipe_key=?", (l["strap_recipe_key"],)
                 ).fetchone()
                 recipe_label = recipe["label"] if recipe else l["strap_recipe_key"]
-                label = f"PET Strap {l['strap_width_mm']:g}x{l['strap_thickness_mm']:g}mm – {recipe_label}"
+                _rl = db.execute("SELECT line_key FROM local_strap_bom WHERE recipe_key=?",
+                                 (l["strap_recipe_key"],)).fetchone()
+                _line_name = "PP Strap" if (_rl and _rl["line_key"] == "pp") else "PET Strap"
+                label = f"{_line_name} {l['strap_width_mm']:g}x{l['strap_thickness_mm']:g}mm – {recipe_label}"
                 quantity_display = l["strap_quantity_rolls"]
                 rolls_per_pallet_display = None
             else:
@@ -2416,12 +2419,23 @@ def create_app():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
                     db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
-            for row in db.execute("SELECT id FROM local_strap_bom").fetchall():
+            for row in db.execute("SELECT id, line_key, components_json FROM local_strap_bom").fetchall():
                 rid = row["id"]
                 for field in ("pet_frac", "c4_frac", "color_frac", "profit_pct", "waste_pct"):
                     val = request.form.get(f"bom_{rid}_{field}")
                     if val is not None and val != "":
                         db.execute(f"UPDATE local_strap_bom SET {field}=? WHERE id=?", (float(val), rid))
+                if row["line_key"] == "pp":
+                    # v179 -- PP recipes: resin-mix components (JSON, like Export's strap_bom)
+                    import json as _json
+                    comps = _json.loads(row["components_json"] or "{}")
+                    for comp in local_strap_pricing.PP_COMPONENTS:
+                        val = request.form.get(f"ppbom_{rid}_{comp}")
+                        if val is not None and val != "":
+                            comps[comp] = float(val)
+                    comps = {k: v for k, v in comps.items() if v}
+                    db.execute("UPDATE local_strap_bom SET components_json=? WHERE id=?",
+                               (_json.dumps(comps), rid))
             db.commit()
             flash("Local Strap Costing updated.", "success")
             return redirect(url_for("local_admin_strap_costing"))
@@ -2436,9 +2450,12 @@ def create_app():
             "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_strap_%' "
             "ORDER BY label"
         ).fetchall()
-        bom_rows = local_strap_pricing.get_recipes(db)
+        all_rows = local_strap_pricing.get_recipes(db)
+        bom_rows = [r for r in all_rows if r["line_key"] != "pp"]
+        pp_rows = [dict(r, comps=local_strap_pricing.pp_components(r)) for r in all_rows if r["line_key"] == "pp"]
         return render_template(
-            "local_admin_strap_costing.html", settings=settings, resin=resin, packaging=packaging, bom_rows=bom_rows
+            "local_admin_strap_costing.html", settings=settings, resin=resin, packaging=packaging,
+            bom_rows=bom_rows, pp_rows=pp_rows, pp_components=list(local_strap_pricing.PP_COMPONENTS)
         )
 
     # ---------- Local BOM (admin/sub_admin) ----------
@@ -2613,8 +2630,9 @@ def create_app():
                 db.execute(
                     """INSERT INTO product
                        (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
-                        roll_weight_kg, core_weight_kg, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        roll_weight_kg, core_weight_kg, width_mm, packaging_group,
+                        ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         request.form.get("stretch_ability", "").strip(),
                         request.form.get("micron", "").strip(),
@@ -2624,15 +2642,24 @@ def create_app():
                         float(request.form.get("rolls_per_pallet") or 0),
                         float(request.form.get("roll_weight_kg") or 0),
                         float(request.form.get("core_weight_kg") or 0),
+                        float(request.form.get("width_mm") or 0) or None,
+                        request.form.get("packaging_group", "").strip() or None,
                         float(request.form.get("ex_work_usd_kg") or 0),
                         float(request.form.get("fob_usd_kg") or 0) or None,
                         float(request.form.get("cfr_usd_kg") or 0) or None,
                     ),
                 )
+                # v178 -- EX-Work left blank/0 => computed from the cost
+                # engine (BOM, core, packaging...) like every other SKU.
+                new_row = db.execute("SELECT * FROM product WHERE id=last_insert_rowid()").fetchone()
+                if not float(request.form.get("ex_work_usd_kg") or 0):
+                    db.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?",
+                               (cost_engine.compute_ex_work_usd_kg(db, new_row), new_row["id"]))
                 db.commit()
                 flash("Product added.", "success")
             else:
                 pid = request.form.get("product_id")
+                _ew = float(request.form.get("ex_work_usd_kg") or 0)
                 db.execute(
                     """UPDATE product SET stretch_ability=?, micron=?, rolls_per_pallet=?, roll_weight_kg=?,
                        core_weight_kg=?, width_mm=?, packaging_group=?, ex_work_usd_kg=?, fob_usd_kg=?,
@@ -2651,6 +2678,10 @@ def create_app():
                         pid,
                     ),
                 )
+                if not _ew:  # v178 -- blank/0 EX-Work => recompute from cost engine
+                    row = db.execute("SELECT * FROM product WHERE id=?", (pid,)).fetchone()
+                    db.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?",
+                               (cost_engine.compute_ex_work_usd_kg(db, row), pid))
                 db.commit()
                 flash("Product updated.", "success")
             return redirect(url_for("admin_products"))
