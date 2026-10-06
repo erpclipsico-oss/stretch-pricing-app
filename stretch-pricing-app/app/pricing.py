@@ -94,7 +94,8 @@ def _discounted_factor(factor, discount_pct):
 def unit_price_for(db, product, country_class, customer_class, roll_size="standard", price_adjustment_usd_kg=0,
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
                     colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0,
-                    round_result=True, credit_term=False):
+                    round_result=True, credit_term=False, exclude_pallet_from_packaging=False,
+                    convert_to_net_basis=False, box_packaging=True, margin_pct_override=None, slippery=False):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -149,14 +150,59 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
     its source SKU's own price) -- and because it flows into the raw,
     unrounded price returned when round_result=False, it's already baked
     into the EX-Work base that FOB/CIF get built from in app.py, so both
-    end up including it, the same as Strap's FOB/CFR both do."""
-    factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
-                                         rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
-    factor = _discounted_factor(factor, discount_pct)
+    end up including it, the same as Strap's FOB/CFR both do.
+
+    margin_pct_override (v136): owner-requested "what price gives me what
+    margin" tool (Admin/Pricing screen -- Arabic: "تسيبلي جمبه خانة فاضية
+    اكتبلك فيها سعر تطلعلي ان السعر دا حيكون الفاكتور مثلاً 14% او 9%").
+    When given (a plain fraction, e.g. 0.0 or 1.0 -- NOT a percent), this
+    REPLACES the normal cost_engine.margin_pct_for() lookup + the discount-
+    pct reduction (_discounted_factor()) entirely -- used only to probe two
+    reference prices (at 0% and 100% margin) so app.py can hand the client
+    two points on the price-vs-margin line for it to invert instantly for
+    any price the rep types in, without a further round trip. None (the
+    default) leaves normal pricing completely untouched."""
+    # v153 -- a product whose price is a straight multiple of ANOTHER
+    # product's own finished sales price (product.price_source_product_id/
+    # price_multiplier -- see db.py's matching v153 migration comment for
+    # why). Short-circuits everything below: recurses into this SAME
+    # function for the source product with these SAME line-level args
+    # (so Color/UV/discount/credit-term/hidden-markup/pallet-type all still
+    # apply exactly as if the rep had quoted the source product directly),
+    # then scales the result by the multiplier. margin_pct_override (the
+    # Admin/Pricing margin-probe tool) is intentionally NOT forwarded here
+    # -- a derived product has no BOM/margin-factor of its own to probe.
+    if product["price_source_product_id"] if "price_source_product_id" in product.keys() else None:
+        source = db.execute(
+            "SELECT * FROM product WHERE id=?", (product["price_source_product_id"],)
+        ).fetchone()
+        multiplier = product["price_multiplier"] or 1.0
+        if source is None:
+            return 0.0
+        source_price = unit_price_for(
+            db, source, country_class, customer_class, roll_size=roll_size,
+            price_adjustment_usd_kg=price_adjustment_usd_kg, pallet_type=pallet_type,
+            rolls_per_pallet_override=rolls_per_pallet_override, seller_type=seller_type,
+            apply_extras=apply_extras, colored=colored, discount_pct=discount_pct, uv_type=uv_type,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            round_result=False, credit_term=credit_term,
+            exclude_pallet_from_packaging=exclude_pallet_from_packaging,
+            convert_to_net_basis=convert_to_net_basis, box_packaging=box_packaging, slippery=slippery,
+        )
+        price = source_price * multiplier
+        return cost_engine.round_half_up(price, 2) if round_result else price
+    if margin_pct_override is not None:
+        factor = margin_pct_override
+    else:
+        factor = cost_engine.margin_pct_for(db, product, pallet_type=pallet_type,
+                                             rolls_per_pallet_override=rolls_per_pallet_override, uv_type=uv_type)
+        factor = _discounted_factor(factor, discount_pct)
     uv_fraction = cost_engine.UVI_FRACTION if uv_type else 0.0
     ex_work = cost_engine.compute_ex_work_usd_kg(db, product, pallet_type=pallet_type,
                                                   rolls_per_pallet_override=rolls_per_pallet_override,
-                                                  uv_fraction=uv_fraction)
+                                                  uv_fraction=uv_fraction,
+                                                  exclude_pallet_from_packaging=exclude_pallet_from_packaging,
+                                                  box_packaging=box_packaging, slippery=slippery)
     base = ex_work * (1 + factor)
     if apply_extras:
         base += cost_engine.color_extra_usd_kg(db, colored)
@@ -165,6 +211,23 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
         price *= cost_engine.foreign_seller_extra_multiplier(db, seller_type)
         price = cost_engine.apply_hidden_markup(price, hidden_markup_mode, hidden_markup_value)
         price += cost_engine.credit_term_extra_usd_kg(db, credit_term)
+    # v117 -- convert_to_net_basis: Pre-Stretch's source-material row
+    # (Stretch's "*J-pre" rows, e.g. row 40) finishes with a
+    # *(H<row>/J<row>) multiplier -- the SAME gross-roll-weight/net-
+    # (plastic-)weight ratio conversion compute_line()'s own 'net'
+    # pricing_basis already applies elsewhere in this app (see
+    # compute_line()'s docstring: "take the confirmed-correct Gross $/KG,
+    # then re-divide the SAME total dollar amount by the NET... roll
+    # weight"). Confirmed identical in effect: H<row>/J<row> is exactly
+    # gross_roll_weight/net_roll_weight for that source row's OWN catalog
+    # roll spec (never the consuming Pre-Stretch line's own roll spec).
+    # Used only by pricing.prestretch_cost_components()'s source-price
+    # lookup; every normal call leaves this False.
+    if convert_to_net_basis:
+        gross = product["roll_weight_kg"] or 0
+        net = max(gross - (product["core_weight_kg"] or 0), 0)
+        if net > 0:
+            price = price * gross / net
     return cost_engine.round_half_up(price, 2) if round_result else price
 
 
@@ -172,8 +235,16 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                   price_adjustment_usd_kg=0, pallet_type=None, pricing_basis="per_kg",
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
                   seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
-                  hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False):
+                  hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False,
+                  box_packaging=True, margin_pct_override=None, slippery=False):
     """Returns (unit_price_usd_kg, total_kg).
+
+    box_packaging (v120): this line's own "Box" checkbox -- True (default)
+    prices Manual packing into a box (unchanged); False prices it as every-
+    6-rolls-stretch-wrapped-without-a-box instead (owner-confirmed, reusing
+    the sheet's own Pre-Stretch "No Boxes" packaging structure -- see
+    cost_engine._pallet_key_for()'s matching v120 comment). No effect on
+    Automatic lines (no box/no-box choice applies there).
 
     pricing_basis:
     v46 -- for every regular (non-Pre-Stretch) product, 'per_kg' and
@@ -213,7 +284,8 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  seller_type=seller_type, colored=colored, discount_pct=discount_pct,
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
                                  hidden_markup_value=hidden_markup_value, round_result=round_result,
-                                 credit_term=credit_term)
+                                 credit_term=credit_term, box_packaging=box_packaging,
+                                 margin_pct_override=margin_pct_override, slippery=slippery)
     # v46: the confirmed-correct, sheet-matching GROSS weight -- see this
     # function's docstring.
     gross_roll_weight = effective["roll_weight_kg"] or 0
@@ -225,8 +297,40 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     # now applied to every regular product too when 'net' (a $/Roll view)
     # or 'net_per_kg' (a plain $/KG view -- v100) is selected; both mean
     # the same underlying Net $/KG, just displayed differently upstream.
-    if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0:
-        unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
+    # v107 -- this used to round_half_up(..., 2) unconditionally, even when
+    # round_result=False, which broke the "raw, unrounded" contract the
+    # caller relies on for unit_price_usd_kg_raw.
+    #
+    # v110 -- v107 only half-fixed it. The owner reported the Net FOB $/KG
+    # still didn't match her reference (render showed $1.74-1.75, reference
+    # showed $1.76, for 23mic/150%Standard/16kg/46rpp) -- traced it to the
+    # ORDER of operations, not just rounding: FOB must be built from the
+    # GROSS raw price plus the FOB addon (that's what ROUNDUP()s to the
+    # sheet-confirmed Gross FOB, Stretch!AO), and ONLY THEN, as the very
+    # last step, re-divided over the net weight for a Net-basis display --
+    # exactly the same order the app already uses for Pre-Stretch and for
+    # this same function's own EX-Work Net figure (Gross computed+rounded
+    # first, THEN net-converted). What v107 left in place instead net-
+    # converted the RAW price BEFORE the FOB addon was ever added, so the
+    # ROUNDUP() at the end was rounding a net-scaled number one full addon-
+    # step below where it should have started, coming up a cent short.
+    # Confirmed: rebuilding FOB as round(sheet-matching Gross FOB * gross_
+    # roll_weight / net_roll_weight, 2) gives exactly $1.76 for the owner's
+    # example. Fix: round_result=False (the "raw" call FOB is built from)
+    # now returns the PURE GROSS raw price, completely untouched by
+    # pricing_basis -- callers building FOB/CIF must add the addon and
+    # ROUNDUP in gross terms first, then apply this SAME net_roll_weight/
+    # gross_roll_weight ratio themselves as the final step (see app.py's
+    # api_calculate_line and pricing.html's per-line FOB/CIF block, and
+    # app.py's load_quotation()/build_pdf()/build_xlsx() for the saved-
+    # quotation view, all updated to match). round_result=True (the plain
+    # EX-Work $/KG shown in the table) keeps converting-then-rounding here,
+    # since that's just Gross EX-Work (already rounded) re-divided by net
+    # weight -- unaffected by this fix, confirmed unchanged in testing.
+    if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0 and round_result:
+        unit_price = unit_price * gross_roll_weight / net_roll_weight
+        if round_result:
+            unit_price = cost_engine.round_half_up(unit_price, 2)
         roll_weight = net_roll_weight
     else:
         roll_weight = gross_roll_weight
@@ -250,7 +354,8 @@ def is_prestretch(product):
     return bool(product["is_prestretch"]) if "is_prestretch" in product.keys() else False
 
 
-def prestretch_cost_components(db, product, roll_weight_kg, core_weight_kg, country_class, customer_class):
+def prestretch_cost_components(db, product, roll_weight_kg, core_weight_kg, country_class, customer_class,
+                                slippery=False, uv=False):
     """The three of Stretch!AG79's four addends that don't depend on
     Rolls/Pallet: T79 (material, from the source SKU's sales price),
     AC79 (core) and AF79 (conversion cost). Returns
@@ -270,10 +375,41 @@ def prestretch_cost_components(db, product, roll_weight_kg, core_weight_kg, coun
         ).fetchone()
 
     # T79 = AI<source row> * J79 -- the source SKU's own finished, margin-
-    # inclusive sales price per KG (i.e. unit_price_for(), not the raw
-    # EX-Work cost), times this line's entered net (plastic) weight.
+    # inclusive sales price per KG, times this line's entered net (plastic)
+    # weight. AI<source row> is NOT the source SKU's plain/normal sales
+    # price (Stretch row 39-style) -- the sheet prices it on a DEDICATED
+    # "*J-pre" row (e.g. row 40) with two confirmed real differences from
+    # the plain row (found by diffing every formula column of the plain vs
+    # J-pre rows side by side against the reference H1.36 sheet):
+    #   1) packaging cost excludes the source roll's own pallet-component
+    #      line item (exclude_pallet_from_packaging=True -- see
+    #      cost_engine.packaging_cost_per_roll_usd_excl_pallet()'s
+    #      docstring for the business reason: this jumbo roll never ships
+    #      on its own sales pallet, it feeds straight into the Pre-Stretch
+    #      rewinding line).
+    #   2) the result is converted from the source's own gross-roll-weight
+    #      basis to its own net-(plastic-)weight basis before being reused
+    #      here (convert_to_net_basis=True -- the sheet's own
+    #      *(H<row>/J<row>) multiplier, using the SOURCE SKU's catalog roll
+    #      weight/core weight, e.g. 50kg/1.8kg -- never this Pre-Stretch
+    #      line's own entered roll/core weight, which is applied separately
+    #      by the *net_weight below).
+    # Verified this pattern (both differences) is identical across all 7 of
+    # the sheet's Pre-Stretch source rows (40, 49, 27, 29, 31, 32, 35).
+    # apply_extras=False (unchanged): a Pre-Stretch quote's own Color/
+    # Foreign-seller/hidden-markup/credit-term extras must never be pulled
+    # in a second time from the source SKU's own price lookup -- those are
+    # applied once, on Pre-Stretch's own finished price, in
+    # prestretch_unit_price_for(). round_result=False (unchanged in spirit
+    # -- the sheet's AI<source row> is never rounded before feeding into
+    # T<row>): keeps full precision through this internal lookup, exactly
+    # matching the sheet's own unrounded formula chain.
     source_sales_price = unit_price_for(db, source, country_class, customer_class,
-                                         apply_extras=False) if source else 0.0
+                                         apply_extras=False, exclude_pallet_from_packaging=True,
+                                         convert_to_net_basis=True, round_result=False,
+                                         slippery=slippery,
+                                         uv_type=(cost_engine.uv_type_for_product(source["stretch_ability"])
+                                                  if (uv and source) else None)) if source else 0.0
     material_cost = source_sales_price * net_weight  # T79
 
     # AC79 = I79 * (Core-prestretch rate EGP/kg / 'Material pricing'!F2)
@@ -281,21 +417,26 @@ def prestretch_cost_components(db, product, roll_weight_kg, core_weight_kg, coun
     core_rate = cost_engine._material_rate(db, "core_prestretch")
     core_cost = core_weight * (core_rate / dollar_rate) if dollar_rate else 0.0  # AC79
 
-    # AF79: conversion cost ("Depreciation + D.labor + Machine Power"),
-    # reusing the same mechanism as every other product. Pre-Stretch's own
-    # Stretch-Ability text ("Pre-Stretch") matches none of the power/regid
-    # keywords cost_engine.roll_type_bucket() looks for, so it already
-    # resolves to the Standard ("St") bucket -- kept as the documented,
-    # deliberate choice (Pre-Stretch is a converting/rewinding step off the
-    # Standard-bucket line, not its own extrusion process). Looked up by
-    # this Pre-Stretch SKU's own micron (5/6/7/8/9/10/12); for microns with
-    # no direct Electricity-sheet data point (5/6/7), the existing nearest-
-    # micron fallback is used, same as any other under-specified micron
-    # elsewhere in this app -- see COST_ENGINE.md.
-    roll_type = cost_engine.roll_type_bucket(product["stretch_ability"])
-    micron = float(product["micron"]) if product["micron"] not in (None, "") else 0
-    conv_usd_per_ton = cost_engine.conversion_cost_usd_per_ton(db, micron, roll_type)
-    other_costs = net_weight * conv_usd_per_ton / 1000  # AF79 (no width factor: Pre-Stretch has no Width field)
+    # AF79: conversion cost ("Depreciation + D.labor + Machine Power").
+    # v117 -- CORRECTED: this used to look up a real conversion-cost rate
+    # here (same mechanism as every other product's own AF). Checked
+    # directly against the H1.36 sheet's actual Stretch!AF column for
+    # every one of the 7 Pre-Stretch rows (118-124), across every version
+    # of the reference sheet the owner has sent (including today's
+    # LibreOffice-recalculated test with real entered values): AF is
+    # completely BLANK -- no formula at all, not even a zero-valued one --
+    # for every Pre-Stretch row, in every version. So the sheet never
+    # charges Pre-Stretch its own separate conversion cost at all -- makes
+    # business sense given the rest of this function's own design: the
+    # conversion cost of actually extruding/converting the plastic is
+    # already baked into the SOURCE jumbo roll's own finished sales price
+    # (material_cost/T79 above, via that source SKU's own AF), so charging
+    # it a second time here would double-count it. The old non-zero
+    # lookup was a plausible-looking but unverified assumption that turned
+    # out to be a real, measurable overcharge (e.g. ~$0.31/roll extra on a
+    # 12-micron/2kg-roll Pre-Stretch line) once actually checked against
+    # the sheet with real numbers.
+    other_costs = 0.0  # AF79 -- always 0, confirmed blank in the sheet for every Pre-Stretch row
 
     return material_cost, core_cost, other_costs
 
@@ -315,7 +456,7 @@ def prestretch_packaging_cost_usd(db, rolls_per_pallet, net_weight, packaging_ty
 
 
 def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
-                               country_class, customer_class):
+                               country_class, customer_class, slippery=False, uv=False):
     """Stretch!AG79 = (AF79 + AD79 + AC79 + T79) / H79 -- the full Pre-Stretch
     EX-Work $/KG for one quotation line's entered inputs."""
     roll_weight = roll_weight_kg or 0
@@ -323,7 +464,7 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
         return 0.0
     net_weight = max(roll_weight - (core_weight_kg or 0), 0)
     material_cost, core_cost, other_costs = prestretch_cost_components(
-        db, product, roll_weight_kg, core_weight_kg, country_class, customer_class
+        db, product, roll_weight_kg, core_weight_kg, country_class, customer_class, slippery=slippery, uv=uv
     )
     packaging_cost = prestretch_packaging_cost_usd(db, rolls_per_pallet, net_weight, packaging_type)
     total = material_cost + core_cost + other_costs + packaging_cost
@@ -333,13 +474,13 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
                                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0, seller_type=None,
                                colored=False, discount_pct=0, hidden_markup_mode=None, hidden_markup_value=0,
-                               credit_term=False):
+                               credit_term=False, round_result=True, slippery=False, uv=False):
     roll_weight = roll_weight_kg or 0
     if roll_weight <= 0:
         return 0.0
     ex_work = prestretch_ex_work_usd_kg(
         db, product, roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
-        country_class, customer_class,
+        country_class, customer_class, slippery=slippery, uv=uv,
     )
     # Margin step (v18): Pre-Stretch has its own dedicated 'Prestretch'
     # film_type row in margin_factor (currently seeded at 0% for both
@@ -363,13 +504,14 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     # v79: same 'Extras > Credit payment terms extra' surcharge Stretch
     # Film's unit_price_for() gets, applied last like it is there.
     price += cost_engine.credit_term_extra_usd_kg(db, credit_term)
-    return cost_engine.round_half_up(price, 2)
+    return cost_engine.round_half_up(price, 2) if round_result else price
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
                              core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
                              pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0,
-                             hidden_markup_mode=None, hidden_markup_value=0, credit_term=False):
+                             hidden_markup_mode=None, hidden_markup_value=0, credit_term=False,
+                             round_result=True, slippery=False, uv=False):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
     packaging type, instead of the product catalog's fixed values.
@@ -387,7 +529,7 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
         db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
         rolls_per_pallet, packaging_type, price_adjustment_usd_kg, seller_type=seller_type, colored=colored,
         discount_pct=discount_pct, hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
-        credit_term=credit_term,
+        credit_term=credit_term, round_result=round_result, slippery=slippery, uv=uv,
     )
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
@@ -409,8 +551,14 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
     # Keep the $ total per roll fixed (unit_price_gross * gross_weight) and
     # re-divide by the net weight, same math as before -- only the gate
     # controlling WHEN this applies has changed.
-    if net_roll_weight > 0:
-        unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
+    # v189 -- owner-requested: Pre-Stretch can be priced on EITHER basis
+    # again ($/KG or $/Roll, Gross or Net). Net ('net'/'net_per_kg', the
+    # sheet's AO/AP) re-divides over the net weight as before; Gross
+    # ('gross'/'per_kg') keeps the gross-weight price (AI) and gross kg.
+    if net_roll_weight > 0 and pricing_basis in ("net", "net_per_kg"):
+        unit_price = unit_price * gross_roll_weight / net_roll_weight
+        if round_result:
+            unit_price = cost_engine.round_half_up(unit_price, 2)
         roll_weight = net_roll_weight
     else:
         roll_weight = gross_roll_weight

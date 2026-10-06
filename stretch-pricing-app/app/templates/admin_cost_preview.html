@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Cost Preview · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Cost engine preview</h2></div>
@@ -9,29 +10,36 @@
     Use this to audit the effect of any change before it reaches a quote. This page never writes to the
     database — it is read-only.
   </p>
-  <div class="edit-grid">
-    <div class="edit-row header-row">
-      <span style="width:170px;">Product</span><span style="width:55px;">Type</span>
-      <span style="width:80px;">Material $</span><span style="width:60px;">Core $</span>
-      <span style="width:80px;">Packaging $</span><span style="width:70px;">Interest $</span>
-      <span style="width:110px;">Conv./ton $</span><span style="width:80px;">Other $</span>
-      <span style="width:90px;">EX-Work $/KG</span>
-    </div>
+  <div class="admin-table-scroll">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Type</th>
+        <th>Material $</th><th>Core $</th>
+        <th>Packaging $</th><th>Interest $</th>
+        <th>Conv./ton $</th><th>Other $</th>
+        <th>EX-Work $/KG</th>
+      </tr>
+    </thead>
+    <tbody>
     {% for row in rows %}
-    <div class="edit-row">
-      <span style="width:170px;">{{ row.label }}</span>
-      <span style="width:55px;">{{ row.breakdown.roll_type }}</span>
-      <span style="width:80px;">{{ row.breakdown.material_cost_usd }}</span>
-      <span style="width:60px;">{{ row.breakdown.core_cost_usd }}</span>
-      <span style="width:80px;">{{ row.breakdown.packaging_cost_usd }}</span>
-      <span style="width:70px;">{{ row.breakdown.material_interest_usd }}</span>
-      <span style="width:110px;">{{ row.breakdown.conversion_cost_usd_per_ton }}</span>
-      <span style="width:80px;">{{ row.breakdown.other_costs_usd }}</span>
-      <strong style="width:90px;">{{ row.breakdown.ex_work_usd_kg }}</strong>
-    </div>
+      <tr>
+        <td>{{ row.label }}</td>
+        <td>{{ row.breakdown.roll_type }}</td>
+        <td>{{ row.breakdown.material_cost_usd }}</td>
+        <td>{{ row.breakdown.core_cost_usd }}</td>
+        <td>{{ row.breakdown.packaging_cost_usd }}</td>
+        <td>{{ row.breakdown.material_interest_usd }}</td>
+        <td>{{ row.breakdown.conversion_cost_usd_per_ton }}</td>
+        <td>{{ row.breakdown.other_costs_usd }}</td>
+        <td><strong>{{ row.breakdown.ex_work_usd_kg }}</strong></td>
+      </tr>
     {% else %}
-    <p class="empty">No products yet.</p>
+      <tr><td colspan="9" class="empty">No products yet.</td></tr>
     {% endfor %}
+    </tbody>
+  </table>
   </div>
 </div>
 {% endblock %}
