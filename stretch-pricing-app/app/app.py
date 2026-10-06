@@ -377,6 +377,7 @@ def create_app():
         # own Stretch Ability (see cost_engine.uv_type_for_product()), not
         # picked separately.
         uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if data.get("uv") else None
+        slippery = bool(data.get("slippery"))  # v180 -- Extra Slippery checkbox
         # v27: Discount % now comes off the margin factor (see pricing.py's
         # _discounted_factor()), not off the finished price -- so the
         # line's own Discount % and the quotation's Global Discount % are
@@ -469,7 +470,7 @@ def create_app():
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
                                              seller_type=seller_type,
                                              auto_manual_override=auto_manual_override, colored=colored,
-                                             discount_pct=discount_pct, uv_type=uv_type,
+                                             discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                                              hidden_markup_mode=hidden_markup_mode,
                                              hidden_markup_value=hidden_markup_value,
                                              credit_term=credit_term, box_packaging=box_packaging)
@@ -482,7 +483,7 @@ def create_app():
                                            rolls_per_pallet_override=custom_rolls_per_pallet,
                                            seller_type=seller_type,
                                            auto_manual_override=auto_manual_override, colored=colored,
-                                           discount_pct=0, uv_type=uv_type,
+                                           discount_pct=0, uv_type=uv_type, slippery=slippery,
                                            hidden_markup_mode=hidden_markup_mode,
                                            hidden_markup_value=hidden_markup_value,
                                            credit_term=credit_term, box_packaging=box_packaging)
@@ -498,7 +499,7 @@ def create_app():
                                           rolls_per_pallet_override=custom_rolls_per_pallet,
                                           seller_type=seller_type,
                                           auto_manual_override=auto_manual_override, colored=colored,
-                                          discount_pct=discount_pct, uv_type=uv_type,
+                                          discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                                           hidden_markup_mode=hidden_markup_mode,
                                           hidden_markup_value=hidden_markup_value,
                                           credit_term=credit_term, box_packaging=box_packaging,
@@ -569,7 +570,7 @@ def create_app():
                                                 rolls_per_pallet_override=custom_rolls_per_pallet,
                                                 seller_type=seller_type,
                                                 auto_manual_override=auto_manual_override, colored=colored,
-                                                uv_type=uv_type,
+                                                uv_type=uv_type, slippery=slippery,
                                                 hidden_markup_mode=hidden_markup_mode,
                                                 hidden_markup_value=hidden_markup_value,
                                                 credit_term=credit_term, box_packaging=box_packaging,
@@ -583,7 +584,7 @@ def create_app():
                                                  rolls_per_pallet_override=custom_rolls_per_pallet,
                                                  seller_type=seller_type,
                                                  auto_manual_override=auto_manual_override, colored=colored,
-                                                 uv_type=uv_type,
+                                                 uv_type=uv_type, slippery=slippery,
                                                  hidden_markup_mode=hidden_markup_mode,
                                                  hidden_markup_value=hidden_markup_value,
                                                  credit_term=credit_term, box_packaging=box_packaging,
@@ -1256,6 +1257,7 @@ def create_app():
             auto_manual_override = l.get("packing_type") or None
             # v39 -- UV checkbox (see api_calculate_line's matching comment).
             uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if l.get("uv") else None
+            slippery = bool(l.get("slippery"))  # v180 -- Extra Slippery checkbox
             # v120 -- this line's own "Box" checkbox (see api_calculate_line's
             # matching v120 comment / pricing.html / cost_engine._pallet_key_for()).
             box_packaging = bool(l.get("box_packaging", True))
@@ -1265,7 +1267,7 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=discount_pct, uv_type=uv_type,
+                discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                 credit_term=credit_term, box_packaging=box_packaging,
             )
@@ -1275,7 +1277,7 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=0, uv_type=uv_type,
+                discount_pct=0, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                 credit_term=credit_term, box_packaging=box_packaging,
             )
@@ -1288,7 +1290,7 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=discount_pct, uv_type=uv_type,
+                discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                 credit_term=credit_term, box_packaging=box_packaging,
                 round_result=False,
@@ -1305,8 +1307,8 @@ def create_app():
                     unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg,
                     line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type,
-                    container_pref, box_packaging)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    container_pref, box_packaging, slippery)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
                  unit_price, unit_price_raw, unit_price_full, total_kg, line_discount_pct, pricing_basis,
@@ -1315,7 +1317,7 @@ def create_app():
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
                  (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None),
-                 uv_type, container_pref, int(box_packaging)),
+                 uv_type, container_pref, int(box_packaging), int(slippery)),
             )
 
         db.commit()
@@ -1465,6 +1467,8 @@ def create_app():
                 if uv_type_val:
                     uv_labels = dict(cost_engine.UV_TYPES)
                     label += f" + UV ({uv_labels.get(uv_type_val, uv_type_val)})"
+                if ("slippery" in l.keys()) and l["slippery"]:
+                    label += " + Extra Slippery"
             # v27: unit_price_usd_kg already has the discount baked in (it
             # comes off the margin factor at save time, not applied again
             # here) -- so the line total is a plain multiply, no further
@@ -1951,6 +1955,7 @@ def create_app():
         pallet_type = data.get("pallet_type")
         colored = bool(data.get("colored"))
         uv = bool(data.get("uv"))
+        slippery = bool(data.get("slippery"))  # v180 -- Extra Slippery checkbox
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
         # v170 -- owner-requested: Local gets its own Max Discount cap,
@@ -1977,7 +1982,7 @@ def create_app():
         unit_price, total_kg = local_pricing.compute_local_line(
             db, product, customer_class, qty, pallet_type=pallet_type,
             rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
-            colored=colored, uv=uv, discount_pct=discount_pct, payment_term=payment_term,
+            colored=colored, uv=uv, slippery=slippery, discount_pct=discount_pct, payment_term=payment_term,
             hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
             destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
             width_mm=custom_width_mm,
@@ -1985,7 +1990,7 @@ def create_app():
         unit_price_full, _ = local_pricing.compute_local_line(
             db, product, customer_class, qty, pallet_type=pallet_type,
             rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
-            colored=colored, uv=uv, discount_pct=0, payment_term=payment_term,
+            colored=colored, uv=uv, slippery=slippery, discount_pct=0, payment_term=payment_term,
             hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
             destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
             width_mm=custom_width_mm,
@@ -2171,6 +2176,7 @@ def create_app():
             pallet_type = line.get("pallet_type")
             colored = bool(line.get("colored"))
             uv = bool(line.get("uv"))
+            slippery = bool(line.get("slippery"))  # v180 -- Extra Slippery checkbox
             line_discount_pct = float(line.get("line_discount_pct") or 0)
             # v170 -- same server-side cap as /local/api/calculate-line above
             # (Local's own, independent-of-Export max-discount settings) --
@@ -2188,7 +2194,7 @@ def create_app():
             unit_price, total_kg = local_pricing.compute_local_line(
                 db, product, customer_class, qty, pallet_type=pallet_type,
                 rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
-                colored=colored, uv=uv, discount_pct=discount_pct, payment_term=payment_term,
+                colored=colored, uv=uv, slippery=slippery, discount_pct=discount_pct, payment_term=payment_term,
                 hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
                 destination=destination, roll_weight_kg=custom_roll_weight_kg,
                 core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
@@ -2196,7 +2202,7 @@ def create_app():
             unit_price_full, _ = local_pricing.compute_local_line(
                 db, product, customer_class, qty, pallet_type=pallet_type,
                 rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
-                colored=colored, uv=uv, discount_pct=0, payment_term=payment_term,
+                colored=colored, uv=uv, slippery=slippery, discount_pct=0, payment_term=payment_term,
                 hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
                 destination=destination, roll_weight_kg=custom_roll_weight_kg,
                 core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
@@ -2205,11 +2211,11 @@ def create_app():
                 """INSERT INTO local_quotation_line
                    (quotation_id, product_id, pallet_type, packing_type, colored, quantity_pallets,
                     line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
-                    custom_rolls_per_pallet, unit_price_egp_kg, unit_price_full_egp_kg, total_kg)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    custom_rolls_per_pallet, unit_price_egp_kg, unit_price_full_egp_kg, total_kg, slippery)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type, auto_manual_override, int(colored), qty,
                  line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
-                 custom_rolls_per_pallet, unit_price, unit_price_full, total_kg),
+                 custom_rolls_per_pallet, unit_price, unit_price_full, total_kg, int(slippery)),
             )
         db.commit()
         total = _local_compute_totals(db, quotation_id)
@@ -2264,6 +2270,8 @@ def create_app():
                 rolls_per_pallet_display = None
             else:
                 label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+                if ("slippery" in l.keys()) and l["slippery"]:
+                    label += " + Extra Slippery"
                 quantity_display = l["quantity_pallets"]
                 rolls_per_pallet_display = l["custom_rolls_per_pallet"]
             line_total = cost_engine.round_half_up((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0), 2)

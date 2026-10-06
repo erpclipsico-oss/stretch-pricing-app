@@ -627,6 +627,9 @@ def init_db():
     _fix_local_independent_costing_v170_1(conn)
     _seed_local_strap_system_v173(conn)
     _seed_local_pp_strap_v179(conn)
+    _seed_extra_slippery_v180(conn)
+    _apply_owner_resin_prices_v181(conn)
+    _apply_owner_values_v182(conn)
     _seed_12micron_300_jumbo_v176(conn)
     conn.close()
 
@@ -2562,7 +2565,7 @@ FREIGHT_RATES_V2 = [
     ("Belgium - Antwerp", 1600),
     ("Bulgaria - Burgas", 1350),
     ("Bulgaria - Varna", 1350),
-    ("Cyprus - Limassol", 1000),
+    ("Cyprus - Limassol", 1500),  # v182 -- owner: $1500 (was 1000)
     ("Czech Republic - DAP", 4000),
     ("DAP France - Astic emballage - Rubafilm", 3000),
     ("Felixstowe - The United Kingdom", 1600),
@@ -4400,4 +4403,93 @@ def _seed_local_pp_strap_v179(conn):
                    VALUES ('pp', ?, ?, 'Automatic', ?, ?, ?)""",
                 (key, label, profit, waste, _json.dumps(comps)),
             )
+    conn.commit()
+
+
+def _seed_extra_slippery_v180(conn):
+    """v180 -- owner-requested "Extra Slippery" additive, a per-line checkbox
+    like UV: dosage 0.6% (6 kg/ton) at 175 EGP/kg, converted at the dollar
+    rate, added to the line's material cost (so it flows through the margin
+    like any other material). Independent Export ('slippery') and Local
+    ('local_slippery') rates/dosage so each workspace's price can be
+    renewed separately. Idempotent."""
+    for qt in ("quotation_line", "local_quotation_line"):
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({qt})").fetchall()}
+        if "slippery" not in cols:
+            conn.execute(f"ALTER TABLE {qt} ADD COLUMN slippery INTEGER NOT NULL DEFAULT 0")
+    for key, label in (("slippery", "Extra Slippery (EGP/kg)"), ("local_slippery", "Local: Extra Slippery (EGP/kg)")):
+        if not conn.execute("SELECT 1 FROM material_rate WHERE material_key=?", (key,)).fetchone():
+            conn.execute("INSERT INTO material_rate (material_key, label, category, unit, value) VALUES (?,?,?,?,?)",
+                         (key, label, "resin", "kilo", 175))
+    for key, label in (("slippery_dosage_pct", "Extra Slippery dosage (% of roll weight)"),
+                       ("local_slippery_dosage_pct", "Local: Extra Slippery dosage (% of roll weight)")):
+        if not conn.execute("SELECT 1 FROM global_setting WHERE key=?", (key,)).fetchone():
+            conn.execute("INSERT INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+                         (key, label, 0.6, "Dosage of the Extra Slippery additive when the line's checkbox is on (0.6 = 0.6%)."))
+    conn.commit()
+
+
+# v181 -- owner-requested ("جدد الاسعار لما تعملي النسخة الجديدة تبقى كدا"): the
+# Export "Our Price (Actual)" resin prices she currently runs the company on
+# (screenshot of Admin > Costing > Material Rates, 2026-10-06). The seed
+# chain's own defaults are the workbook's (older) numbers, which equal her
+# "Market Price" column, and Render's free tier has no persistent disk, so
+# every fresh boot would otherwise bring back the old Our-Price values. The
+# Market columns are left exactly as seeded (they already match her
+# screenshot). Gated by a marker so that on a database that DOES persist,
+# this applies once and her later edits are never overwritten.
+OWNER_RESIN_PRICES_V181 = {
+    "c4": 1305,
+    "exceed3518": 1505,
+    "exceed3812": 1605,
+    "exceedxp": 1695,
+    "vista6000": 2550,
+    "enable": 1555,
+    "uvi": 5500,
+    "ld": 1500,
+    "vista": 2550,
+}
+OWNER_RESIN_PRICES_V181_GATE = "owner_resin_prices_v181_applied"
+
+
+def _apply_owner_resin_prices_v181(conn):
+    from . import cost_engine
+    if conn.execute("SELECT 1 FROM global_setting WHERE key=?", (OWNER_RESIN_PRICES_V181_GATE,)).fetchone():
+        return
+    changed = False
+    for key, value in OWNER_RESIN_PRICES_V181.items():
+        row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if row is not None and row["value"] != value:
+            conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (value, key))
+            changed = True
+    conn.execute(
+        "INSERT OR IGNORE INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (OWNER_RESIN_PRICES_V181_GATE, "internal marker -- owner resin prices v181 applied", 1,
+         "Internal marker: the v181 one-time application of the owner's current Our-Price resin rates has run."),
+    )
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
+
+
+# v182 -- owner-supplied current values (2026-10-06): Cyprus - Limassol sea
+# freight $1500/container, PP Strap Dollar Rate 46.5, PP: 5032 PP 1450
+# $/ton (her screenshot of the PP Strap material pricing; the other four PP
+# resin rows in it already equal the seeds). Same gated approach as v181:
+# a fresh/ephemeral database (Render free tier) gets them on every boot; a
+# persistent one gets them once and later edits are never overwritten.
+OWNER_VALUES_V182_GATE = "owner_values_v182_applied"
+
+
+def _apply_owner_values_v182(conn):
+    if conn.execute("SELECT 1 FROM global_setting WHERE key=?", (OWNER_VALUES_V182_GATE,)).fetchone():
+        return
+    conn.execute("UPDATE freight SET shipping_rate_usd=? WHERE country=?", ("1500", "Cyprus - Limassol"))
+    conn.execute("UPDATE global_setting SET value=? WHERE key='pp_dollar_rate'", (46.5,))
+    conn.execute("UPDATE material_rate SET value=? WHERE material_key='pp_5032'", (1450,))
+    conn.execute(
+        "INSERT OR IGNORE INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (OWNER_VALUES_V182_GATE, "internal marker -- owner values v182 applied", 1,
+         "Internal marker: the v182 one-time application of Limassol freight / PP dollar rate / PP 5032 price has run."),
+    )
     conn.commit()

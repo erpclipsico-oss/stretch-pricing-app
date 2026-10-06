@@ -105,7 +105,7 @@ def local_material_composition(conn, product, uv_fraction=0.0):
 
 
 def compute_local_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None,
-                                   uv_fraction=0.0, box_packaging=True):
+                                   uv_fraction=0.0, box_packaging=True, slippery=False):
     """Local's own EX-Work $/KG (still USD at this stage -- converted to
     EGP only once, in local_unit_price_for(), the same point Export's own
     EGP-priced packaging items get converted the other way). Mirrors
@@ -141,6 +141,10 @@ def compute_local_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pall
     material_cost += mat_cost("ld", comp["ld"])
     material_cost += mat_cost("vista", comp["vista"])
     material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
+    if slippery:
+        # v180 -- Extra Slippery (Local's own rate/dosage): dosage% x plastic weight x EGP/kg / Local dollar rate
+        material_cost += (_local_setting(conn, "local_slippery_dosage_pct", 0.6) / 100.0 * plastic_weight
+                          * _local_material_rate(conn, "slippery") / (_local_setting(conn, "local_dollar_rate", 52) or 52))
 
     # v170.1 -- Local's own independent core/packaging/conversion costs
     # (see cost_engine.py's "Local Market's own independent core/packaging/
@@ -219,7 +223,7 @@ def local_unit_price_for(db, product, customer_class="A", pallet_type=None, roll
                            auto_manual_override=None, colored=False, uv=False, discount_pct=0,
                            payment_term="Cash", hidden_markup_mode=None, hidden_markup_value=0,
                            destination=None, round_result=True, margin_pct_override=None,
-                           box_packaging=True):
+                           box_packaging=True, slippery=False):
     """Local's own EX-Work + margin -> EGP -> + Transportation = Selling
     Price EGP/KG. See this module's docstring for the overall design."""
     from .pricing import _discounted_factor  # local import: avoids a pricing.py <-> local_pricing.py cycle
@@ -238,7 +242,8 @@ def local_unit_price_for(db, product, customer_class="A", pallet_type=None, roll
     uv_fraction = cost_engine.UVI_FRACTION if uv else 0.0
     ex_work_usd = compute_local_ex_work_usd_kg(db, effective_product, pallet_type=pallet_type,
                                                 rolls_per_pallet_override=rolls_per_pallet_override,
-                                                uv_fraction=uv_fraction, box_packaging=box_packaging)
+                                                uv_fraction=uv_fraction, box_packaging=box_packaging,
+                                                slippery=slippery)
     selling_usd = ex_work_usd * (1 + factor)
 
     dollar_rate = _local_setting(db, "local_dollar_rate", 52)
@@ -263,7 +268,7 @@ def compute_local_line(db, product, customer_class, quantity_pallets, pallet_typ
                          rolls_per_pallet_override=None, auto_manual_override=None, colored=False, uv=False,
                          discount_pct=0, payment_term="Cash", hidden_markup_mode=None, hidden_markup_value=0,
                          destination=None, roll_weight_kg=None, core_weight_kg=None, width_mm=None,
-                         box_packaging=True, margin_pct_override=None):
+                         box_packaging=True, margin_pct_override=None, slippery=False):
     """Quantity/weight bookkeeping wrapper, same shape as pricing.compute_line()."""
     effective_product = cost_engine.with_overrides(product, roll_weight_kg, core_weight_kg, width_mm,
                                                      auto_manual=auto_manual_override)
@@ -272,7 +277,7 @@ def compute_local_line(db, product, customer_class, quantity_pallets, pallet_typ
         rolls_per_pallet_override=rolls_per_pallet_override, colored=colored, uv=uv,
         discount_pct=discount_pct, payment_term=payment_term, hidden_markup_mode=hidden_markup_mode,
         hidden_markup_value=hidden_markup_value, destination=destination, box_packaging=box_packaging,
-        margin_pct_override=margin_pct_override,
+        margin_pct_override=margin_pct_override, slippery=slippery,
     )
     rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective_product, pallet_type,
                                                                 rolls_per_pallet_override)

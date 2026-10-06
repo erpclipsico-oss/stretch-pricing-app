@@ -8,6 +8,7 @@
     <h2 data-i18n="local_pricing_title">Local Pricing – New quotation</h2>
     <div class="panel-actions">
       <button type="button" class="btn btn-outline" id="langToggleBtn" style="font-size:0.8rem; padding:5px 10px;">🌐 العربية</button>
+      <button type="button" class="btn btn-danger-outline" id="newQuoteBtn" title="Start a fresh quotation (clears the saved draft)">🗑 New</button>
       <button type="button" class="btn btn-primary" id="saveBtn">💾 <span data-i18n="save">Save</span></button>
       <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ <span data-i18n="export_excel">Export Excel</span></button>
       <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ <span data-i18n="export_pdf">Export PDF</span></button>
@@ -71,6 +72,7 @@
         <th data-i18n="col_packing_type">Packing type</th>
         <th data-i18n="col_colored">Colored</th>
         <th data-i18n="col_uv">UV</th>
+        <th data-i18n="col_slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates">Extra Slippery</th>
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll wt (kg)</th>
         <th data-i18n="col_core_kg">Core wt (kg)</th>
@@ -126,6 +128,7 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
 <script>
 const PRODUCTS = {{ products|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
@@ -150,7 +153,7 @@ const I18N = {
     customer_name: 'Customer Name', quotation_no: 'Quotation No.',
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
-    col_colored: 'Colored', col_uv: 'UV', col_width_mm: 'Width (mm)',
+    col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'Width (mm)',
     col_roll_kg: 'Roll wt (kg)', col_core_kg: 'Core wt (kg)', col_rolls_pallet: 'Rolls/Pallet',
     col_qty_pallets: 'Qty (Pallets)', col_discount_pct: 'Discount %',
     col_unit_price: 'Unit Price (EGP/KG)', col_total_kg: 'Total (KG)', col_line_total: 'Line Total (EGP)',
@@ -166,7 +169,7 @@ const I18N = {
     customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
-    col_colored: 'ملوّن', col_uv: 'UV', col_width_mm: 'العرض (مم)',
+    col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'العرض (مم)',
     col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_rolls_pallet: 'رول/بالتة',
     col_qty_pallets: 'الكمية (بالتة)', col_discount_pct: 'الخصم %',
     col_unit_price: 'سعر الوحدة (جنيه/كجم)', col_total_kg: 'الإجمالي (كجم)', col_line_total: 'إجمالي السطر (جنيه)',
@@ -252,6 +255,7 @@ function addLine() {
     <td><select class="f-packing">${buildSelectOptions(PACKING_TYPES)}</select></td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates"></td>
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer) -- leave blank to use the catalog default"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
@@ -284,6 +288,7 @@ async function calcLine(tr) {
     packing_type: tr.querySelector('.f-packing').value,
     colored: tr.querySelector('.f-colored').checked,
     uv: tr.querySelector('.f-uv').checked,
+    slippery: tr.querySelector('.f-slippery').checked,
     custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
     custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
     custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
@@ -453,6 +458,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       packing_type: tr.querySelector('.f-packing').value,
       colored: tr.querySelector('.f-colored').checked,
       uv: tr.querySelector('.f-uv').checked,
+      slippery: tr.querySelector('.f-slippery').checked,
       custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
       custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
       custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
@@ -549,5 +555,27 @@ document.addEventListener('keydown', function (e) {
 });
 
 addLine();
+
+// v181 -- autosave (see static/draft.js): survives Back/Forward, refresh and
+// closing the tab; the trash button starts a fresh quotation.
+window._draft = new DraftSaver({
+  key: 'pricingDraft_local_{{ current_user.id if current_user else 0 }}',
+  headerIds: ['customer_class', 'destination', 'payment_term', 'global_discount_pct', 'customer_name',
+              'quotation_no', 'actAsUser'],
+  tables: [{body: '#linesBody', add: () => addLine()}, {body: '#strapLinesBody', add: () => addStrapLine()}],
+  getExtra: () => ({qid: currentQuotationId}),
+  setExtra: (x) => {
+    if (x && x.qid) {
+      currentQuotationId = x.qid;
+      document.getElementById('exportBtn').disabled = false;
+      document.getElementById('exportBtn').onclick = () => window.open(`/local/quotations/${x.qid}/pdf`, '_blank');
+      document.getElementById('exportExcelBtn').disabled = false;
+      document.getElementById('exportExcelBtn').onclick = () => window.open(`/local/quotations/${x.qid}/excel`, '_blank');
+    }
+  },
+  afterRestore: () => { recalcAll(); }
+});
+document.getElementById('newQuoteBtn').addEventListener('click', () => { window._draft.clear(); location.reload(); });
+window._draft.start();
 </script>
 {% endblock %}

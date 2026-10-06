@@ -1222,7 +1222,7 @@ def conversion_roll_type_for(stretch_ability, micron):
 # ---------------------------------------------------------------- Main EX-Work computation
 
 def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0,
-                            exclude_pallet_from_packaging=False, box_packaging=True):
+                            exclude_pallet_from_packaging=False, box_packaging=True, slippery=False):
     """Full replication of Stretch!AG (EX-Work Cost (KG) - gross weight)
     for the standard product-row case (covers the great majority of SKUs:
     any roll with a Stretch Ability % and a Micron, Automatic or Manual
@@ -1259,6 +1259,10 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     # it eats into the C4 leftover the same way every other resin does, at
     # the existing "uvi" material_rate ($5500/ton, already seeded/correct).
     material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
+    if slippery:
+        # v180 -- Extra Slippery: dosage% x plastic weight x EGP/kg / dollar rate
+        material_cost += (_get_setting(conn, "slippery_dosage_pct", 0.6) / 100.0 * plastic_weight
+                          * _material_rate(conn, "slippery") / (_get_setting(conn, "dollar_rate", 45) or 45))
 
     core_cost = core_cost_usd(conn, product)
     # v86 -- Stretch!AD's own formula gates every packaging term behind

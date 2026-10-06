@@ -149,6 +149,7 @@
         <th data-i18n="col_price_basis">Price basis</th>
         <th data-i18n="col_colored" data-i18n-title="tip_colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
         <th data-i18n="col_uv" data-i18n-title="tip_uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
+        <th data-i18n="col_slippery" data-i18n-title="tip_slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates">Extra Slippery</th>
         <!-- v119 -- owner-requested (Arabic: "اعمل باكجينج وبعدين فوق زي
              التايتلز ... وبوكس تحت تبقى تشيك بوكس زيها زي كولر دو اليو"):
              a proper column, same position/style as Colored/UV, instead of
@@ -306,6 +307,7 @@
        figures are gone. -->
 </div>
 
+<script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
 <script>
 // v100.1 -- owner-reported (audit of every micron x Stretch Ability
 // against the reference Excel sheet): about a third of the catalog
@@ -401,7 +403,7 @@ const I18N = {
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
-    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_packaging: 'Box',
+    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'Box',
     col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
     hint_width_is_stretch_film: '(Stretch-film width)',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
@@ -425,6 +427,7 @@ const I18N = {
     tip_margin_probe_prestretch_na: "Not available for Pre-Stretch -- its price borrows another SKU's own price rather than applying a margin % to its own cost",
     prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
+    tip_slippery: "Extra Slippery additive (0.6% dosage); its price is editable in Material Rates",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
     tip_pallets_container: 'How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher',
     tip_gm: 'Updates instantly as Width/Thickness/Material change',
@@ -448,7 +451,7 @@ const I18N = {
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
-    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_packaging: 'بوكس',
+    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'بوكس',
     col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
     hint_width_is_stretch_film: '(عرض الستريتش فيلم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
@@ -472,6 +475,7 @@ const I18N = {
     tip_margin_probe_prestretch_na: 'مش متاحة للبريستريتش -- سعره بيتاخد من سعر SKU تاني مش بتطبيق نسبة هامش على تكلفته هو',
     prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
+    tip_slippery: 'إضافة Extra Slippery (نسبة 0.6%)؛ سعرها بيتعدل من Material Rates',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
     tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده -- وبرضو عليه بيتوزع سعر الـ FOB/CIF لكل كيلو: زودتي العدد السعر بيقل، قللتيه السعر بيزيد',
     tip_gm: 'بيتحدث فورًا مع تغيير العرض/السمك/الخامة',
@@ -856,6 +860,7 @@ function addLine(prefill) {
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from this product's own Stretch Ability"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-box" title="Box packaging"></td>
     <td>
       <input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)">
@@ -1104,7 +1109,7 @@ function addLine(prefill) {
   // v44 -- see scheduleRecalc()'s comment: every field that feeds the
   // price now auto-recalculates instead of requiring a manual Calculate
   // click, most importantly Packing type and Pricing basis.
-  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv', '.f-box'].forEach(sel => {
+  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv', '.f-slippery', '.f-box'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
@@ -1467,6 +1472,7 @@ function readLines() {
       pricing_basis: tr.querySelector('.f-basis').value,
       colored: tr.querySelector('.f-colored').checked,
       uv: tr.querySelector('.f-uv').checked,
+      slippery: tr.querySelector('.f-slippery').checked,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
     };
@@ -1552,10 +1558,11 @@ async function calculateAll() {
     const pricing_basis = tr.querySelector('.f-basis').value;
     const colored = tr.querySelector('.f-colored').checked;
     const uv = tr.querySelector('.f-uv').checked;
+    const slippery = tr.querySelector('.f-slippery').checked;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
     const line_discount_pct = parseFloat(tr.querySelector('.f-discount').value || 0);
     const payload = {
-      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
+      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv, slippery,
       line_discount_pct, global_discount_pct: globalDiscountPct,
       preview_as_user_id: previewAsUserId(),
       pricing_mode: pricingMode(),
@@ -2124,7 +2131,7 @@ document.getElementById('addLineBtn').addEventListener('click', () => addLine())
 document.getElementById('addStrapLineBtn').addEventListener('click', () => addStrapLine());
 document.getElementById('calcBtn').addEventListener('click', calculateAll);
 document.getElementById('saveBtn').addEventListener('click', saveQuotation);
-document.getElementById('resetBtn').addEventListener('click', () => location.reload());
+document.getElementById('resetBtn').addEventListener('click', () => { if (window._draft) window._draft.clear(); location.reload(); });
 // v44 -- Payment Term (drives the strap credit-term surcharge) and Global
 // Discount % also auto-recalculate now -- see scheduleRecalc()'s comment.
 document.getElementById('payment_term').addEventListener('change', scheduleRecalc);
@@ -2241,5 +2248,26 @@ applyLanguage();
 
 // start with one line
 addLine();
+
+// v181 -- autosave: the builder state survives Back/Forward, refresh and
+// closing the tab (see static/draft.js). The trash button clears it.
+window._draft = new DraftSaver({
+  key: 'pricingDraft_export_{{ current_user.id if current_user else 0 }}',
+  headerIds: ['loading_port', 'destination', 'payment_term', 'global_discount_pct', 'customer_name',
+              'quotation_no', 'pricing_mode', 'actAsUser'],
+  tables: [{body: '#linesBody', add: () => addLine()}, {body: '#strapLinesBody', add: () => addStrapLine()}],
+  getExtra: () => ({qid: currentQuotationId}),
+  setExtra: (x) => {
+    if (x && x.qid) {
+      currentQuotationId = x.qid;
+      document.getElementById('exportBtn').disabled = false;
+      document.getElementById('exportBtn').onclick = () => window.open(`/quotations/${x.qid}/pdf`, '_blank');
+      document.getElementById('exportExcelBtn').disabled = false;
+      document.getElementById('exportExcelBtn').onclick = () => window.open(`/quotations/${x.qid}/excel`, '_blank');
+    }
+  },
+  afterRestore: () => { calculateAll(); }
+});
+window._draft.start();
 </script>
 {% endblock %}

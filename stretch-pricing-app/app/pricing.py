@@ -95,7 +95,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
                     pallet_type=None, rolls_per_pallet_override=None, seller_type=None, apply_extras=True,
                     colored=False, discount_pct=0, uv_type=None, hidden_markup_mode=None, hidden_markup_value=0,
                     round_result=True, credit_term=False, exclude_pallet_from_packaging=False,
-                    convert_to_net_basis=False, box_packaging=True, margin_pct_override=None):
+                    convert_to_net_basis=False, box_packaging=True, margin_pct_override=None, slippery=False):
     """country_class / customer_class are no longer used for margin (v18 --
     fully replaced by cost_engine.margin_pct_for()'s micron x film_type x
     packing_type x roll_size lookup, per the owner's explicit instruction to
@@ -187,7 +187,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
             hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
             round_result=False, credit_term=credit_term,
             exclude_pallet_from_packaging=exclude_pallet_from_packaging,
-            convert_to_net_basis=convert_to_net_basis, box_packaging=box_packaging,
+            convert_to_net_basis=convert_to_net_basis, box_packaging=box_packaging, slippery=slippery,
         )
         price = source_price * multiplier
         return cost_engine.round_half_up(price, 2) if round_result else price
@@ -202,7 +202,7 @@ def unit_price_for(db, product, country_class, customer_class, roll_size="standa
                                                   rolls_per_pallet_override=rolls_per_pallet_override,
                                                   uv_fraction=uv_fraction,
                                                   exclude_pallet_from_packaging=exclude_pallet_from_packaging,
-                                                  box_packaging=box_packaging)
+                                                  box_packaging=box_packaging, slippery=slippery)
     base = ex_work * (1 + factor)
     if apply_extras:
         base += cost_engine.color_extra_usd_kg(db, colored)
@@ -236,7 +236,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                   roll_weight_kg=None, core_weight_kg=None, width_mm=None, rolls_per_pallet_override=None,
                   seller_type=None, auto_manual_override=None, colored=False, discount_pct=0, uv_type=None,
                   hidden_markup_mode=None, hidden_markup_value=0, round_result=True, credit_term=False,
-                  box_packaging=True, margin_pct_override=None):
+                  box_packaging=True, margin_pct_override=None, slippery=False):
     """Returns (unit_price_usd_kg, total_kg).
 
     box_packaging (v120): this line's own "Box" checkbox -- True (default)
@@ -285,7 +285,7 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
                                  uv_type=uv_type, hidden_markup_mode=hidden_markup_mode,
                                  hidden_markup_value=hidden_markup_value, round_result=round_result,
                                  credit_term=credit_term, box_packaging=box_packaging,
-                                 margin_pct_override=margin_pct_override)
+                                 margin_pct_override=margin_pct_override, slippery=slippery)
     # v46: the confirmed-correct, sheet-matching GROSS weight -- see this
     # function's docstring.
     gross_roll_weight = effective["roll_weight_kg"] or 0
