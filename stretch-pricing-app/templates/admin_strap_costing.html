@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}PET/PP Strap Costing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 <div class="price-note price-note-ok">
   <div class="price-note-title">✅ Verified against both reference workbooks (PET_Export_pricing / PP_Export_pricing)</div>
@@ -32,61 +33,71 @@
 
     <div class="panel-header" style="margin-top:8px;"><h2>Dollar Rate</h2></div>
     <p class="hint" style="margin-bottom:10px;">
-      PET/PP Strap's own Dollar Rate — independent of Stretch Film's (Global Cost Settings page).
-      Used to convert every EGP-priced material/electricity/fixed-cost/direct-labor figure below
-      into $.
+      PET and PP Strap each have their own independent Dollar Rate — separate from Stretch Film's
+      (Global Cost Settings page) and from each other. Used to convert every EGP-priced
+      material/electricity/fixed-cost/direct-labor figure below into $, for that line only.
     </p>
-    <div class="edit-grid">
-      <div class="edit-row">
-        <span style="width:220px;">Dollar Rate (EGP per $1)</span>
-        <input type="number" step="any" name="strap_dollar_rate" value="{{ dollar_rate }}" style="width:100px;">
-      </div>
-    </div>
+    <!-- v167 -- real <table> markup, not the old flexbox .edit-grid, so the
+         Setting/Value column boundary is computed once by the browser's own
+         table layout and is therefore IDENTICAL on every row -- see the
+         long note on .admin-table in style.css for why this replaced the
+         flex-row pattern everywhere on this page. -->
+    <table class="admin-table">
+      <tbody>
+        <tr><td style="width:220px;">PET Dollar Rate (EGP per $1)</td><td><input type="number" step="any" name="pet_dollar_rate" value="{{ pet_dollar_rate }}" style="width:100px;"></td></tr>
+        <tr><td style="width:220px;">PP Dollar Rate (EGP per $1)</td><td><input type="number" step="any" name="pp_dollar_rate" value="{{ pp_dollar_rate }}" style="width:100px;"></td></tr>
+      </tbody>
+    </table>
 
     <div class="panel-header" style="margin-top:28px;"><h2>Max Discount</h2></div>
     <div class="price-note price-note-strap">
-      <div class="price-note-title">🟣 PET/PP Strap's own cap — separate from Stretch Film's</div>
+      <div class="price-note-title">🟣 PET and PP now each have their own cap — separate from each other and from Stretch Film's</div>
       A rep's Line Discount % + the quotation's Global Discount % are added together and silently
-      capped at this number before they ever touch a Strap price (see the discount note above: it
-      comes off the BOM's own Profit % here, floored so a Strap price can never drop below its real
-      cost). <strong>This used to be one shared setting with Stretch Film</strong> (Global Cost
-      Settings page) — the two are now independent, so changing this one only ever moves Strap;
-      Stretch Film's own cap lives on the Global Cost Settings page instead (shown there with a
-      matching 🔵 blue highlight so the two don't get mixed up).
+      capped at the matching line's own number below before they ever touch that Strap price (see
+      the discount note above: it comes off the BOM's own Profit % here, floored so a Strap price
+      can never drop below its real cost). <strong>These used to be one shared setting for both PET
+      and PP</strong> (and, before that, shared with Stretch Film too) — all now fully independent,
+      so changing PET's doesn't move PP's, and neither moves Stretch Film. Stretch Film's own caps
+      (one per category) live on the Global Cost Settings page instead (shown there with a matching
+      🔵 blue highlight so they don't get mixed up).
     </div>
-    <div class="edit-grid">
-      <div class="edit-row">
-        <span style="width:220px;">Max Discount allowed (% points off margin)</span>
-        <input type="number" step="any" name="value_strap_max_discount_pct" value="{{ max_discount }}" style="width:100px;">
-      </div>
-    </div>
+    <table class="admin-table">
+      <tbody>
+        <tr><td style="width:280px;">PET Strap — Max Discount allowed (% points off margin)</td><td><input type="number" step="any" name="value_strap_max_discount_pct_pet" value="{{ max_discount_pet }}" style="width:100px;"></td></tr>
+        <tr><td style="width:280px;">PP Strap — Max Discount allowed (% points off margin)</td><td><input type="number" step="any" name="value_strap_max_discount_pct_pp" value="{{ max_discount_pp }}" style="width:100px;"></td></tr>
+      </tbody>
+    </table>
 
     {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
     <div class="panel-header" style="margin-top:28px;"><h2>{{ line_label }}</h2></div>
 
     <h3 style="margin:14px 0 6px;">Material pricing — resin</h3>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">Rate</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>Rate</th></tr></thead>
+      <tbody>
       {% for m in material_rates[line_key ~ '_resin'] %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <span style="width:80px;">{{ m.unit }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+        <tr>
+          <td style="width:220px;">{{ m.label }}</td>
+          <td style="width:80px;">{{ m.unit }}</td>
+          <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+        </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
 
     <h3 style="margin:14px 0 6px;">Material pricing — packaging (EGP/unit)</h3>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
       {% for m in material_rates[line_key ~ '_packaging'] %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <span style="width:80px;">{{ m.unit }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+        <tr>
+          <td style="width:220px;">{{ m.label }}</td>
+          <td style="width:80px;">{{ m.unit }}</td>
+          <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+        </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
 
     <h3 style="margin:14px 0 6px;">BOM recipes</h3>
     <p class="hint" style="margin-bottom:10px;">
@@ -94,43 +105,76 @@
       to 100% within each recipe.
     </p>
     {% for bom in boms[line_key] %}
-    <div class="edit-grid" style="margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #eee;">
-      <div class="edit-row header-row"><span style="width:220px;">{{ bom.label }}</span></div>
+    <table class="admin-table" style="margin-bottom:14px;">
+      <thead><tr><th colspan="2">{{ bom.label }}</th></tr></thead>
+      <tbody>
       {% for comp_key, comp_pct in bom.components %}
-      <div class="edit-row">
-        <span style="width:220px; padding-left:12px;">— {{ comp_key }} %</span>
-        <input type="number" step="any" name="bom_{{ bom.id }}_comp_{{ comp_key }}" value="{{ '%.3f'|format(comp_pct) }}" style="width:100px;">
-      </div>
+        <tr>
+          <td style="width:220px; padding-left:22px;">— {{ comp_key }} %</td>
+          <td><input type="number" step="any" name="bom_{{ bom.id }}_comp_{{ comp_key }}" value="{{ '%.3f'|format(comp_pct) }}" style="width:100px;"></td>
+        </tr>
       {% endfor %}
-      <div class="edit-row">
-        <span style="width:220px; padding-left:12px;">Profit %</span>
-        <input type="number" step="any" name="bom_{{ bom.id }}_profit" value="{{ '%.3f'|format(bom.profit_pct) }}" style="width:100px;">
-      </div>
-      <div class="edit-row">
-        <span style="width:220px; padding-left:12px;">Waste %</span>
-        <input type="number" step="any" name="bom_{{ bom.id }}_waste" value="{{ '%.3f'|format(bom.waste_pct) }}" style="width:100px;">
-      </div>
-    </div>
+        <tr>
+          <td style="width:220px; padding-left:22px;">Profit %</td>
+          <td><input type="number" step="any" name="bom_{{ bom.id }}_profit" value="{{ '%.3f'|format(bom.profit_pct) }}" style="width:100px;"></td>
+        </tr>
+        <tr>
+          <td style="width:220px; padding-left:22px;">Waste %</td>
+          <td><input type="number" step="any" name="bom_{{ bom.id }}_waste" value="{{ '%.3f'|format(bom.waste_pct) }}" style="width:100px;"></td>
+        </tr>
+      </tbody>
+    </table>
     {% endfor %}
 
     <h3 style="margin:14px 0 6px;">Fixed inputs</h3>
-    <div class="edit-grid">
-      <div class="edit-row">
-        <span style="width:220px;">Electricity (EGP/ton)</span>
-        <input type="number" step="any" name="linecfg_{{ line_key }}_electricity"
-               value="{{ line_configs[line_key].electricity_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
-      </div>
-      <div class="edit-row">
-        <span style="width:220px;">Fixed cost (EGP/ton)</span>
-        <input type="number" step="any" name="linecfg_{{ line_key }}_fixed_cost"
-               value="{{ line_configs[line_key].fixed_cost_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
-      </div>
-      <div class="edit-row">
-        <span style="width:220px;">Direct labor (EGP/ton)</span>
-        <input type="number" step="any" name="linecfg_{{ line_key }}_direct_labor"
-               value="{{ line_configs[line_key].direct_labor_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;">
-      </div>
+    <table class="admin-table">
+      <tbody>
+        <tr><td style="width:220px;">Electricity (EGP/ton)</td><td><input type="number" step="any" name="linecfg_{{ line_key }}_electricity"
+               value="{{ line_configs[line_key].electricity_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;"></td></tr>
+        <tr><td style="width:220px;">Fixed cost (EGP/ton)</td><td><input type="number" step="any" name="linecfg_{{ line_key }}_fixed_cost"
+               value="{{ line_configs[line_key].fixed_cost_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;"></td></tr>
+        <tr><td style="width:220px;">Direct labor (EGP/ton)</td><td><input type="number" step="any" name="linecfg_{{ line_key }}_direct_labor"
+               value="{{ line_configs[line_key].direct_labor_per_ton_egp if line_configs.get(line_key) else 0 }}" style="width:140px;"></td></tr>
+      </tbody>
+    </table>
+    {% endfor %}
+
+    <div class="panel-header" style="margin-top:28px;"><h2>Stuffing (loading restrictions)</h2></div>
+    <div class="price-note price-note-strap">
+      <div class="price-note-title">🟣 Fixed restrictions per core size / Box vs No Box</div>
+      For each core size and Box/No Box combination: Rolls/Pallet, Pallets/Container (20ft &amp; 40ft)
+      and Max Roll Weight (kg) are all fixed here -- not typed by the rep in the Pricing screen. In the
+      live quote builder, the rep only enters how many <strong>Containers</strong> (20ft/40ft), and
+      Pallets + Rolls/Pallet are auto-computed and locked (read-only) from these figures -- exactly what
+      gets shown on the saved quotation, PDF and Excel. Meters/Coil is also capped so nobody can enter
+      a gross roll weight over the Max Roll Weight set here.
     </div>
+    {% for line_key, line_label in [('pet', 'PET Strap'), ('pp', 'PP Strap')] %}
+    <h3 style="margin:14px 0 6px;">{{ line_label }}</h3>
+    <table class="admin-table" style="margin-bottom:14px;">
+      <thead>
+        <tr>
+          <th>Core size</th>
+          <th>Box</th>
+          <th>Rolls/Pallet</th>
+          <th>Pallets/Container (20ft)</th>
+          <th>Pallets/Container (40ft)</th>
+          <th>Max Roll Weight (kg)</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in stuffing_config.get(line_key, []) %}
+        <tr>
+          <td>{{ row.core_size_mm }}mm</td>
+          <td>{{ "Box" if row.has_box else "No Box" }}</td>
+          <td><input type="number" step="1" min="0" name="stuffing_{{ row.id }}_rpp" value="{{ row.rolls_per_pallet }}" style="width:90px;"></td>
+          <td><input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p20" value="{{ row.pallets_per_container_20 }}" style="width:90px;"></td>
+          <td><input type="number" step="1" min="0" name="stuffing_{{ row.id }}_p40" value="{{ row.pallets_per_container_40 }}" style="width:90px;"></td>
+          <td><input type="number" step="any" min="0" name="stuffing_{{ row.id }}_maxwt" value="{{ row.max_roll_weight_kg }}" style="width:90px;"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
     {% endfor %}
 
     <div class="panel-header" style="margin-top:28px;"><h2>FOB &amp; credit terms</h2></div>
@@ -139,15 +183,17 @@
       container). Independent of Stretch Film's own Loading-Port settings. (The shipping/freight
       rate moved to the shared Freight table -- see the note above.)
     </p>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:340px;">Setting</span><span style="width:100px;">Value</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody>
       {% for s in freight %}
-      <div class="edit-row">
-        <span style="width:340px;">{{ s.label }}</span>
-        <input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;">
-      </div>
+        <tr>
+          <td style="width:380px;">{{ s.label }}</td>
+          <td><input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;"></td>
+        </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
 
     <div style="margin-top:20px;"><button type="submit" class="btn btn-primary">Save all</button></div>
   </form>

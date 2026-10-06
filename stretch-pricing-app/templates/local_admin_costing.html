@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Local Costing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">Local Pricing System (Stretch Film, Phase 1)</div>
+  These are the Local system's OWN prices/margins, completely independent from Export's (Admin ▸ Costing).
+  Nothing below is read by the Export pricing engine, and nothing in Export's Costing pages affects Local.
+  The material-composition recipe (resin % per product) lives on its own page —
+  <a href="{{ url_for('local_admin_bom') }}">Local ▸ Local BOM</a> — and the Conversion Cost ($/ton by
+  micron/roll type) lives on its own page too —
+  <a href="{{ url_for('local_admin_conversion_cost') }}">Local ▸ Local Conversion Cost</a>.
+</div>
+<form method="post">
+  <div class="panel">
+    <div class="panel-header"><h2>Local settings</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+      <tbody>
+      {% for s in settings %}
+      <tr>
+        <td title="{{ s.help }}">{{ s.label }}</td>
+        <td><input type="number" step="any" name="value_{{ s.key }}" value="{{ s.value }}" style="width:100px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>$/ton</th></tr></thead>
+      <tbody>
+      {% for m in resin %}
+      <tr>
+        <td>{{ m.label }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Material pricing — packaging (EGP/unit)</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
+      {% for m in packaging %}
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit or '-' }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Margin Factors (Customer Class A/B)</h2></div>
+    <p class="hint">From the owner's own Stretch_Local_Pricing workbook's "Factors" sheet.</p>
+    <table class="admin-table">
+      <thead><tr><th>Customer</th><th>Category</th><th>Film type</th><th>Margin %</th></tr></thead>
+      <tbody>
+      {% for r in margin_rows %}
+      <tr>
+        <td>{{ r.customer_class }}</td>
+        <td>{{ r.category }}</td>
+        <td>{{ r.film_type or '-' }}</td>
+        <td><input type="number" step="any" name="margin_{{ r.id }}" value="{{ r.margin_pct }}" style="width:100px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Pallet component (packaging quantities per pallet)</h2></div>
+    <p class="hint">From your own workbook's "Pallet component" sheet — priced at the "Material pricing — packaging" rates above.</p>
+    <table class="admin-table">
+      <thead><tr><th>Packing</th><th>Pallet (pcs)</th><th>Cardboard (pcs)</th><th>Cap (pcs)</th><th>Corrugated sheets (kg)</th><th>Stretch wrap (kg)</th></tr></thead>
+      <tbody>
+      {% for pc in pallet_components %}
+      <tr>
+        <td>{{ pc.label }}</td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_pallet_qty" value="{{ pc.pallet_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_cardboard_qty" value="{{ pc.cardboard_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_cap_qty" value="{{ pc.cap_qty }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_corrugated_kg" value="{{ pc.corrugated_kg }}" style="width:80px;"></td>
+        <td><input type="number" step="any" name="palletcomp_{{ pc.id }}_stretch_kg" value="{{ pc.stretch_kg }}" style="width:80px;"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Destinations (Transportation, EGP/KG)</h2></div>
+    <table class="admin-table">
+      <thead><tr><th>Destination</th><th>EGP/KG</th></tr></thead>
+      <tbody>
+      {% for d in destinations %}
+      <tr>
+        <td>{{ d.name }}</td>
+        <td><input type="number" step="any" name="dest_{{ d.id }}" value="{{ d.transport_egp_kg }}" style="width:120px;"></td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td><input type="text" name="new_destination_name" placeholder="New destination name" style="width:220px;"></td>
+        <td><input type="number" step="any" name="new_destination_rate" placeholder="EGP/KG" style="width:120px;"></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin:16px 0;">Save all</button>
+</form>
+{% endblock %}

@@ -20,6 +20,8 @@ from . import cost_engine
 from . import cost_upload
 from . import table_sync
 from . import strap_pricing
+from . import local_pricing
+from . import local_strap_pricing
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -48,7 +50,27 @@ def create_app():
 
     @app.context_processor
     def inject_globals():
-        return {"current_user": g.get("user"), "now": datetime.now(timezone.utc)}
+        # v163 -- owner-reported layout bugs on live (Strap Costing/Cost
+        # Preview pages looked broken/clipped in her screenshot but
+        # rendered perfectly in a clean test browser at the same window
+        # width) traced back to static asset caching, not a real CSS bug:
+        # url_for('static', filename='style.css') always points at the
+        # exact same URL across every deploy, and Safari (like any
+        # browser) caches a static file by that URL -- so once she'd
+        # loaded style.css once, her browser could keep reusing that
+        # cached copy on later visits even after a new deploy shipped a
+        # fixed stylesheet, until something forced a hard reload. Appending
+        # the CSS file's own last-modified time as a ?v= query string
+        # makes the URL itself change the moment style.css's content
+        # changes, so the browser treats it as a new resource and always
+        # fetches the current one -- no manual version bump needed, and
+        # completely unaffected by stale caching from here on.
+        css_path = os.path.join(BASE_DIR, "static", "style.css")
+        try:
+            css_version = int(os.path.getmtime(css_path))
+        except OSError:
+            css_version = 0
+        return {"current_user": g.get("user"), "now": datetime.now(timezone.utc), "css_version": css_version}
 
     def login_required(view):
         @wraps(view)
@@ -102,6 +124,38 @@ def create_app():
     # on the Pricing screen exactly like an admin does.
     ACT_AS_ROLES = ("admin", "sub_admin")
 
+    # v158 -- owner-requested (2026-10-04 Arabic follow-up): per-user
+    # workspace access, set by the admin on the Users page
+    # (user.workspace_access: 'both' | 'export' | 'local'). These two
+    # decorators gate the actual routes server-side (not just hide the nav
+    # links in base.html) -- a user typing /pricing or /local/pricing
+    # directly still gets stopped if they're not allowed in, same spirit
+    # as factors_admin_required above. Redirects (rather than 403) back to
+    # the workspace chooser with a flash, since "wrong workspace" is a
+    # normal everyday mistake for a restricted user, not a security
+    # incident worth a bare 403 page.
+    def export_access_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["workspace_access"] == "local":
+                flash("Your account is set to Local Pricing only.", "error")
+                return redirect(url_for("workspace_select"))
+            return view(*args, **kwargs)
+        return wrapped
+
+    def local_access_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["workspace_access"] == "export":
+                flash("Your account is set to Export only.", "error")
+                return redirect(url_for("workspace_select"))
+            return view(*args, **kwargs)
+        return wrapped
+
     def table_sync_access_required(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -129,15 +183,22 @@ def create_app():
     # ---------- Auth ----------
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        # v156 -- owner-requested (2026-10-04 Arabic spec, item 4, and its
+        # follow-up clarification: "بعد تسجيل الدخول" -- after login, not
+        # before it): ONE unified login (same username/password, same role
+        # system) for both workspaces -- Export and the new Local Pricing
+        # System -- then the FIRST thing shown after signing in is a
+        # chooser screen, not straight into the Export Pricing screen like
+        # before. See workspace_select() below.
         if g.user is not None:
-            return redirect(url_for("pricing_page"))
+            return redirect(url_for("workspace_select"))
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             row = g.db.execute("SELECT * FROM user WHERE username=? AND active=1", (username,)).fetchone()
             if row and check_password_hash(row["password_hash"], password):
                 session["user_id"] = row["id"]
-                return redirect(url_for("pricing_page"))
+                return redirect(url_for("workspace_select"))
             flash("Invalid username or password", "error")
         users = g.db.execute("SELECT * FROM user WHERE active=1 ORDER BY username").fetchall()
         return render_template("login.html", users=users)
@@ -147,9 +208,23 @@ def create_app():
         session.clear()
         return redirect(url_for("login"))
 
+    @app.route("/workspace")
+    @login_required
+    def workspace_select():
+        # v158 -- a user locked to a single workspace never needs to see
+        # the chooser at all -- skip straight to the one page they're
+        # allowed to use (this is what makes login() land them directly in
+        # their workspace, since login() redirects here first).
+        if g.user["workspace_access"] == "export":
+            return redirect(url_for("pricing_page"))
+        if g.user["workspace_access"] == "local":
+            return redirect(url_for("local_pricing_page"))
+        return render_template("workspace_select.html")
+
     # ---------- Pricing / quote builder ----------
     @app.route("/pricing")
     @login_required
+    @export_access_required
     def pricing_page():
         products_rows = g.db.execute(
             "SELECT * FROM product ORDER BY stretch_ability, CAST(micron AS REAL)"
@@ -236,12 +311,33 @@ def create_app():
             pricing_bases=pricing_bases,
             prestretch_packaging_types=prestretch_packaging_types,
             uv_types=cost_engine.UV_TYPES,
+            # v128 -- lets pricing.html show the full, detailed discount-cap
+            # explanation only to admin/sub_admin (a regular sales rep only
+            # ever sees the short "Standard 5%, Power 3%" style notice) --
+            # see the matching IS_ADMIN JS const near the top of that file's
+            # script block.
+            is_admin_role=(g.user["role"] in ACT_AS_ROLES),
         )
 
     @app.route("/api/calculate-line", methods=["POST"])
     @login_required
+    @export_access_required
     def api_calculate_line():
         data = request.get_json(force=True)
+        # v137 -- owner-requested: the v136 "what price gives me what
+        # margin" tool is admin/sub_admin only (Arabic: "تعملها في شاشه
+        # الادمن و الساب ادمن فقط") -- a plain sales rep never sees the
+        # margin_probe_* figures at all, not just the on-screen column
+        # hidden: computed only when the requester is admin/sub_admin, and
+        # left out of the JSON response entirely otherwise, so the numbers
+        # never even reach a rep's browser/network tab.
+        can_see_margin_probe = g.user["role"] in ACT_AS_ROLES
+        # v155 -- Actual/Market pricing dropdown: resolved once per request,
+        # before either branch below (Stretch/Pre-Stretch or Strap both go
+        # through cost_engine._material_rate()). See _resolve_pricing_mode()/
+        # _apply_pricing_mode() for the admin/sub_admin gating.
+        pricing_mode = _resolve_pricing_mode(data)
+        _apply_pricing_mode(pricing_mode)
         product_line = data.get("product_line") or "stretch_film"
 
         if product_line in ("pet", "pp"):
@@ -281,6 +377,7 @@ def create_app():
         # own Stretch Ability (see cost_engine.uv_type_for_product()), not
         # picked separately.
         uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if data.get("uv") else None
+        slippery = bool(data.get("slippery"))  # v180 -- Extra Slippery checkbox
         # v27: Discount % now comes off the margin factor (see pricing.py's
         # _discounted_factor()), not off the finished price -- so the
         # line's own Discount % and the quotation's Global Discount % are
@@ -292,9 +389,14 @@ def create_app():
         # max (Admin > Global Cost Settings > "Max Discount allowed") so the
         # margin can never be eroded past what the owner approved. v94 --
         # this is Stretch Film's own cap now; Strap has its own separate
-        # one (Admin > PET/PP Strap Costing) -- see cost_engine.capped_discount_pct().
-        discount_pct, discount_capped = cost_engine.capped_discount_pct(
-            g.db, line_discount_pct, global_discount_pct
+        # one (Admin > PET/PP Strap Costing). v128 -- each is further split
+        # per category (Standard/Power/Power_Plus/Rigid/Prestretch) -- see
+        # cost_engine.capped_discount_pct().
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.capped_discount_pct(
+                g.db, line_discount_pct, global_discount_pct,
+                product=product, is_prestretch_line=is_prestretch(product),
+            )
         )
         # v79 -- same flat credit-term $/kg surcharge Strap has always had,
         # now applied here too (Extras > Credit payment terms extra) -- see
@@ -320,10 +422,20 @@ def create_app():
                 hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
                 credit_term=credit_term,
             )
+            # v184 -- unrounded NET price (the sheet's AI*H/J never rounds
+            # before FOB/CFR are built from it) -- see pricing.compute_prestretch_line.
+            unit_price_raw, _ = compute_prestretch_line(
+                g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
+                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                seller_type=seller_type, colored=colored, discount_pct=discount_pct,
+                hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+                credit_term=credit_term, round_result=False,
+            )
             gross = cost_engine.round_half_up(unit_price * total_kg, 2)
             gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
             return jsonify({
                 "unit_price_usd_kg": unit_price,
+                "unit_price_usd_kg_raw": unit_price_raw,
                 "unit_price_full_usd_kg": unit_price_full,
                 "total_kg": total_kg,
                 "line_gross": gross,
@@ -335,6 +447,15 @@ def create_app():
                 "pallets_per_container20": None,
                 "discount_pct_applied": discount_pct,
                 "discount_capped": discount_capped,
+                "discount_cap_key": discount_cap_key,
+                "discount_cap_label": discount_cap_label,
+                "discount_cap_max": discount_cap_max,
+                # v136 -- the margin-probe tool (see the regular-product
+                # branch's matching v136 comment below) isn't offered for
+                # Pre-Stretch; null tells pricing.html not to show it.
+                "margin_probe_low_usd_kg": None,
+                "margin_probe_high_usd_kg": None,
+                "pricing_mode": pricing_mode,
             })
 
         custom_roll_weight_kg = data.get("custom_roll_weight_kg")
@@ -345,6 +466,11 @@ def create_app():
         # (see cost_engine.with_overrides()'s auto_manual param) instead of
         # always pricing off the selected product's own catalog Auto/Manual.
         auto_manual_override = data.get("packing_type") or None
+        # v120 -- this line's own "Box" checkbox (see pricing.html/
+        # cost_engine._pallet_key_for()'s matching v120 comment). Only
+        # affects a Manual line's packaging cost; True (default) keeps
+        # today's box-packed price for every other line.
+        box_packaging = bool(data.get("box_packaging", True))
         unit_price, total_kg = compute_line(g.db, product, country_class, customer_class, qty,
                                              price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                              pricing_basis=pricing_basis,
@@ -354,10 +480,10 @@ def create_app():
                                              rolls_per_pallet_override=custom_rolls_per_pallet,
                                              seller_type=seller_type,
                                              auto_manual_override=auto_manual_override, colored=colored,
-                                             discount_pct=discount_pct, uv_type=uv_type,
+                                             discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                                              hidden_markup_mode=hidden_markup_mode,
                                              hidden_markup_value=hidden_markup_value,
-                                             credit_term=credit_term)
+                                             credit_term=credit_term, box_packaging=box_packaging)
         unit_price_full, _ = compute_line(g.db, product, country_class, customer_class, qty,
                                            price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
                                            pricing_basis=pricing_basis,
@@ -367,10 +493,10 @@ def create_app():
                                            rolls_per_pallet_override=custom_rolls_per_pallet,
                                            seller_type=seller_type,
                                            auto_manual_override=auto_manual_override, colored=colored,
-                                           discount_pct=0, uv_type=uv_type,
+                                           discount_pct=0, uv_type=uv_type, slippery=slippery,
                                            hidden_markup_mode=hidden_markup_mode,
                                            hidden_markup_value=hidden_markup_value,
-                                           credit_term=credit_term)
+                                           credit_term=credit_term, box_packaging=box_packaging)
         # v70.2 -- raw, unrounded EX-Work price so the client can build FOB
         # the same way the sheet's Stretch!AO does (ROUNDUP on the unrounded
         # base), not on the already-2dp-rounded unit_price.
@@ -383,11 +509,96 @@ def create_app():
                                           rolls_per_pallet_override=custom_rolls_per_pallet,
                                           seller_type=seller_type,
                                           auto_manual_override=auto_manual_override, colored=colored,
-                                          discount_pct=discount_pct, uv_type=uv_type,
+                                          discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                                           hidden_markup_mode=hidden_markup_mode,
                                           hidden_markup_value=hidden_markup_value,
-                                          credit_term=credit_term,
+                                          credit_term=credit_term, box_packaging=box_packaging,
                                           round_result=False)
+        # v136 -- owner-requested "what price gives me what margin" tool
+        # (Arabic: "تسيبلي جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان السعر
+        # دا حيكون الفاكتور مثلاً 14% او 9%"): two reference EX-Work $/KG
+        # prices, computed with the SAME line context (colored/UV/foreign-
+        # seller/hidden-markup/credit-term/box) but the margin forced to 0%
+        # and 100% instead of the real looked-up-and-discounted one. Price
+        # is an affine (straight-line) function of the margin fraction, so
+        # the client can invert instantly for whatever price the rep types
+        # in -- implied_margin_pct = (typed - low) / (high - low) * 100 --
+        # without another round trip. Not offered for Pre-Stretch
+        # (compute_prestretch_line() borrows another SKU's own finished
+        # price rather than applying margin_pct_for() to its own cost, so
+        # "margin %" doesn't map onto it the same way) -- see this route's
+        # Pre-Stretch branch above, which never reaches here.
+        # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
+        # plain rep skips this extra computation entirely, and gets neither
+        # field in the response below.
+        # v139 tried margin-on-SELLING-PRICE ((price - cost) / price) instead
+        # of this system's own "factor" convention ((price - cost) / cost,
+        # what margin_pct_for() and Admin > Margin Factors both mean), but
+        # the owner cross-checked it against a real line (confirmed 13%
+        # factor -> 1.78 EX-Work -> 1.575 cost) and confirmed she wants the
+        # tool to keep matching Admin's own "factor" % -- so v140 reverted
+        # the CLIENT-SIDE formula back to markup-on-cost, but (mistakenly,
+        # see v148 below) as a SINGLE-reference (typed-low)/low formula,
+        # dropping the 100%-factor probe (margin_probe_high) that the
+        # ORIGINAL pre-v139 two-point formula used.
+        # v148 -- owner-reported bug (Arabic: "المارجن سيم... عمولتهم كأنها
+        # من ضمن المارجن وهي أصلاً مش من ضمن المارجن... كل ده تكلفة بس
+        # المارجن ثابت"): verified with real numbers that the single-
+        # reference (typed-low)/low formula is NOT actually independent of
+        # Color extra / Payment-term surcharge the way the v136 comment
+        # above always claimed for "multiplicative extras" -- those two are
+        # flat $/KG amounts added AFTER the margin factor with no markup of
+        # their own (see unit_price_for()), so they inflate `low` (the
+        # denominator) without inflating the numerator (typed-low) by the
+        # same proportion, silently diluting the reported % below the real
+        # factor whenever Color or a credit Payment Term is selected --
+        # confirmed numerically (8% factor read back as ~6.8% with Color
+        # on). Rep commission (hidden markup) and the Foreign Seller extra
+        # are BOTH purely multiplicative and were already exactly
+        # cancelling out, confirmed separately -- that half of her report
+        # was already correct behavior, not a bug. Restoring the ORIGINAL
+        # two-point (0%/100%) probe fixes this for every extra at once,
+        # additive or multiplicative: (high-low) collapses to exactly
+        # ex_work * <the one unit of margin fraction> * <whatever
+        # multiplicative extras> regardless of Color/credit-term/box/core
+        # (every additive term appears identically in both low and high,
+        # so it cancels in the subtraction) -- proved algebraically and
+        # confirmed numerically (round-tripping a real computed price
+        # through the sim now reproduces the exact Admin > Margin Factors
+        # % with Color, a credit Payment Term, and Act As Manuel/Pasquale
+        # commission all on at once). See updateMarginProbe() in
+        # pricing.html for the matching client-side v148 change.
+        margin_probe_low = None
+        margin_probe_high = None
+        if can_see_margin_probe:
+            margin_probe_low, _ = compute_line(g.db, product, country_class, customer_class, qty,
+                                                price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                                pricing_basis=pricing_basis,
+                                                roll_weight_kg=custom_roll_weight_kg,
+                                                core_weight_kg=custom_core_weight_kg,
+                                                width_mm=custom_width_mm,
+                                                rolls_per_pallet_override=custom_rolls_per_pallet,
+                                                seller_type=seller_type,
+                                                auto_manual_override=auto_manual_override, colored=colored,
+                                                uv_type=uv_type, slippery=slippery,
+                                                hidden_markup_mode=hidden_markup_mode,
+                                                hidden_markup_value=hidden_markup_value,
+                                                credit_term=credit_term, box_packaging=box_packaging,
+                                                round_result=False, margin_pct_override=0.0)
+            margin_probe_high, _ = compute_line(g.db, product, country_class, customer_class, qty,
+                                                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type,
+                                                 pricing_basis=pricing_basis,
+                                                 roll_weight_kg=custom_roll_weight_kg,
+                                                 core_weight_kg=custom_core_weight_kg,
+                                                 width_mm=custom_width_mm,
+                                                 rolls_per_pallet_override=custom_rolls_per_pallet,
+                                                 seller_type=seller_type,
+                                                 auto_manual_override=auto_manual_override, colored=colored,
+                                                 uv_type=uv_type, slippery=slippery,
+                                                 hidden_markup_mode=hidden_markup_mode,
+                                                 hidden_markup_value=hidden_markup_value,
+                                                 credit_term=credit_term, box_packaging=box_packaging,
+                                                 round_result=False, margin_pct_override=1.0)
         gross = cost_engine.round_half_up(unit_price * total_kg, 2)
         gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
         effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
@@ -411,6 +622,12 @@ def create_app():
             "pallets_per_container20": (tier["pallets_per_container20"] if tier else None),
             "discount_pct_applied": discount_pct,
             "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
+            "margin_probe_low_usd_kg": margin_probe_low,
+            "margin_probe_high_usd_kg": margin_probe_high,
+            "pricing_mode": pricing_mode,
         })
 
     def _resolve_pricing_user(data):
@@ -438,14 +655,66 @@ def create_app():
 
     def _is_credit_term(data):
         """The quotation's own Payment Term selector: anything other than
-        'Cash (...)' triggers a flat $/kg credit-term surcharge -- PET/PP
+        'Cash (...)' triggers a $/kg credit-term surcharge -- PET/PP
         Strap's own (strap_pricing.compute_strap_line()) since v30, and
         (v79) Stretch Film/Pre-Stretch's (pricing.py's
         unit_price_for()/prestretch_unit_price_for(), via
         cost_engine.credit_term_extra_usd_kg()) -- both driven by this same
-        one field. Renamed from _strap_credit_term now that it's shared."""
-        payment_term = (data.get("payment_term") or "").strip().lower()
-        return bool(payment_term) and not payment_term.startswith("cash")
+        one field. Renamed from _strap_credit_term now that it's shared.
+
+        v135 -- owner-requested: the surcharge now varies by how many days
+        the term is (30/60/90), so this returns the exact term STRING (e.g.
+        '30 days', matching the Payment Term dropdown's own option value
+        verbatim) instead of a plain True/False. Every existing caller only
+        ever tested this for truthiness ('if credit_term', 'bool(credit_term)',
+        "'Credit' if credit_term else 'Cash'") or passed it straight through
+        to credit_term_extra_usd_kg()/compute_strap_line(), and a non-empty
+        string is just as truthy as True was -- so this is safe everywhere
+        that already used it, with no other call site needing to change.
+        Still '' (falsy) for Cash, exactly as before."""
+        payment_term = (data.get("payment_term") or "").strip()
+        if not payment_term or payment_term.lower().startswith("cash"):
+            return ""
+        return payment_term
+
+    def _default_pricing_mode():
+        """v159 -- owner-requested (2026-10-04 Arabic follow-up): the mode a
+        plain sales rep is priced under when they have no dropdown of their
+        own to choose it -- set by the admin from Admin > Material Rates
+        (global_setting 'default_pricing_mode_is_market'). Defaults to
+        'actual' (today's existing behavior) if the row is somehow missing."""
+        row = g.db.execute(
+            "SELECT value FROM global_setting WHERE key='default_pricing_mode_is_market'"
+        ).fetchone()
+        return "market" if (row and row["value"]) else "actual"
+
+    def _resolve_pricing_mode(data):
+        """v155 -- owner-requested Actual/Market pricing dropdown (2026-10-04
+        Arabic spec, item 4): admin/sub_admin only (same gating as the
+        existing margin-probe / "Act as" tools -- ACT_AS_ROLES) get to
+        choose per-quote via the Pricing Mode dropdown. A plain sales rep
+        has no such dropdown -- their request always resolves to the
+        admin-set default (see _default_pricing_mode() above) even if a
+        stray/tampered 'pricing_mode':'market' somehow made it into the
+        JSON body, so this is the single place that decides the mode, never
+        trusting the client-sent role. Returns the plain string 'actual' or
+        'market' (never anything else, whatever the client sends). v159 --
+        was hardcoded 'actual' for every non-admin/sub_admin request; now
+        follows the admin's own default instead."""
+        if g.user["role"] not in ACT_AS_ROLES:
+            return _default_pricing_mode()
+        return "market" if (data.get("pricing_mode") == "market") else "actual"
+
+    def _apply_pricing_mode(mode):
+        """v155 -- sets (or clears) Flask's request-scoped g.material_overrides
+        for the rest of THIS request, per cost_engine._material_rate()'s
+        matching v155 comment. Call once per request, before any
+        compute_line/compute_prestretch_line/compute_strap_line call --
+        g is request-scoped so nothing here can leak into another request."""
+        if mode == "market":
+            g.material_overrides = cost_engine.market_material_overrides(g.db)
+        else:
+            g.material_overrides = None
 
     def _build_custom_strap_product(data, product_line):
         """v32 -- "Custom (width x thickness)" strap line: the rep picks a
@@ -478,7 +747,8 @@ def create_app():
         )
         meters_per_coil = float(data.get("strap_meters_per_coil") or 0)
         if meters_per_coil <= 0:
-            meters_per_coil = strap_pricing.suggest_meters_per_coil(product_line, gm_per_m, core_weight_kg)
+            meters_per_coil = strap_pricing.suggest_meters_per_coil(
+                g.db, product_line, gm_per_m, core_weight_kg, has_box)
 
         product = {
             "bom_key": bom_key, "width_mm": width_mm, "thickness_mm": thickness_mm,
@@ -488,6 +758,9 @@ def create_app():
         return product, None, None
 
     def _calculate_strap_line(data, product_line):
+        # v137 -- see api_calculate_line's matching v137 comment: the v136
+        # margin-probe tool is admin/sub_admin only.
+        can_see_margin_probe = g.user["role"] in ACT_AS_ROLES
         if data.get("strap_custom"):
             product, err_resp, err_code = _build_custom_strap_product(data, product_line)
             if product is None:
@@ -499,15 +772,31 @@ def create_app():
             ).fetchone()
             if not product:
                 return jsonify({"error": "Unknown strap product"}), 400
+            # v132 -- owner-reported: the Box/No Box checkbox never changed
+            # the price for a CATALOG strap line -- only a Custom strap line
+            # ever sent its own strap_has_box (pricing.html only included it
+            # inside the "if (custom)" branch of both the live-calc and
+            # save-quotation payloads), so a catalog line always priced off
+            # the catalog product's own fixed has_box column no matter what
+            # the rep ticked. Fixed in pricing.html to send strap_has_box
+            # for every strap line now, catalog included; here, that value
+            # (when present) overrides this one line's own has_box before
+            # pricing/stuffing, same as a Custom line's checkbox already did.
+            product = dict(product)
+            if "strap_has_box" in data:
+                product["has_box"] = bool(data.get("strap_has_box"))
         qty_coils = float(data.get("quantity_coils") or 0)
         line_discount_pct = float(data.get("line_discount_pct") or 0)
         global_discount_pct = float(data.get("global_discount_pct") or 0)
         # v47: combined + capped discount rule -- see
         # cost_engine.capped_discount_pct(). v94 -- Strap now has its own
         # Max Discount cap (Admin > PET/PP Strap Costing), separate from
-        # Stretch Film's.
-        discount_pct, discount_capped = cost_engine.capped_discount_pct(
-            g.db, line_discount_pct, global_discount_pct, product_family="strap"
+        # Stretch Film's. v128 -- further split per PET/PP.
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.capped_discount_pct(
+                g.db, line_discount_pct, global_discount_pct,
+                product_family="strap", product_line=product_line,
+            )
         )
         credit_term = _is_credit_term(data)
         # v46 -- hidden per-user markup (e.g. Manuel/Pasquale), independent
@@ -541,6 +830,49 @@ def create_app():
                                                        hidden_markup_value=hidden_markup_value,
                                                        fob_container_usd=fob_container_usd,
                                                        shipping_container_usd=shipping_container_usd)
+        # v136 -- owner-requested "what price gives me what margin" tool --
+        # see api_calculate_line's matching v136 comment for the regular
+        # Stretch Film version of this same idea. A reference EX-Work
+        # $/Roll price (Strap's own natural per-unit figure, matching her
+        # wording "رول" -- Stretch Film uses $/KG instead), same line
+        # context, profit forced to 0% instead of the BOM's own
+        # looked-up-and-discounted profit_pct.
+        # v137 -- admin/sub_admin only (see can_see_margin_probe above): a
+        # plain rep skips this extra computation entirely.
+        # v139 -- owner-corrected convention: margin-on-selling-price, not
+        # markup-on-cost -- see api_calculate_line's matching v139 comment.
+        # Only the 0%-profit reference point is needed now, so the old
+        # 100%-profit probe (margin_probe_high_roll) was dropped.
+        # v148 -- restored (see api_calculate_line's matching v148 comment):
+        # same bug here -- core cost, packaging_total and the FOB/shipping
+        # per-container shares are ALL added into ex_work_price_roll (or
+        # fob/cfr_price_roll) with no profit markup of their own, so the
+        # single-reference (typed-low)/low formula silently diluted the
+        # reported % whenever those applied (i.e. on every real Strap
+        # line, since packaging/core/container shares are never zero) --
+        # confirmed with real numbers. The two-point (high-low) formula
+        # cancels every one of those out the same way it does for Stretch
+        # Film's Color/credit-term, since they're added identically to both
+        # the 0% and 100% probes.
+        margin_probe_low_roll = None
+        margin_probe_high_roll = None
+        if can_see_margin_probe:
+            calc_probe_low = strap_pricing.compute_strap_line(g.db, product_line, product,
+                                                                 credit_term=credit_term,
+                                                                 hidden_markup_mode=hidden_markup_mode,
+                                                                 hidden_markup_value=hidden_markup_value,
+                                                                 fob_container_usd=fob_container_usd,
+                                                                 shipping_container_usd=shipping_container_usd,
+                                                                 profit_pct_override=0.0)
+            margin_probe_low_roll = calc_probe_low["ex_work_price_roll"]
+            calc_probe_high = strap_pricing.compute_strap_line(g.db, product_line, product,
+                                                                  credit_term=credit_term,
+                                                                  hidden_markup_mode=hidden_markup_mode,
+                                                                  hidden_markup_value=hidden_markup_value,
+                                                                  fob_container_usd=fob_container_usd,
+                                                                  shipping_container_usd=shipping_container_usd,
+                                                                  profit_pct_override=1.0)
+            margin_probe_high_roll = calc_probe_high["ex_work_price_roll"]
         total_kg = cost_engine.round_half_up(calc["gross_weight_kg"] * qty_coils, 2)
         unit_price = calc["cfr_price_kg"]
         unit_price_full = calc_full["cfr_price_kg"]
@@ -567,25 +899,55 @@ def create_app():
             # lets the Pricing screen warn live, before the rep even tries to Save.
             "gross_weight_max_kg": calc["gross_weight_max_kg"],
             "gross_weight_exceeded": calc["gross_weight_exceeded"],
+            # v155 -- Strap's own raw materials (pet_*/pp_* keys) are never
+            # part of the Actual/Market override dict (only the 5 Stretch
+            # Film/Pre-Stretch resins the owner named -- c4/exceed3518/
+            # exceed3812/exceedxp/enable -- see
+            # cost_engine.market_material_overrides()), so Market mode has
+            # no price effect here at all; this is only echoed back so the
+            # UI's dropdown state stays visibly in sync across product lines.
+            "pricing_mode": _resolve_pricing_mode(data),
             "suggested_rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
-                product["core_weight_kg"], bool(product["has_box"])),
+                g.db, product_line, product["core_weight_kg"], bool(product["has_box"])),
             "suggested_pallets_per_container": strap_pricing.suggest_pallets_per_container(
-                product["core_weight_kg"], bool(product["has_box"]),
+                g.db, product_line, product["core_weight_kg"], bool(product["has_box"]),
                 bool(product["ctr20"]), bool(product["ctr40"])),
             "discount_pct_applied": discount_pct,
             "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
+            "margin_probe_low_roll": margin_probe_low_roll,
+            "margin_probe_high_roll": margin_probe_high_roll,
         })
 
     @app.route("/api/save-quotation", methods=["POST"])
     @login_required
+    @export_access_required
     def api_save_quotation():
         data = request.get_json(force=True)
         db = g.db
         q_id = data.get("id")
+        # v155 -- Actual/Market pricing dropdown: resolved once up front and
+        # applied for the rest of this request, same as api_calculate_line,
+        # so every compute_line/compute_prestretch_line/compute_strap_line
+        # call below (which freeze each line's unit_price_usd_kg into the
+        # DB) prices under the SAME mode the rep was previewing, and that
+        # mode is also persisted on the quotation itself (see the INSERT/
+        # UPDATE below) so re-opening/exporting later shows a consistent
+        # picture of which mode this quotation was actually priced under.
+        pricing_mode = _resolve_pricing_mode(data)
+        _apply_pricing_mode(pricing_mode)
 
         if q_id:
             existing = db.execute("SELECT * FROM quotation WHERE id=?", (q_id,)).fetchone()
-            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]):
+            # v121 -- also allow whoever actually saved this quotation last
+            # (existing["saved_by_id"]), not just 'admin' or the pricing-
+            # attributed created_by_id -- see db.py's matching v121 comment
+            # (quotation.saved_by_id) for the "Act as" bug this fixes.
+            existing_saved_by = existing["saved_by_id"] if existing and "saved_by_id" in existing.keys() else None
+            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]
+                                 and existing_saved_by != g.user["id"]):
                 abort(403)
 
         quotation_no = data.get("quotation_no") or None
@@ -615,13 +977,17 @@ def create_app():
                 "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
             ).fetchone()
 
+        # v121 -- saved_by_id: the REAL logged-in person doing this save,
+        # always g.user regardless of "Act as" -- see db.py's matching
+        # v121 comment (quotation.saved_by_id).
         if q_id:
             db.execute(
                 """UPDATE quotation SET quotation_no=?, customer_name=?, loading_port=?, destination=?,
                    payment_term=?, customer_class=?, country_class=?, seller_type=?, global_discount_pct=?,
-                   status='saved' WHERE id=?""",
+                   status='saved', saved_by_id=?, pricing_mode=? WHERE id=?""",
                 (quotation_no, customer_name, loading_port, destination, payment_term,
-                 customer_class, country_class, seller_type, global_discount_pct, q_id),
+                 customer_class, country_class, seller_type, global_discount_pct, g.user["id"],
+                 pricing_mode, q_id),
             )
             db.execute("DELETE FROM quotation_line WHERE quotation_id=?", (q_id,))
             quotation_id = q_id
@@ -630,11 +996,12 @@ def create_app():
             cur = db.execute(
                 """INSERT INTO quotation
                    (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
-                    country_class, seller_type, global_discount_pct, status, created_by_id, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?, ?)""",
+                    country_class, seller_type, global_discount_pct, status, created_by_id, saved_by_id,
+                    created_at, pricing_mode)
+                   VALUES (?,?,?,?,?,?,?,?,?, 'saved', ?,?,?,?)""",
                 (quotation_no, customer_name, loading_port, destination, payment_term, customer_class,
-                 country_class, seller_type, global_discount_pct, new_created_by_id,
-                 datetime.now(timezone.utc).isoformat()),
+                 country_class, seller_type, global_discount_pct, new_created_by_id, g.user["id"],
+                 datetime.now(timezone.utc).isoformat(), pricing_mode),
             )
             quotation_id = cur.lastrowid
 
@@ -659,7 +1026,13 @@ def create_app():
         # v47: tracks whether any saved line's Discount % got silently
         # capped by cost_engine.capped_discount_pct(), so the save response
         # can tell the rep -- see the two "if line_capped:" spots below.
+        # v128: capped_categories collects WHICH category(ies) got capped
+        # and at what max, keyed by category_key so each one only appears
+        # once even if several lines in the same category got capped --
+        # this is what lets the save response build a short "Standard 5%,
+        # Power 3%" style message instead of one generic sentence.
         any_discount_capped = False
+        capped_categories = {}
 
         for l in data.get("lines", []):
             line_product_line = l.get("product_line") or "stretch_film"
@@ -679,6 +1052,14 @@ def create_app():
                     if not strap_product:
                         continue
                     strap_product_id = strap_product["id"]
+                    # v132 -- same catalog-line Box/No Box override as
+                    # api_calculate_line()'s matching v132 comment -- applied
+                    # again here at save time so the frozen saved price
+                    # matches whatever the rep last saw on screen, not the
+                    # catalog product's own fixed has_box.
+                    strap_product = dict(strap_product)
+                    if "strap_has_box" in l:
+                        strap_product["has_box"] = bool(l.get("strap_has_box"))
                 # v33 -- quantity is now entered as Qty (pallets) x an
                 # editable Rolls/pallet (like Stretch Film), not typed
                 # directly as a coil count. The client computes the coil
@@ -694,11 +1075,13 @@ def create_app():
                 # re-caps independently of whatever the UI already showed,
                 # so the stored price can never reflect more discount than
                 # the owner allows. v94 -- Strap's own Max Discount cap.
-                discount_pct, line_capped = cost_engine.capped_discount_pct(
-                    db, line_discount_pct, global_discount_pct, product_family="strap"
+                discount_pct, line_capped, cap_key, cap_label, cap_max = cost_engine.capped_discount_pct(
+                    db, line_discount_pct, global_discount_pct,
+                    product_family="strap", product_line=line_product_line,
                 )
                 if line_capped:
                     any_discount_capped = True
+                    capped_categories[cap_key] = {"label": cap_label, "max": cap_max}
                 credit_term = _is_credit_term(data)
                 # v62 -- only the shipping (freight) leg is shared with
                 # Stretch Film's Catalog & Rates > Rates tables now, keyed
@@ -772,17 +1155,24 @@ def create_app():
                          int(strap_product["ctr40"]), int(strap_product["has_pallet"])),
                     )
                 else:
+                    # v132 -- strap_custom_has_box is reused here (NULL-able,
+                    # unchanged column) to freeze this catalog line's own
+                    # effective Box/No Box choice (catalog default, possibly
+                    # overridden above) -- see load_quotation()'s matching
+                    # v132 comment for why display/PDF/Excel read it back the
+                    # same way for a catalog line as for a Custom one now.
                     db.execute(
                         """INSERT INTO quotation_line
                            (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
                             unit_price_usd_kg, unit_price_full_usd_kg, fob_price_usd_kg,
                             ex_work_price_usd_kg, total_kg,
-                            line_discount_pct, pricing_basis, product_line)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            line_discount_pct, pricing_basis, product_line, strap_custom_has_box)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (quotation_id, strap_product_id, "Credit" if credit_term else "Cash", "Per Coil",
                          qty_pallets_display, unit_price, unit_price_full, fob_price_usd_kg,
                          ex_work_price_usd_kg, total_kg,
-                         line_discount_pct, "per_coil", line_product_line),
+                         line_discount_pct, "per_coil", line_product_line,
+                         int(bool(strap_product["has_box"]))),
                     )
                 continue
 
@@ -799,11 +1189,13 @@ def create_app():
             # v47: then capped at the admin-configured max -- see
             # cost_engine.capped_discount_pct().
             line_discount_pct = float(l.get("line_discount_pct") or 0)
-            discount_pct, line_capped = cost_engine.capped_discount_pct(
-                db, line_discount_pct, global_discount_pct
+            discount_pct, line_capped, cap_key, cap_label, cap_max = cost_engine.capped_discount_pct(
+                db, line_discount_pct, global_discount_pct,
+                product=product, is_prestretch_line=is_prestretch(product),
             )
             if line_capped:
                 any_discount_capped = True
+                capped_categories[cap_key] = {"label": cap_label, "max": cap_max}
             # v79 -- same flat credit-term $/kg surcharge Strap lines get
             # above (Extras > Credit payment terms extra) -- see
             # _is_credit_term()/cost_engine.credit_term_extra_usd_kg().
@@ -814,6 +1206,23 @@ def create_app():
                 core_weight_kg = float(l.get("prestretch_core_weight_kg") or 0)
                 rolls_per_pallet = float(l.get("prestretch_rolls_per_pallet") or 0)
                 packaging_type = l.get("prestretch_packaging_type", "no_boxes")
+                # v114 -- see db.py's matching v114 comment: the rep's own
+                # typed "Pallets/Container" figure for this Pre-Stretch SKU
+                # (Stretch!AK118 in the sheet), used below to build a FIXED
+                # per-SKU FOB/CIF $/KG instead of one that rises when this
+                # particular order is smaller than a full container.
+                pallets_per_container = l.get("prestretch_pallets_per_container")
+                pallets_per_container = (float(pallets_per_container)
+                                          if pallets_per_container not in (None, "") else None)
+                # v115 -- owner-confirmed: Pallet Type and Container
+                # (20ft/40ft) are this line's own record of what it's
+                # quoted on, same as every other product, so they're no
+                # longer force-disabled on the Pre-Stretch row (see
+                # pricing.html's matching v115 comment) -- persist whatever
+                # the rep actually picked instead of silently defaulting.
+                ps_container_pref = l.get("container_pref") or "40ft"
+                if ps_container_pref not in ("40ft", "20ft"):
+                    ps_container_pref = "40ft"
                 unit_price, total_kg = compute_prestretch_line(
                     db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
@@ -830,17 +1239,27 @@ def create_app():
                     hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                     credit_term=credit_term,
                 )
+                unit_price_raw_ps, _ = compute_prestretch_line(
+                    db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                    roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                    price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                    seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
+                    hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                    credit_term=credit_term, round_result=False,
+                )
                 db.execute(
                     """INSERT INTO quotation_line
                        (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                        unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                        unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
                         colored, prestretch_roll_weight_kg, prestretch_core_weight_kg,
-                        prestretch_rolls_per_pallet, prestretch_packaging_type)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        prestretch_rolls_per_pallet, prestretch_packaging_type,
+                        prestretch_pallets_per_container, container_pref)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
-                     float(l.get("quantity_pallets") or 0), unit_price, unit_price_full, total_kg,
+                     float(l.get("quantity_pallets") or 0), unit_price, unit_price_raw_ps, unit_price_full, total_kg,
                      line_discount_pct, pricing_basis, int(colored),
-                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type),
+                     roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                     pallets_per_container, ps_container_pref),
                 )
                 continue
 
@@ -856,15 +1275,19 @@ def create_app():
             auto_manual_override = l.get("packing_type") or None
             # v39 -- UV checkbox (see api_calculate_line's matching comment).
             uv_type = cost_engine.uv_type_for_product(product["stretch_ability"]) if l.get("uv") else None
+            slippery = bool(l.get("slippery"))  # v180 -- Extra Slippery checkbox
+            # v120 -- this line's own "Box" checkbox (see api_calculate_line's
+            # matching v120 comment / pricing.html / cost_engine._pallet_key_for()).
+            box_packaging = bool(l.get("box_packaging", True))
             unit_price, total_kg = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
                 price_adjustment_usd_kg=adjustment, pallet_type=pallet_type, pricing_basis=pricing_basis,
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=discount_pct, uv_type=uv_type,
+                discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
             )
             unit_price_full, _ = compute_line(
                 db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
@@ -872,9 +1295,9 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=0, uv_type=uv_type,
+                discount_pct=0, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
             )
             # v70.2 -- raw unrounded price, stored so the saved quotation's
             # view/PDF/Excel FOB $/KG can match Stretch!AO exactly (see
@@ -885,9 +1308,9 @@ def create_app():
                 roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
                 width_mm=custom_width_mm, rolls_per_pallet_override=custom_rolls_per_pallet,
                 seller_type=creator_seller_type, auto_manual_override=auto_manual_override, colored=colored,
-                discount_pct=discount_pct, uv_type=uv_type,
+                discount_pct=discount_pct, uv_type=uv_type, slippery=slippery,
                 hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
-                credit_term=credit_term,
+                credit_term=credit_term, box_packaging=box_packaging,
                 round_result=False,
             )
             # v90 -- which container size (40ft/20ft) this line is quoted
@@ -902,8 +1325,8 @@ def create_app():
                     unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg,
                     line_discount_pct, pricing_basis, colored,
                     custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm, custom_rolls_per_pallet, uv_type,
-                    container_pref)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    container_pref, box_packaging, slippery)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (quotation_id, product["id"], pallet_type,
                  l.get("packing_type", "Automatic"), float(l.get("quantity_pallets") or 0),
                  unit_price, unit_price_raw, unit_price_full, total_kg, line_discount_pct, pricing_basis,
@@ -912,7 +1335,7 @@ def create_app():
                  (float(custom_core_weight_kg) if custom_core_weight_kg not in (None, "") else None),
                  (float(custom_width_mm) if custom_width_mm not in (None, "") else None),
                  (float(custom_rolls_per_pallet) if custom_rolls_per_pallet not in (None, "") else None),
-                 uv_type, container_pref),
+                 uv_type, container_pref, int(box_packaging), int(slippery)),
             )
 
         db.commit()
@@ -921,6 +1344,7 @@ def create_app():
         return jsonify({
             "id": quotation_id, "quotation_no": q["quotation_no"], "total": total,
             "discount_capped": any_discount_capped,
+            "discount_capped_categories": list(capped_categories.values()),
             # v99 -- tells the admin, on a fresh "Act as [salesperson]" save,
             # which sales rep this new quotation actually got attributed to
             # (created_by_id), so it's never a silent surprise.
@@ -930,6 +1354,7 @@ def create_app():
     # ---------- History ----------
     @app.route("/quotations")
     @login_required
+    @export_access_required
     def history():
         db = g.db
         if g.user["role"] == "admin":
@@ -939,23 +1364,118 @@ def create_app():
                    ORDER BY q.created_at DESC"""
             ).fetchall()
         else:
+            # v121 -- also list whatever this person actually saved
+            # (q.saved_by_id), not just quotations attributed to them as
+            # created_by_id -- see db.py's matching v121 comment
+            # (quotation.saved_by_id): otherwise a quotation saved while
+            # "Act as"-previewing someone else never showed up in the
+            # actual saver's own history at all.
             rows = db.execute(
                 """SELECT q.*, u.username as creator_username, u.full_name as creator_name
                    FROM quotation q LEFT JOIN user u ON u.id = q.created_by_id
-                   WHERE q.created_by_id=? ORDER BY q.created_at DESC""",
-                (g.user["id"],),
+                   WHERE q.created_by_id=? OR q.saved_by_id=? ORDER BY q.created_at DESC""",
+                (g.user["id"], g.user["id"]),
             ).fetchall()
         quotations = [dict(r, total=compute_totals(db, r)["total"]) for r in rows]
         return render_template("history.html", quotations=quotations)
 
     @app.route("/quotations/<int:qid>")
     @login_required
+    @export_access_required
     def view_quotation(qid):
         q, lines, totals = load_quotation(g.db, qid)
         return render_template("view_quotation.html", q=q, lines=lines, totals=totals)
 
+    # ---------- v183: "Reprice" -- reopen a saved quotation as a NEW draft ----------
+    # Owner request: open any saved quotation with the exact same specs and
+    # recalculate every price at today's rates; Save then creates a NEW
+    # quotation (the old one is never touched). Implemented by writing the
+    # quotation into the pricing page's own autosave draft (static/draft.js)
+    # and redirecting there, so the page's normal logic re-prices every line.
+    def _dctl(k, v, t="v"):
+        return {"k": k, "n": 1, "t": t, "v": v}
+
+    def _drow(controls, rpp_edited=False):
+        return {"c": [c for c in controls if c is not None], "rpp": "1" if rpp_edited else ""}
+
+    def _opt(k, v, t="v"):
+        return None if v in (None, "") else _dctl(k, v, t)
+
+    @app.route("/quotations/<int:qid>/reprice")
+    @login_required
+    @export_access_required
+    def reprice_quotation(qid):
+        q, lines, _totals = load_quotation(g.db, qid)
+        stretch_rows, strap_rows = [], []
+        for l in lines:
+            keys = l.keys()
+            pl = l["product_line"] if "product_line" in keys else "stretch_film"
+            if pl in ("pet", "pp"):
+                def pick(a, b):
+                    return l[a] if (a in keys and l[a] is not None) else (l[b] if b in keys else None)
+                core_w = pick("strap_custom_core_weight_kg", "sp_core_weight_kg")
+                core_size = None
+                if core_w is not None:
+                    core_size = min(strap_pricing.CORE_SIZES_MM.items(), key=lambda kv: abs(kv[1] - core_w))[0]
+                ctr20 = pick("strap_custom_ctr20", "sp_ctr20")
+                strap_rows.append(_drow([
+                    _dctl("f-strap-product", "custom_" + pl),
+                    _opt("f-strap-bom", pick("strap_custom_bom_key", "sp_bom_key")),
+                    _opt("f-strap-width", pick("strap_custom_width_mm", "sp_width_mm")),
+                    _opt("f-strap-thickness", pick("strap_custom_thickness_mm", "sp_thickness_mm")),
+                    _opt("f-strap-core", core_size),
+                    _opt("f-strap-meters", pick("strap_custom_meters_per_coil", "sp_meters_per_coil")),
+                    _dctl("f-strap-box", bool(pick("strap_custom_has_box", "sp_has_box")), "c"),
+                    _dctl("f-strap-pallet", bool(pick("strap_custom_has_pallet", "sp_has_pallet")), "c"),
+                    _dctl("f-strap-container", "20ft" if ctr20 else "40ft"),
+                    _dctl("f-strap-discount", l["line_discount_pct"] or 0),
+                ]))
+                continue
+            presh = bool(l["is_prestretch"]) if "is_prestretch" in keys else False
+            custom_rpp = l["custom_rolls_per_pallet"] if "custom_rolls_per_pallet" in keys else None
+            if presh:
+                box = (l["prestretch_packaging_type"] == "boxes") if "prestretch_packaging_type" in keys else False
+                rollwt, corewt = l["prestretch_roll_weight_kg"], l["prestretch_core_weight_kg"]
+                rpp = l["prestretch_rolls_per_pallet"]
+                width = None
+            else:
+                box = bool(l["box_packaging"]) if "box_packaging" in keys and l["box_packaging"] is not None else True
+                rollwt, corewt = l["custom_roll_weight_kg"], l["custom_core_weight_kg"]
+                rpp, width = custom_rpp, l["custom_width_mm"]
+            stretch_rows.append(_drow([
+                _dctl("f-product", l["product_id"]),
+                _opt("f-pallet", l["pallet_type"]),
+                _opt("f-packing", l["packing_type"]),
+                _opt("f-basis", l["pricing_basis"]),
+                _dctl("f-colored", bool(l["colored"]), "c"),
+                _dctl("f-uv", bool(l["uv_type"]), "c"),
+                _dctl("f-slippery", bool(l["slippery"]) if "slippery" in keys else False, "c"),
+                _dctl("f-box", box, "c"),
+                _opt("f-width", width),
+                _opt("f-rollwt", rollwt),
+                _opt("f-corewt", corewt),
+                _opt("f-rpp", rpp),
+                _dctl("f-qty", l["quantity_pallets"] or 0),
+                _dctl("f-discount", l["line_discount_pct"] or 0),
+            ], rpp_edited=(not presh and custom_rpp is not None)))
+        qk = q.keys()
+        header = {
+            "loading_port": q["loading_port"] or "", "destination": q["destination"] or "",
+            "payment_term": q["payment_term"] or "Cash", "global_discount_pct": q["global_discount_pct"] or 0,
+            "customer_name": q["customer_name"] or "", "quotation_no": "",
+        }
+        if "pricing_mode" in qk and q["pricing_mode"]:
+            header["pricing_mode"] = q["pricing_mode"]
+        draft = {"v": 1, "ts": 0, "header": header, "tables": [stretch_rows, strap_rows], "extra": {},
+                 "note": f"Reopened from {q['quotation_no'] or ('quotation #' + str(q['id']))} -- prices were "
+                         f"recalculated with today's rates. Press Save to create a NEW quotation "
+                         f"(the original is untouched)."}
+        return render_template("reprice_bridge.html", key=f"pricingDraft_export_{g.user['id']}",
+                               draft=draft, target=url_for("pricing_page"))
+
     @app.route("/quotations/<int:qid>/pdf")
     @login_required
+    @export_access_required
     def quotation_pdf(qid):
         q, lines, totals = load_quotation(g.db, qid)
         buf = build_pdf(q, lines, totals)
@@ -964,6 +1484,7 @@ def create_app():
 
     @app.route("/quotations/<int:qid>/excel")
     @login_required
+    @export_access_required
     def quotation_excel(qid):
         q, lines, totals = load_quotation(g.db, qid)
         buf = build_xlsx(q, lines, totals)
@@ -977,7 +1498,14 @@ def create_app():
         q = db.execute("SELECT * FROM quotation WHERE id=?", (qid,)).fetchone()
         if not q:
             abort(404)
-        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"]:
+        # v121 -- also allow whoever actually saved this quotation
+        # (q["saved_by_id"]), not just 'admin' or the pricing-attributed
+        # created_by_id -- see db.py's matching v121 comment
+        # (quotation.saved_by_id) for the "Act as" 403 bug this fixes
+        # (owner-reported: a sub_admin who saved a quote while previewing
+        # as another rep got 403 opening/exporting their own quotation).
+        q_saved_by = q["saved_by_id"] if "saved_by_id" in q.keys() else None
+        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"] and q_saved_by != g.user["id"]:
             abort(403)
         line_rows = db.execute(
             """SELECT ql.*, p.stretch_ability, p.micron, p.is_prestretch,
@@ -985,7 +1513,8 @@ def create_app():
                       p.width_mm AS p_width_mm, p.rolls_per_pallet AS p_rolls_per_pallet,
                       sp.code AS strap_code, sp.bom_key AS sp_bom_key, sp.width_mm AS sp_width_mm,
                       sp.thickness_mm AS sp_thickness_mm, sp.core_weight_kg AS sp_core_weight_kg,
-                      sp.meters_per_coil AS sp_meters_per_coil
+                      sp.meters_per_coil AS sp_meters_per_coil, sp.has_box AS sp_has_box,
+                      sp.has_pallet AS sp_has_pallet, sp.ctr20 AS sp_ctr20, sp.ctr40 AS sp_ctr40
                FROM quotation_line ql
                LEFT JOIN product p ON p.id = ql.product_id
                     AND (ql.product_line IS NULL OR ql.product_line = 'stretch_film')
@@ -1043,6 +1572,8 @@ def create_app():
                 if uv_type_val:
                     uv_labels = dict(cost_engine.UV_TYPES)
                     label += f" + UV ({uv_labels.get(uv_type_val, uv_type_val)})"
+                if ("slippery" in l.keys()) and l["slippery"]:
+                    label += " + Extra Slippery"
             # v27: unit_price_usd_kg already has the discount baked in (it
             # comes off the margin factor at save time, not applied again
             # here) -- so the line total is a plain multiply, no further
@@ -1061,18 +1592,46 @@ def create_app():
             # core-weight/box/container-type inputs and shown on the
             # exported PDF/Excel, right under each strap line, rather than
             # being a separate manual data-entry field anywhere.
+            # v132 -- owner-reported: the Box/No Box checkbox never changed
+            # the price for a CATALOG strap line (only ever wired up for a
+            # Custom strap line -- see api_calculate_line()/api_save_
+            # quotation()'s matching v132 comments). Fixed there by letting
+            # the rep's checkbox OVERRIDE the catalog product's own has_box
+            # for that one line, saved into this SAME strap_custom_has_box
+            # column regardless of custom vs catalog (nullable, so an old
+            # quotation saved before this fix -- where it's NULL for a
+            # catalog line -- still falls back to that catalog product's own
+            # has_box below, unchanged). This block picks up that same
+            # effective value for the stuffing/box/pallet display, instead
+            # of only ever reading it for Custom lines and silently
+            # defaulting every catalog line to "No Box"/no stuffing figures.
+            core_weight_kg = (l["strap_custom_core_weight_kg"]
+                               if "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]
+                               else (l["sp_core_weight_kg"] if "sp_core_weight_kg" in l.keys() else None))
+            has_box = (bool(l["strap_custom_has_box"])
+                       if "strap_custom_has_box" in l.keys() and l["strap_custom_has_box"] is not None
+                       else (bool(l["sp_has_box"]) if "sp_has_box" in l.keys() and l["sp_has_box"] is not None
+                             else False))
+            has_pallet_val = (bool(l["strap_custom_has_pallet"])
+                               if "strap_custom_has_pallet" in l.keys() and l["strap_custom_has_pallet"] is not None
+                               else (bool(l["sp_has_pallet"])
+                                     if "sp_has_pallet" in l.keys() and l["sp_has_pallet"] is not None else True))
+            ctr20 = (bool(l["strap_custom_ctr20"])
+                     if "strap_custom_ctr20" in l.keys() and l["strap_custom_ctr20"] is not None
+                     else (bool(l["sp_ctr20"]) if "sp_ctr20" in l.keys() and l["sp_ctr20"] is not None else False))
+            ctr40 = (bool(l["strap_custom_ctr40"])
+                     if "strap_custom_ctr40" in l.keys() and l["strap_custom_ctr40"] is not None
+                     else (bool(l["sp_ctr40"]) if "sp_ctr40" in l.keys() and l["sp_ctr40"] is not None else False))
+            if not (ctr20 or ctr40):
+                ctr40 = True
+
             stuffing = None
-            if line_pl in ("pet", "pp") and "strap_custom_core_weight_kg" in l.keys() and l["strap_custom_core_weight_kg"]:
-                core_weight_kg = l["strap_custom_core_weight_kg"]
-                has_box = bool(l["strap_custom_has_box"]) if "strap_custom_has_box" in l.keys() else False
-                ctr20 = bool(l["strap_custom_ctr20"]) if "strap_custom_ctr20" in l.keys() else False
-                ctr40 = bool(l["strap_custom_ctr40"]) if "strap_custom_ctr40" in l.keys() else False
-                if not (ctr20 or ctr40):
-                    ctr40 = True
+            if line_pl in ("pet", "pp") and core_weight_kg:
                 stuffing = {
-                    "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(core_weight_kg, has_box),
+                    "rolls_per_pallet": strap_pricing.suggest_rolls_per_pallet(
+                        db, line_pl, core_weight_kg, has_box),
                     "pallets_per_container": strap_pricing.suggest_pallets_per_container(
-                        core_weight_kg, has_box, ctr20, ctr40),
+                        db, line_pl, core_weight_kg, has_box, ctr20, ctr40),
                     "box": "Yes" if has_box else "No",
                     "container": "20ft" if ctr20 else "40ft",
                 }
@@ -1083,14 +1642,8 @@ def create_app():
             # on a pallet at all, and whether it's boxed.
             strap_pallet_display = strap_packing_display = None
             if line_pl in ("pet", "pp"):
-                has_pallet_val = (bool(l["strap_custom_has_pallet"])
-                                   if "strap_custom_has_pallet" in l.keys() and l["strap_custom_has_pallet"] is not None
-                                   else True)
-                has_box_val = (bool(l["strap_custom_has_box"])
-                                if "strap_custom_has_box" in l.keys() and l["strap_custom_has_box"] is not None
-                                else False)
                 strap_pallet_display = "Pallet" if has_pallet_val else "No Pallet"
-                strap_packing_display = "Box" if has_box_val else "No Box"
+                strap_packing_display = "Box" if has_box else "No Box"
 
             # v68 -- physical roll-spec details (Width, Roll weight, Core
             # weight -- Thickness and Meters/coil too for Strap) shown as a
@@ -1137,7 +1690,14 @@ def create_app():
                 spec_core = l["prestretch_core_weight_kg"] if "prestretch_core_weight_kg" in l.keys() else None
                 if spec_roll or spec_core:
                     spec = {"width_mm": None, "roll_weight_kg": spec_roll, "core_weight_kg": spec_core}
-            spec_note = _format_spec_note(spec) if spec else None
+            # v124 -- Strap only: fold the line's actual ordered Pallets
+            # (Containers x the fixed Pallets/container, see this function's
+            # matching v124 comment on the "stuffing" dict above) into the
+            # spec note, so it shows up next to Rolls/Pallet on the view
+            # page, PDF and Excel -- see _format_spec_note()'s own comment.
+            spec_qty_pallets = (l["quantity_pallets"] if line_pl in ("pet", "pp")
+                                 and "quantity_pallets" in l.keys() else None)
+            spec_note = _format_spec_note(spec, spec_qty_pallets) if spec else None
 
             # v76.1 -- Rolls/Pallet and Pallets/Container as their own
             # columns on the exported PDF/Excel/view page (previously only
@@ -1158,10 +1718,15 @@ def create_app():
             # all, so Pallets/Container is left blank for them; Rolls/Pallet
             # is still the rep's own saved figure.
             rolls_per_pallet_display = pallets_per_container_display = None
-            # v104 -- reset fresh every line iteration (see the FOB/CIF block
-            # below): a full-container kg figure for this SPECIFIC line only,
-            # never left over from a previous line in this same loop.
-            line_full_container_kg = None
+            # v127 -- line_full_container_kg is gone (reverts v104): FOB/CIF
+            # $/KG for Stretch Film now always spreads over THIS LINE'S OWN
+            # ordered quantity (l["total_kg"], used as fob_denom_kg below),
+            # not a fixed catalog full-container figure -- see the FOB/CIF
+            # block's own v127 comment for why. Pallets/Container is still
+            # computed and shown as its own display column just below (purely
+            # informational, matching what Rolls/Pallet x Pallets/Container
+            # this SKU's packing tier suggests), it just no longer feeds the
+            # price.
             if line_pl in ("pet", "pp"):
                 if stuffing:
                     rolls_per_pallet_display = stuffing["rolls_per_pallet"]
@@ -1183,16 +1748,25 @@ def create_app():
                     chosen = chosen or c40 or c20  # fall back if the preferred size has no figure at all
                     if chosen:
                         pallets_per_container_display = f"{chosen:g} ({line_container_pref})"
-                        # v104 -- this line's own FULL CONTAINER weight (pallets
-                        # this container size holds x rolls/pallet x roll weight),
-                        # used below so FOB/CIF $/KG is a fixed per-SKU rate
-                        # matching the reference sheet, not diluted by however
-                        # many pallets this particular quote line happens to
-                        # order -- see the FOB/CIF block's own v104 comment.
-                        if rolls_per_pallet_display and eff_roll_weight:
-                            line_full_container_kg = chosen * rolls_per_pallet_display * eff_roll_weight
+                        # v127 -- Pallets/Container is still shown (this SKU's
+                        # packing-tier suggestion) but no longer used to build
+                        # a fixed line_full_container_kg -- FOB/CIF $/KG now
+                        # always spreads over l["total_kg"] instead (this
+                        # line's own ordered quantity), see the FOB/CIF
+                        # block's v127 comment.
             else:
                 rolls_per_pallet_display = l["prestretch_rolls_per_pallet"] if "prestretch_rolls_per_pallet" in l.keys() else None
+                # v127 -- the old v114 fixed-rate figure (built from a
+                # separate typed "Pallets/Container" field) is gone along with
+                # that field itself (removed per v119 -- it always duplicated
+                # this line's own order quantity in practice). Pre-Stretch's
+                # FOB/CIF now spreads over l["total_kg"] like every other
+                # product, same as the quote-builder's own JS already did.
+                pallets_per_container = (l["prestretch_pallets_per_container"]
+                                          if "prestretch_pallets_per_container" in l.keys() else None)
+                if pallets_per_container and rolls_per_pallet_display:
+                    ps_container_label = l["container_pref"] if ("container_pref" in l.keys() and l["container_pref"]) else "40ft"
+                    pallets_per_container_display = f"{pallets_per_container:g} ({ps_container_label})"
 
             if line_pl in ("pet", "pp"):
                 # v81 -- owner-confirmed: Strap is ALWAYS quoted $/Roll, never
@@ -1245,28 +1819,19 @@ def create_app():
                 # frozen unit_price_usd_kg instead (same value the discount/
                 # line-total math above already uses).
                 exw_unit = l["unit_price_usd_kg"]
-                # v104 -- owner-requested change (Arabic: "خليها زي الشيت"):
-                # the flat FOB Cost/Container ($1500 at Alexandria, etc.) is
-                # now spread over this line's own FULL CONTAINER weight
-                # (line_full_container_kg, set above -- pallets/container x
-                # rolls/pallet x roll weight for THIS SKU) whenever that's
-                # known, so FOB/CIF $/KG is a fixed per-SKU rate matching the
-                # reference Excel sheet's own Stretch!AO/AP columns exactly,
-                # regardless of how many pallets this specific quote line
-                # orders. Confirmed with the owner: at a full-container
-                # quantity the app already matched the sheet (e.g. $1.54/kg
-                # for 23mic/150%/16kg/46 rolls-per-pallet at 34 pallets), but
-                # at a smaller quantity (1 or 5 pallets) it was showing
-                # $3.52/$1.89 instead of the sheet's fixed $1.54, because the
-                # $1500 was being divided by this line's own (smaller)
-                # total_kg. This REPLACES the old v67 "spread over this
-                # line's own total_kg" design (which had been confirmed
-                # against a different reference app, not this Excel sheet).
-                # Falls back to this line's own total_kg only when no
-                # packing_tier / container match exists at all (Pre-Stretch,
-                # or an edge case with no known container capacity) so
-                # nothing crashes or shows a blank FOB/CIF.
-                fob_denom_kg = line_full_container_kg if line_full_container_kg else l["total_kg"]
+                # v127 -- REVERTS v104. The flat FOB Cost/Container ($1500 at
+                # Alexandria, etc.) is spread over THIS LINE'S OWN ordered
+                # weight (l["total_kg"] -- qty pallets x rolls/pallet x roll
+                # weight), so FOB/CIF $/KG genuinely rises for a smaller order
+                # and falls for a bigger one. Owner re-checked this against
+                # the H1.36 sheet herself and confirmed that's how it must
+                # work (Arabic: "لازم السعر يتقسم على الكمية ويتغير") -- the
+                # sheet's own Stretch!AK118 ("Pallet Per Container") that AO/
+                # AP divide by is a free-typed cell, not a locked catalog
+                # constant; the master price-list rows just happen to have it
+                # pre-filled with each SKU's usual full-container number. See
+                # pricing.html's matching v127 comment for the full story.
+                fob_denom_kg = l["total_kg"]
                 # v110 -- FOB/CIF must be built from the GROSS raw_base +
                 # addon and ROUNDUP'd in gross terms FIRST (this is what
                 # matches the sheet's own Stretch!AO/AP), then -- only for a
@@ -1281,6 +1846,12 @@ def create_app():
                     raw_base + (fob_addon / fob_denom_kg if fob_denom_kg else 0), 2)
                 cif_unit = cost_engine.round_half_up(
                     fob_unit + (freight_amt / fob_denom_kg if fob_denom_kg else 0), 2)
+                if "is_prestretch" in l.keys() and l["is_prestretch"] and fob_denom_kg:
+                    # v184 -- Pre-Stretch CFR $/KG = the sheet's AP118 =
+                    # (container price + FOB addon + freight) / net kg, never
+                    # rounded up and not built from the already-rounded FOB.
+                    cif_unit = cost_engine.round_half_up(
+                        raw_base + (fob_addon + freight_amt) / fob_denom_kg, 2)
                 # v110 -- Pre-Stretch lines are excluded here: they never set
                 # eff_roll_weight above (only the `elif not is_prestretch`
                 # branch does) and already get their own Net handling
@@ -1305,7 +1876,7 @@ def create_app():
         totals = compute_totals(db, q, lines)
         return q, lines, totals
 
-    def _format_spec_note(spec):
+    def _format_spec_note(spec, quantity_pallets=None):
         """v68 -- renders a line's roll-spec dict (see load_quotation) into
         the single 'Width: ... · ...' note string shown under the line on
         the view page / PDF / Excel. Any field that's genuinely unknown for
@@ -1314,7 +1885,18 @@ def create_app():
         their own dedicated columns in the line table (see build_pdf() /
         build_xlsx() / view_quotation.html), replacing the Unit Price/Line
         Total columns the owner said she never uses, so repeating them here
-        too would just be clutter."""
+        too would just be clutter.
+        v124 -- owner-requested, Strap only (Arabic: "حتى عدد الباليتات كمان
+        تسده وانت اللي تديه كانفورميشن وتطلع في البي دي اف وفي الاكسل"): the
+        line's actual ordered Pallets (Containers x the fixed Pallets/
+        container -- both locked/read-only in the quote builder, see
+        pricing.html) is appended here rather than as a new PDF table column
+        -- the PDF's reportlab table has hand-tuned fixed column widths
+        (several past versions' worth of careful pixel measurement, see the
+        v69/v75/v76.1/v76.2/v105 comments in build_pdf()), so folding this
+        into the existing spec-note sub-row (already shared verbatim by the
+        view page, PDF and Excel) is the low-risk way to surface it
+        everywhere at once without re-tuning that table."""
         parts = []
         if spec.get("width_mm"):
             parts.append(f"Width: {spec['width_mm']:g}mm")
@@ -1322,6 +1904,8 @@ def create_app():
             parts.append(f"Thickness: {spec['thickness_mm']:g}mm")
         if spec.get("meters_per_coil"):
             parts.append(f"Meters/coil: {spec['meters_per_coil']:g}")
+        if quantity_pallets:
+            parts.append(f"Pallets: {quantity_pallets:g}")
         return "Spec — " + " · ".join(parts) if parts else None
 
     def _strap_gross_weight_kg(db, line_key, bom_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg):
@@ -1417,6 +2001,664 @@ def create_app():
 
         return {"subtotal": subtotal, "total": total, "fob_total": fob_total, "cif_total": cif_total}
 
+    # ======================================================================
+    # Local Pricing System (Stretch Film, Phase 1) -- 2026-10-04 Arabic spec
+    # item 4. Entirely separate tables/routes from everything above (see
+    # db.py's matching v156 schema comment) -- nothing in this section reads
+    # or writes any Export table (product/bom_row/quotation/margin_factor/
+    # the plain material_rate keys). PET/PP Local Strap is a later phase.
+    # ======================================================================
+
+    @app.route("/local/pricing")
+    @login_required
+    @local_access_required
+    def local_pricing_page():
+        db = g.db
+        products_rows = db.execute(
+            "SELECT * FROM local_product ORDER BY stretch_ability, CAST(micron AS REAL)"
+        ).fetchall()
+        products = [dict(p, label=product_label(p)) for p in products_rows]
+        destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
+        pallet_types = ["Standard Pallet", "Euro Pallet"]
+        packing_types = ["Automatic", "Manual(5kg)", "Manual(2.3~3.5kg)", "Manual(2.2kg)", "Manual(1.5kg)"]
+        # v174 -- PET Strap lines live on this same screen now (owner-
+        # requested: "زي ما انت عامل في الاكسبورت") -- see local_pricing.html's
+        # matching v174 comment. Only 'pet' recipes exist so far; PP Strap
+        # will join this same dropdown once the owner sends her
+        # PP_Local_pricing workbook (no PP Local numbers exist yet).
+        strap_recipes = [dict(r) for r in local_strap_pricing.get_recipes(db)]
+        preview_users = []
+        if g.user["role"] in ACT_AS_ROLES:
+            preview_users = db.execute(
+                "SELECT id, username, full_name FROM user WHERE active=1 AND id != ? "
+                "ORDER BY full_name, username",
+                (g.user["id"],),
+            ).fetchall()
+        return render_template(
+            "local_pricing.html", products=products, destinations=destinations,
+            pallet_types=pallet_types, packing_types=packing_types, preview_users=preview_users,
+            strap_recipes=strap_recipes, is_admin_role=(g.user["role"] in ACT_AS_ROLES),
+        )
+
+    def _local_resolve_pricing_user(data):
+        """Same 'Act as' preview idea as Export's _resolve_pricing_user(),
+        trimmed to what Local actually needs (its own local_markup_mode/
+        value, no seller_type -- Local has no Foreign-Seller concept)."""
+        if g.user["role"] in ACT_AS_ROLES and data.get("preview_as_user_id"):
+            u = g.db.execute(
+                "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
+            ).fetchone()
+            if u:
+                return u
+        return g.user
+
+    @app.route("/local/api/calculate-line", methods=["POST"])
+    @login_required
+    @local_access_required
+    def local_api_calculate_line():
+        data = request.get_json(force=True)
+        db = g.db
+        product = db.execute("SELECT * FROM local_product WHERE id=?", (data.get("product_id"),)).fetchone()
+        if not product:
+            return jsonify({"error": "Unknown product"}), 400
+        customer_class = data.get("customer_class", "A")
+        qty = float(data.get("quantity_pallets") or 0)
+        pallet_type = data.get("pallet_type")
+        colored = bool(data.get("colored"))
+        uv = bool(data.get("uv"))
+        slippery = bool(data.get("slippery"))  # v180 -- Extra Slippery checkbox
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        # v170 -- owner-requested: Local gets its own Max Discount cap,
+        # separate settings from Export's (Admin > Local > Local Costing) --
+        # same silent-cap, enforced-server-side-on-every-calc-and-save
+        # mechanism Export has always had, just its own independent %
+        # per Stretch category -- see cost_engine.local_capped_discount_pct().
+        discount_pct, discount_capped, discount_cap_key, discount_cap_label, discount_cap_max = (
+            cost_engine.local_capped_discount_pct(db, line_discount_pct, global_discount_pct, product=product)
+        )
+        payment_term = data.get("payment_term") or "Cash"
+        destination = data.get("destination") or None
+        auto_manual_override = data.get("packing_type") or None
+        custom_roll_weight_kg = data.get("custom_roll_weight_kg")
+        custom_core_weight_kg = data.get("custom_core_weight_kg")
+        custom_width_mm = data.get("custom_width_mm")
+        custom_rolls_per_pallet = data.get("custom_rolls_per_pallet")
+
+        pricing_user = _local_resolve_pricing_user(data)
+        hidden_markup_mode = pricing_user["local_markup_mode"] if "local_markup_mode" in pricing_user.keys() else None
+        hidden_markup_value = (pricing_user["local_markup_value"]
+                                if "local_markup_value" in pricing_user.keys() else 0) or 0
+
+        unit_price, total_kg = local_pricing.compute_local_line(
+            db, product, customer_class, qty, pallet_type=pallet_type,
+            rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+            colored=colored, uv=uv, slippery=slippery, discount_pct=discount_pct, payment_term=payment_term,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+            width_mm=custom_width_mm,
+        )
+        unit_price_full, _ = local_pricing.compute_local_line(
+            db, product, customer_class, qty, pallet_type=pallet_type,
+            rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+            colored=colored, uv=uv, slippery=slippery, discount_pct=0, payment_term=payment_term,
+            hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+            destination=destination, roll_weight_kg=custom_roll_weight_kg, core_weight_kg=custom_core_weight_kg,
+            width_mm=custom_width_mm,
+        )
+        gross = cost_engine.round_half_up(unit_price * total_kg, 2)
+        gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
+        effective_product = cost_engine.with_overrides(product, custom_roll_weight_kg, custom_core_weight_kg,
+                                                         custom_width_mm, auto_manual=auto_manual_override)
+        rolls_per_pallet = cost_engine.effective_rolls_per_pallet(db, effective_product, pallet_type,
+                                                                    custom_rolls_per_pallet)
+        return jsonify({
+            "unit_price_egp_kg": unit_price,
+            "unit_price_full_egp_kg": unit_price_full,
+            "total_kg": total_kg,
+            "line_gross": gross,
+            "line_gross_full": gross_full,
+            "roll_weight_kg": effective_product["roll_weight_kg"] or 0,
+            "core_weight_kg": effective_product["core_weight_kg"] or 0,
+            "rolls_per_pallet": rolls_per_pallet,
+            "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
+            "discount_cap_key": discount_cap_key,
+            "discount_cap_label": discount_cap_label,
+            "discount_cap_max": discount_cap_max,
+        })
+
+    # ---------- Local Market PET Strap (v173; folded into /local/pricing
+    # itself as of v174 -- see local_pricing_page()/local_pricing.html) ----------
+    @app.route("/local/strap-pricing")
+    @login_required
+    @local_access_required
+    def local_strap_pricing_page():
+        # v174 -- the standalone Strap screen is gone; Strap lines now live
+        # directly on /local/pricing's own "Strap lines (PET)" table, same
+        # spirit as Export's pricing.html (one Stretch table + one Strap
+        # table, one quotation). Kept as a redirect so an old bookmark/link
+        # still lands somewhere useful instead of 404ing.
+        return redirect(url_for("local_pricing_page"))
+
+    @app.route("/local/api/calculate-strap-line", methods=["POST"])
+    @login_required
+    @local_access_required
+    def local_api_calculate_strap_line():
+        data = request.get_json(force=True)
+        db = g.db
+        recipe_key = data.get("recipe_key")
+        width_mm = float(data.get("width_mm") or 0)
+        thickness_mm = float(data.get("thickness_mm") or 0)
+        meters_per_coil = float(data.get("meters_per_coil") or 0)
+        core_weight_kg = float(data.get("core_weight_kg") or 0)
+        has_box = bool(data.get("has_box"))
+        has_pallet = bool(data.get("has_pallet"))
+        quantity_rolls = float(data.get("quantity_rolls") or 0)
+        payment_term = data.get("payment_term") or "Cash"
+        credit_term = payment_term != "Cash"
+        line_discount_pct = float(data.get("line_discount_pct") or 0)
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+        discount_pct, discount_capped, discount_cap_max = local_strap_pricing.local_strap_capped_discount_pct(
+            db, line_discount_pct, global_discount_pct
+        )
+        result = local_strap_pricing.compute_local_strap_line(
+            db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+            has_box=has_box, has_pallet=has_pallet, discount_pct=discount_pct, credit_term=credit_term,
+        )
+        total_kg = result["gross_weight_kg"] * quantity_rolls
+        line_gross = cost_engine.round_half_up(result["selling_price_kg"] * total_kg, 2)
+        return jsonify({
+            "unit_price_egp_kg": result["selling_price_kg"],
+            "selling_price_roll": result["selling_price_roll"],
+            "gross_weight_kg": result["gross_weight_kg"],
+            "total_kg": total_kg,
+            "line_gross": line_gross,
+            "discount_pct_applied": discount_pct,
+            "discount_capped": discount_capped,
+            "discount_cap_max": discount_cap_max,
+        })
+
+    def _local_compute_totals(db, qid):
+        lines = db.execute("SELECT * FROM local_quotation_line WHERE quotation_id=?", (qid,)).fetchall()
+        subtotal = sum((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0) for l in lines)
+        return cost_engine.round_half_up(subtotal, 2)
+
+    @app.route("/local/api/save-quotation", methods=["POST"])
+    @login_required
+    @local_access_required
+    def local_api_save_quotation():
+        data = request.get_json(force=True)
+        db = g.db
+        q_id = data.get("id")
+
+        if q_id:
+            existing = db.execute("SELECT * FROM local_quotation WHERE id=?", (q_id,)).fetchone()
+            existing_saved_by = existing["saved_by_id"] if existing and "saved_by_id" in existing.keys() else None
+            if not existing or (g.user["role"] != "admin" and existing["created_by_id"] != g.user["id"]
+                                 and existing_saved_by != g.user["id"]):
+                abort(403)
+
+        quotation_no = data.get("quotation_no") or None
+        customer_name = data.get("customer_name")
+        customer_class = data.get("customer_class", "A")
+        destination = data.get("destination")
+        payment_term = data.get("payment_term", "Cash")
+        global_discount_pct = float(data.get("global_discount_pct") or 0)
+
+        acting_as_user = None
+        if not q_id and g.user["role"] in ACT_AS_ROLES and data.get("preview_as_user_id"):
+            acting_as_user = db.execute(
+                "SELECT * FROM user WHERE id=? AND active=1", (data.get("preview_as_user_id"),)
+            ).fetchone()
+
+        if q_id:
+            db.execute(
+                """UPDATE local_quotation SET quotation_no=?, customer_name=?, customer_class=?, destination=?,
+                   payment_term=?, global_discount_pct=?, status='saved', saved_by_id=? WHERE id=?""",
+                (quotation_no, customer_name, customer_class, destination, payment_term,
+                 global_discount_pct, g.user["id"], q_id),
+            )
+            db.execute("DELETE FROM local_quotation_line WHERE quotation_id=?", (q_id,))
+            quotation_id = q_id
+        else:
+            new_created_by_id = acting_as_user["id"] if acting_as_user else g.user["id"]
+            cur = db.execute(
+                """INSERT INTO local_quotation
+                   (quotation_no, customer_name, customer_class, destination, payment_term,
+                    global_discount_pct, status, created_by_id, saved_by_id, created_at)
+                   VALUES (?,?,?,?,?,?, 'saved', ?,?,?)""",
+                (quotation_no, customer_name, customer_class, destination, payment_term,
+                 global_discount_pct, new_created_by_id, g.user["id"], datetime.now(timezone.utc).isoformat()),
+            )
+            quotation_id = cur.lastrowid
+
+        creator_id = existing["created_by_id"] if q_id else new_created_by_id
+        creator = db.execute("SELECT * FROM user WHERE id=?", (creator_id,)).fetchone()
+        creator_markup_mode = creator["local_markup_mode"] if creator and "local_markup_mode" in creator.keys() else None
+        creator_markup_value = (creator["local_markup_value"]
+                                 if creator and "local_markup_value" in creator.keys() else 0) or 0
+
+        for line in (data.get("lines") or []):
+            if (line.get("product_line") or "stretch_film") == "pet_strap":
+                recipe_key = line.get("recipe_key")
+                width_mm = float(line.get("width_mm") or 0)
+                thickness_mm = float(line.get("thickness_mm") or 0)
+                meters_per_coil = float(line.get("meters_per_coil") or 0)
+                core_weight_kg = float(line.get("core_weight_kg") or 0)
+                has_box = bool(line.get("has_box"))
+                has_pallet = bool(line.get("has_pallet"))
+                quantity_rolls = float(line.get("quantity_rolls") or 0)
+                line_discount_pct = float(line.get("line_discount_pct") or 0)
+                credit_term = payment_term != "Cash"
+                # v173 -- same server-side cap as /local/api/calculate-strap-line
+                # above (Local Strap's own, independent 4%-style cap) --
+                # enforced here too so a saved quotation can never carry more
+                # discount than approved, regardless of what the UI sent.
+                discount_pct, _capped, _cap_max = local_strap_pricing.local_strap_capped_discount_pct(
+                    db, line_discount_pct, global_discount_pct
+                )
+                result = local_strap_pricing.compute_local_strap_line(
+                    db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+                    has_box=has_box, has_pallet=has_pallet, discount_pct=discount_pct, credit_term=credit_term,
+                )
+                result_full = local_strap_pricing.compute_local_strap_line(
+                    db, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg=core_weight_kg,
+                    has_box=has_box, has_pallet=has_pallet, discount_pct=0, credit_term=credit_term,
+                )
+                total_kg = result["gross_weight_kg"] * quantity_rolls
+                db.execute(
+                    """INSERT INTO local_quotation_line
+                       (quotation_id, product_line, strap_recipe_key, strap_width_mm, strap_thickness_mm,
+                        strap_meters_per_coil, strap_core_weight_kg, strap_has_box, strap_has_pallet,
+                        strap_quantity_rolls, line_discount_pct, unit_price_egp_kg, unit_price_full_egp_kg,
+                        total_kg)
+                       VALUES (?, 'pet_strap', ?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (quotation_id, recipe_key, width_mm, thickness_mm, meters_per_coil, core_weight_kg,
+                     int(has_box), int(has_pallet), quantity_rolls, line_discount_pct,
+                     result["selling_price_kg"], result_full["selling_price_kg"], total_kg),
+                )
+                continue
+
+            product = db.execute("SELECT * FROM local_product WHERE id=?", (line.get("product_id"),)).fetchone()
+            if not product:
+                continue
+            qty = float(line.get("quantity_pallets") or 0)
+            pallet_type = line.get("pallet_type")
+            colored = bool(line.get("colored"))
+            uv = bool(line.get("uv"))
+            slippery = bool(line.get("slippery"))  # v180 -- Extra Slippery checkbox
+            line_discount_pct = float(line.get("line_discount_pct") or 0)
+            # v170 -- same server-side cap as /local/api/calculate-line above
+            # (Local's own, independent-of-Export max-discount settings) --
+            # enforced here too so a saved quotation can never carry more
+            # discount than approved, regardless of what the UI sent.
+            discount_pct, _capped, _cap_key, _cap_label, _cap_max = cost_engine.local_capped_discount_pct(
+                db, line_discount_pct, global_discount_pct, product=product
+            )
+            auto_manual_override = line.get("packing_type") or None
+            custom_roll_weight_kg = line.get("custom_roll_weight_kg")
+            custom_core_weight_kg = line.get("custom_core_weight_kg")
+            custom_width_mm = line.get("custom_width_mm")
+            custom_rolls_per_pallet = line.get("custom_rolls_per_pallet")
+
+            unit_price, total_kg = local_pricing.compute_local_line(
+                db, product, customer_class, qty, pallet_type=pallet_type,
+                rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+                colored=colored, uv=uv, slippery=slippery, discount_pct=discount_pct, payment_term=payment_term,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                destination=destination, roll_weight_kg=custom_roll_weight_kg,
+                core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
+            )
+            unit_price_full, _ = local_pricing.compute_local_line(
+                db, product, customer_class, qty, pallet_type=pallet_type,
+                rolls_per_pallet_override=custom_rolls_per_pallet, auto_manual_override=auto_manual_override,
+                colored=colored, uv=uv, slippery=slippery, discount_pct=0, payment_term=payment_term,
+                hidden_markup_mode=creator_markup_mode, hidden_markup_value=creator_markup_value,
+                destination=destination, roll_weight_kg=custom_roll_weight_kg,
+                core_weight_kg=custom_core_weight_kg, width_mm=custom_width_mm,
+            )
+            db.execute(
+                """INSERT INTO local_quotation_line
+                   (quotation_id, product_id, pallet_type, packing_type, colored, quantity_pallets,
+                    line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
+                    custom_rolls_per_pallet, unit_price_egp_kg, unit_price_full_egp_kg, total_kg, slippery)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (quotation_id, product["id"], pallet_type, auto_manual_override, int(colored), qty,
+                 line_discount_pct, custom_roll_weight_kg, custom_core_weight_kg, custom_width_mm,
+                 custom_rolls_per_pallet, unit_price, unit_price_full, total_kg, int(slippery)),
+            )
+        db.commit()
+        total = _local_compute_totals(db, quotation_id)
+        return jsonify({"id": quotation_id, "quotation_no": quotation_no, "total": total})
+
+    @app.route("/local/quotations")
+    @login_required
+    @local_access_required
+    def local_history():
+        db = g.db
+        if g.user["role"] == "admin":
+            rows = db.execute(
+                """SELECT q.*, u.username as creator_username, u.full_name as creator_name
+                   FROM local_quotation q LEFT JOIN user u ON u.id = q.created_by_id
+                   ORDER BY q.created_at DESC"""
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """SELECT q.*, u.username as creator_username, u.full_name as creator_name
+                   FROM local_quotation q LEFT JOIN user u ON u.id = q.created_by_id
+                   WHERE q.created_by_id=? OR q.saved_by_id=? ORDER BY q.created_at DESC""",
+                (g.user["id"], g.user["id"]),
+            ).fetchall()
+        quotations = [dict(r, total=_local_compute_totals(db, r["id"])) for r in rows]
+        return render_template("local_history.html", quotations=quotations)
+
+    def _load_local_quotation(db, qid):
+        q = db.execute("SELECT * FROM local_quotation WHERE id=?", (qid,)).fetchone()
+        if not q:
+            abort(404)
+        q_saved_by = q["saved_by_id"] if "saved_by_id" in q.keys() else None
+        if g.user["role"] != "admin" and q["created_by_id"] != g.user["id"] and q_saved_by != g.user["id"]:
+            abort(403)
+        line_rows = db.execute(
+            """SELECT ql.*, p.stretch_ability, p.micron
+               FROM local_quotation_line ql LEFT JOIN local_product p ON p.id = ql.product_id
+               WHERE ql.quotation_id=?""",
+            (qid,),
+        ).fetchall()
+        lines = []
+        for l in line_rows:
+            if (l["product_line"] if "product_line" in l.keys() else "stretch_film") == "pet_strap":
+                recipe = db.execute(
+                    "SELECT label FROM local_strap_bom WHERE recipe_key=?", (l["strap_recipe_key"],)
+                ).fetchone()
+                recipe_label = recipe["label"] if recipe else l["strap_recipe_key"]
+                _rl = db.execute("SELECT line_key FROM local_strap_bom WHERE recipe_key=?",
+                                 (l["strap_recipe_key"],)).fetchone()
+                _line_name = "PP Strap" if (_rl and _rl["line_key"] == "pp") else "PET Strap"
+                label = f"{_line_name} {l['strap_width_mm']:g}x{l['strap_thickness_mm']:g}mm – {recipe_label}"
+                quantity_display = l["strap_quantity_rolls"]
+                rolls_per_pallet_display = None
+            else:
+                label = f"{l['micron']}µm – {l['stretch_ability']}" if l["stretch_ability"] else "-"
+                if ("slippery" in l.keys()) and l["slippery"]:
+                    label += " + Extra Slippery"
+                quantity_display = l["quantity_pallets"]
+                rolls_per_pallet_display = l["custom_rolls_per_pallet"]
+            line_total = cost_engine.round_half_up((l["unit_price_egp_kg"] or 0) * (l["total_kg"] or 0), 2)
+            lines.append(dict(l, label=label, line_total=line_total,
+                               quantity_pallets=quantity_display, custom_rolls_per_pallet=rolls_per_pallet_display))
+        total = cost_engine.round_half_up(sum(l["line_total"] for l in lines), 2)
+        return q, lines, total
+
+    @app.route("/local/quotations/<int:qid>")
+    @login_required
+    @local_access_required
+    def local_view_quotation(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        return render_template("local_view_quotation.html", q=q, lines=lines, total=total)
+
+    @app.route("/local/quotations/<int:qid>/reprice")
+    @login_required
+    @local_access_required
+    def local_reprice_quotation(qid):
+        # v183 -- same "Reprice" idea as Export's (see reprice_quotation()).
+        q, lines, _total = _load_local_quotation(g.db, qid)
+        stretch_rows, strap_rows = [], []
+        for l in lines:
+            keys = l.keys()
+            if (l["product_line"] if "product_line" in keys else "stretch_film") == "pet_strap":
+                strap_rows.append(_drow([
+                    _dctl("f-recipe", l["strap_recipe_key"]),
+                    _opt("f-width", l["strap_width_mm"]),
+                    _opt("f-thickness", l["strap_thickness_mm"]),
+                    _opt("f-meters", l["strap_meters_per_coil"]),
+                    _opt("f-corewt", l["strap_core_weight_kg"]),
+                    _dctl("f-box", bool(l["strap_has_box"]), "c"),
+                    _dctl("f-pallet", bool(l["strap_has_pallet"]), "c"),
+                    _dctl("f-qty", l["strap_quantity_rolls"] or 0),
+                    _dctl("f-discount", l["line_discount_pct"] or 0),
+                ]))
+                continue
+            custom_rpp = l["custom_rolls_per_pallet"]
+            stretch_rows.append(_drow([
+                _dctl("f-product", l["product_id"]),
+                _opt("f-pallet", l["pallet_type"]),
+                _opt("f-packing", l["packing_type"]),
+                _dctl("f-colored", bool(l["colored"]), "c"),
+                _dctl("f-slippery", bool(l["slippery"]) if "slippery" in keys else False, "c"),
+                _opt("f-width", l["custom_width_mm"]),
+                _opt("f-rollwt", l["custom_roll_weight_kg"]),
+                _opt("f-corewt", l["custom_core_weight_kg"]),
+                _opt("f-rpp", custom_rpp),
+                _dctl("f-qty", l["quantity_pallets"] or 0),
+                _dctl("f-discount", l["line_discount_pct"] or 0),
+            ], rpp_edited=custom_rpp is not None))
+        header = {
+            "customer_class": q["customer_class"] or "A", "destination": q["destination"] or "",
+            "payment_term": q["payment_term"] or "Cash", "global_discount_pct": q["global_discount_pct"] or 0,
+            "customer_name": q["customer_name"] or "", "quotation_no": "",
+        }
+        draft = {"v": 1, "ts": 0, "header": header, "tables": [stretch_rows, strap_rows], "extra": {},
+                 "note": f"Reopened from {q['quotation_no'] or ('quotation #' + str(q['id']))} -- prices were "
+                         f"recalculated with today's rates. Press Save to create a NEW quotation "
+                         f"(the original is untouched)."}
+        return render_template("reprice_bridge.html", key=f"pricingDraft_local_{g.user['id']}",
+                               draft=draft, target=url_for("local_pricing_page"))
+
+    @app.route("/local/quotations/<int:qid>/pdf")
+    @login_required
+    @local_access_required
+    def local_quotation_pdf(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        buf = build_local_pdf(q, lines, total)
+        filename = f"Local_Quotation_{q['quotation_no'] or q['id']}.pdf"
+        return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+
+    @app.route("/local/quotations/<int:qid>/excel")
+    @login_required
+    @local_access_required
+    def local_quotation_excel(qid):
+        q, lines, total = _load_local_quotation(g.db, qid)
+        buf = build_local_xlsx(q, lines, total)
+        filename = f"Local_Quotation_{q['quotation_no'] or q['id']}.xlsx"
+        return send_file(
+            buf, as_attachment=True, download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    # ---------- Local Costing (admin/sub_admin) ----------
+    @app.route("/local/admin/costing", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_costing():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
+                "AND key NOT LIKE 'local_strap_%'"
+            ).fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key LIKE 'local_%' "
+                "AND material_key NOT LIKE 'local_strap_%'"
+            ).fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id FROM local_margin_factor").fetchall():
+                val = request.form.get(f"margin_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE local_margin_factor SET margin_pct=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id FROM local_destination").fetchall():
+                val = request.form.get(f"dest_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE local_destination SET transport_egp_kg=? WHERE id=?",
+                               (float(val), row["id"]))
+            new_dest_name = (request.form.get("new_destination_name") or "").strip()
+            if new_dest_name:
+                new_dest_rate = float(request.form.get("new_destination_rate") or 0)
+                exists = db.execute("SELECT 1 FROM local_destination WHERE name=?", (new_dest_name,)).fetchone()
+                if not exists:
+                    db.execute("INSERT INTO local_destination (name, transport_egp_kg) VALUES (?,?)",
+                               (new_dest_name, new_dest_rate))
+            # v170.1 -- Local's own Pallet component (packaging quantities
+            # per pallet, Automatic/Manual) -- see db.py's
+            # _fix_local_independent_costing_v170_1() for where the seed
+            # values came from.
+            for row in db.execute("SELECT id FROM local_pallet_component").fetchall():
+                rid = row["id"]
+                for field in ("pallet_qty", "cardboard_qty", "cap_qty", "corrugated_kg", "stretch_kg"):
+                    val = request.form.get(f"palletcomp_{rid}_{field}")
+                    if val is not None and val != "":
+                        db.execute(f"UPDATE local_pallet_component SET {field}=? WHERE id=?", (float(val), rid))
+            db.commit()
+            flash("Local Costing updated.", "success")
+            return redirect(url_for("local_admin_costing"))
+
+        pallet_components = db.execute("SELECT * FROM local_pallet_component ORDER BY packing_key").fetchall()
+        settings = db.execute(
+            "SELECT * FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
+            "AND key NOT LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        resin = db.execute(
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_%' "
+            "AND material_key NOT LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        packaging = db.execute(
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_%' "
+            "AND material_key NOT LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        margin_rows = db.execute(
+            "SELECT * FROM local_margin_factor ORDER BY customer_class, category, film_type"
+        ).fetchall()
+        destinations = db.execute("SELECT * FROM local_destination ORDER BY name").fetchall()
+        return render_template("local_admin_costing.html", settings=settings, resin=resin, packaging=packaging,
+                                margin_rows=margin_rows, destinations=destinations,
+                                pallet_components=pallet_components)
+
+    # ---------- Local Conversion Cost (admin/sub_admin) ----------
+    # v170.1 -- owner-reported: Local's own Conversion Cost ($/ton, by
+    # Micron x Roll type), transcribed from her own workbook's "Conversion
+    # cost" sheet (see db.py's _fix_local_independent_costing_v170_1()) --
+    # now actually read by local_pricing.py instead of Export's own
+    # Electricity/Fixed-cost-derived figure. Same per-row-form pattern as
+    # Local BOM below.
+    @app.route("/local/admin/conversion-cost", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_conversion_cost():
+        db = g.db
+        if request.method == "POST":
+            rid = request.form.get("row_id")
+            val = request.form.get("usd_per_ton")
+            if val is not None and val != "":
+                db.execute("UPDATE local_conversion_cost_row SET usd_per_ton=? WHERE id=?", (float(val), rid))
+                db.commit()
+                flash("Local Conversion Cost row updated.", "success")
+            return redirect(url_for("local_admin_conversion_cost"))
+        rows = db.execute(
+            "SELECT * FROM local_conversion_cost_row ORDER BY "
+            "CASE roll_type WHEN 'St' THEN 1 WHEN 'P' THEN 2 WHEN 'P_plus' THEN 3 ELSE 4 END, micron"
+        ).fetchall()
+        return render_template("local_admin_conversion_cost.html", rows=rows)
+
+    # ---------- Local Strap Costing (admin/sub_admin, v173) ----------
+    @app.route("/local/admin/strap-costing", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_strap_costing():
+        db = g.db
+        if request.method == "POST":
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key LIKE 'local_strap_%'"
+            ).fetchall():
+                key = row["key"]
+                val = request.form.get(f"value_{key}")
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
+            for row in db.execute(
+                "SELECT id FROM material_rate WHERE material_key LIKE 'local_strap_%'"
+            ).fetchall():
+                val = request.form.get(f"value_{row['id']}")
+                if val is not None and val != "":
+                    db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            for row in db.execute("SELECT id, line_key, components_json FROM local_strap_bom").fetchall():
+                rid = row["id"]
+                for field in ("pet_frac", "c4_frac", "color_frac", "profit_pct", "waste_pct"):
+                    val = request.form.get(f"bom_{rid}_{field}")
+                    if val is not None and val != "":
+                        db.execute(f"UPDATE local_strap_bom SET {field}=? WHERE id=?", (float(val), rid))
+                if row["line_key"] == "pp":
+                    # v179 -- PP recipes: resin-mix components (JSON, like Export's strap_bom)
+                    import json as _json
+                    comps = _json.loads(row["components_json"] or "{}")
+                    for comp in local_strap_pricing.PP_COMPONENTS:
+                        val = request.form.get(f"ppbom_{rid}_{comp}")
+                        if val is not None and val != "":
+                            comps[comp] = float(val)
+                    comps = {k: v for k, v in comps.items() if v}
+                    db.execute("UPDATE local_strap_bom SET components_json=? WHERE id=?",
+                               (_json.dumps(comps), rid))
+            db.commit()
+            flash("Local Strap Costing updated.", "success")
+            return redirect(url_for("local_admin_strap_costing"))
+
+        settings = db.execute(
+            "SELECT * FROM global_setting WHERE key LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        resin = db.execute(
+            "SELECT * FROM material_rate WHERE category='resin' AND material_key LIKE 'local_strap_%' ORDER BY label"
+        ).fetchall()
+        packaging = db.execute(
+            "SELECT * FROM material_rate WHERE category='packaging' AND material_key LIKE 'local_strap_%' "
+            "ORDER BY label"
+        ).fetchall()
+        all_rows = local_strap_pricing.get_recipes(db)
+        bom_rows = [r for r in all_rows if r["line_key"] != "pp"]
+        pp_rows = [dict(r, comps=local_strap_pricing.pp_components(r)) for r in all_rows if r["line_key"] == "pp"]
+        return render_template(
+            "local_admin_strap_costing.html", settings=settings, resin=resin, packaging=packaging,
+            bom_rows=bom_rows, pp_rows=pp_rows, pp_components=list(local_strap_pricing.PP_COMPONENTS)
+        )
+
+    # ---------- Local BOM (admin/sub_admin) ----------
+    # v169 -- owner-reported ("مش لاقيه له اي بومز ورا"): local_bom_row has
+    # existed since v156 (one-time copy of Export's own bom_row recipes,
+    # then fully independent -- see db.py's _seed_local_system_v156()
+    # comment and local_pricing.py's module docstring) and IS what Local's
+    # own EX-Work calculation reads for its raw-resin % composition -- but
+    # there was never an admin screen to see or edit it, unlike Export's own
+    # Admin > Costing > BOM page. This mirrors that page exactly, against
+    # local_bom_row instead of bom_row.
+    @app.route("/local/admin/bom", methods=["GET", "POST"])
+    @factors_admin_required
+    @local_access_required
+    def local_admin_bom():
+        db = g.db
+        if request.method == "POST":
+            bid = request.form.get("bom_id")
+            db.execute(
+                """UPDATE local_bom_row SET exceed3518=?, exceed3812=?, exceedxp=?, vista6000=?, enable=?,
+                   ld258=?, vista6202=? WHERE id=?""",
+                (
+                    float(request.form.get("exceed3518") or 0), float(request.form.get("exceed3812") or 0),
+                    float(request.form.get("exceedxp") or 0), float(request.form.get("vista6000") or 0),
+                    float(request.form.get("enable") or 0), float(request.form.get("ld258") or 0),
+                    float(request.form.get("vista6202") or 0), bid,
+                ),
+            )
+            db.commit()
+            flash("Local BOM row updated.", "success")
+            return redirect(url_for("local_admin_bom"))
+        rows = db.execute(
+            "SELECT * FROM local_bom_row ORDER BY stretch_multiplier, roll_tier, micron"
+        ).fetchall()
+        return render_template("local_admin_bom.html", rows=rows)
+
     # ---------- Simple admin: users ----------
     @app.route("/admin/users", methods=["GET", "POST"])
     @admin_required
@@ -1428,13 +2670,17 @@ def create_app():
             role = request.form.get("role", "sales_rep")
             region = request.form.get("region", "").strip()
             seller_type = request.form.get("seller_type", "local")
+            workspace_access = request.form.get("workspace_access", "both")
+            if workspace_access not in ("both", "export", "local"):
+                workspace_access = "both"
             password = request.form.get("password") or "ChangeMe123!"
             exists = db.execute("SELECT id FROM user WHERE username=?", (username,)).fetchone()
             if username and not exists:
                 db.execute(
-                    """INSERT INTO user (username, full_name, password_hash, role, region, seller_type)
-                       VALUES (?,?,?,?,?,?)""",
-                    (username, full_name, generate_password_hash(password), role, region, seller_type),
+                    """INSERT INTO user (username, full_name, password_hash, role, region, seller_type,
+                       workspace_access) VALUES (?,?,?,?,?,?,?)""",
+                    (username, full_name, generate_password_hash(password), role, region, seller_type,
+                     workspace_access),
                 )
                 db.commit()
                 flash(f"User {username} created.", "success")
@@ -1457,10 +2703,18 @@ def create_app():
         # user.stretch_markup_mode/value + strap_markup_mode/value.
         stretch_markup_mode = clean_mode("stretch_markup_mode")
         strap_markup_mode = clean_mode("strap_markup_mode")
+        # v158 -- admin-assigned per-user workspace access (Export only /
+        # Local only / both) -- see export_access_required/
+        # local_access_required above and db.py's user.workspace_access
+        # migration. Falls back to 'both' for any stray/unrecognized value
+        # rather than ever locking an admin out of everything by accident.
+        workspace_access = request.form.get("workspace_access", "both")
+        if workspace_access not in ("both", "export", "local"):
+            workspace_access = "both"
         db.execute(
             """UPDATE user SET full_name=?, role=?, region=?, active=?, price_adjustment_usd_kg=?,
                seller_type=?, stretch_markup_mode=?, stretch_markup_value=?,
-               strap_markup_mode=?, strap_markup_value=? WHERE id=?""",
+               strap_markup_mode=?, strap_markup_value=?, workspace_access=? WHERE id=?""",
             (
                 request.form.get("full_name", "").strip(),
                 request.form.get("role", "sales_rep"),
@@ -1472,6 +2726,7 @@ def create_app():
                 float(request.form.get("stretch_markup_value") or 0),
                 strap_markup_mode,
                 float(request.form.get("strap_markup_value") or 0),
+                workspace_access,
                 uid,
             ),
         )
@@ -1542,8 +2797,9 @@ def create_app():
                 db.execute(
                     """INSERT INTO product
                        (stretch_ability, micron, pallet_size, auto_manual, color, rolls_per_pallet,
-                        roll_weight_kg, core_weight_kg, ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        roll_weight_kg, core_weight_kg, width_mm, packaging_group,
+                        ex_work_usd_kg, fob_usd_kg, cfr_usd_kg)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         request.form.get("stretch_ability", "").strip(),
                         request.form.get("micron", "").strip(),
@@ -1553,15 +2809,24 @@ def create_app():
                         float(request.form.get("rolls_per_pallet") or 0),
                         float(request.form.get("roll_weight_kg") or 0),
                         float(request.form.get("core_weight_kg") or 0),
+                        float(request.form.get("width_mm") or 0) or None,
+                        request.form.get("packaging_group", "").strip() or None,
                         float(request.form.get("ex_work_usd_kg") or 0),
                         float(request.form.get("fob_usd_kg") or 0) or None,
                         float(request.form.get("cfr_usd_kg") or 0) or None,
                     ),
                 )
+                # v178 -- EX-Work left blank/0 => computed from the cost
+                # engine (BOM, core, packaging...) like every other SKU.
+                new_row = db.execute("SELECT * FROM product WHERE id=last_insert_rowid()").fetchone()
+                if not float(request.form.get("ex_work_usd_kg") or 0):
+                    db.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?",
+                               (cost_engine.compute_ex_work_usd_kg(db, new_row), new_row["id"]))
                 db.commit()
                 flash("Product added.", "success")
             else:
                 pid = request.form.get("product_id")
+                _ew = float(request.form.get("ex_work_usd_kg") or 0)
                 db.execute(
                     """UPDATE product SET stretch_ability=?, micron=?, rolls_per_pallet=?, roll_weight_kg=?,
                        core_weight_kg=?, width_mm=?, packaging_group=?, ex_work_usd_kg=?, fob_usd_kg=?,
@@ -1580,6 +2845,10 @@ def create_app():
                         pid,
                     ),
                 )
+                if not _ew:  # v178 -- blank/0 EX-Work => recompute from cost engine
+                    row = db.execute("SELECT * FROM product WHERE id=?", (pid,)).fetchone()
+                    db.execute("UPDATE product SET ex_work_usd_kg=? WHERE id=?",
+                               (cost_engine.compute_ex_work_usd_kg(db, row), pid))
                 db.commit()
                 flash("Product updated.", "success")
             return redirect(url_for("admin_products"))
@@ -1739,7 +3008,12 @@ def create_app():
         # strap_dollar_rate, which lives on the Strap Costing page along
         # with everything else strap_-prefixed -- see db.py's migration.)
         if request.method == "POST":
-            for row in db.execute("SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%'").fetchall():
+            # v156 -- also exclude local_% (its own Local Costing admin page
+            # now owns those rows), same reasoning as the existing strap_%
+            # exclusion.
+            for row in db.execute(
+                "SELECT key FROM global_setting WHERE key NOT LIKE 'strap_%' AND key NOT LIKE 'local_%'"
+            ).fetchall():
                 key = row["key"]
                 val = request.form.get(f"value_{key}")
                 if val is not None and val != "":
@@ -1747,8 +3021,15 @@ def create_app():
             db.commit()
             flash("Global cost settings updated.", "success")
             return redirect(url_for("admin_global_settings"))
+        # v128 -- 'max_discount_pct' (the old single flat Stretch/Pre-Stretch
+        # cap) is superseded by the 5 max_discount_pct_* per-category caps
+        # below; the row is left alone in the DB (nothing reads it for
+        # pricing any more) but no longer shown here, so it can't be
+        # mistaken for a setting that still does anything.
         settings = db.execute(
-            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' ORDER BY label"
+            "SELECT * FROM global_setting WHERE key NOT LIKE 'strap_%' AND key NOT LIKE 'local_%' "
+            "AND key != 'max_discount_pct' "
+            "ORDER BY (key LIKE 'max_discount_pct_%') DESC, label"
         ).fetchall()
         last_upload = table_sync.get_last_upload(db, "global_setting")
         return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
@@ -1759,27 +3040,80 @@ def create_app():
         db = g.db
         # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on
         # the dedicated Strap Costing page instead, so they're excluded here.
+        # v156 -- same for local_% (its own Local Costing admin page).
+        # v159 -- market_% rows (the 5 imported resins' Market prices) are
+        # still plain material_rate rows, so the existing generic
+        # "value_<id>" save loop below updates them exactly like any Actual
+        # row -- no special-case save logic needed, only the SELECT that
+        # builds the page needs to pair each one with its Actual row (done
+        # in the GET branch below) instead of listing it as its own line.
         if request.method == "POST":
             for row in db.execute(
-                "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%'"
+                "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%' "
+                "AND material_key NOT LIKE 'local_%'"
             ).fetchall():
                 val = request.form.get(f"value_{row['id']}")
                 if val is not None and val != "":
                     db.execute("UPDATE material_rate SET value=? WHERE id=?", (float(val), row["id"]))
+            # v159 -- owner-requested (2026-10-04 Arabic follow-up): admin
+            # sets, from this same page, which mode a plain sales rep (who
+            # never sees the per-quote Pricing Mode dropdown) is priced
+            # under by default. admin/sub_admin can still preview either
+            # mode per-quote regardless of this default.
+            default_mode = request.form.get("default_pricing_mode")
+            if default_mode in ("actual", "market"):
+                db.execute(
+                    "UPDATE global_setting SET value=? WHERE key='default_pricing_mode_is_market'",
+                    (1.0 if default_mode == "market" else 0.0,),
+                )
             db.commit()
             flash("Material rates updated.", "success")
             return redirect(url_for("admin_material_rates"))
-        resin = db.execute(
+
+        # v159 -- pair each imported resin's Actual row with its new Market
+        # row (material_key 'market_<grade>') so the template can render
+        # them side by side in the same table row. v161 -- all 9 resin
+        # grades are imported (owner-confirmed), so every row now gets a
+        # Market column; RESIN_EXCEL_ORDER's absence would just mean a row
+        # sorts last, not that it's excluded.
+        # v161 -- owner asked the rows to appear in the same order as her
+        # own Material Pricing Excel sheet (not alphabetical by label,
+        # which is what 'ORDER BY label' gave -- C4/Enable/Exceed.../LD/
+        # UVI/Vista/Vista 6000). This is that sheet's row order, taken from
+        # the original seed data (data/cost_seed.json's material_rates
+        # list, which was transcribed from the workbook in that order).
+        RESIN_EXCEL_ORDER = (
+            "c4", "exceed3518", "exceed3812", "exceedxp", "vista6000",
+            "enable", "uvi", "ld", "vista",
+        )
+        resin_rows = db.execute(
             "SELECT * FROM material_rate WHERE category='resin' AND material_key NOT LIKE 'pet_%' "
-            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' "
+            "AND material_key NOT LIKE 'market_%' ORDER BY label"
         ).fetchall()
+        resin_rows = sorted(
+            resin_rows,
+            key=lambda r: RESIN_EXCEL_ORDER.index(r["material_key"])
+            if r["material_key"] in RESIN_EXCEL_ORDER else len(RESIN_EXCEL_ORDER),
+        )
+        market_rows = {
+            row["material_key"][len("market_"):]: row
+            for row in db.execute(
+                "SELECT * FROM material_rate WHERE material_key LIKE 'market_%'"
+            ).fetchall()
+        }
+        resin = [{"actual": row, "market": market_rows.get(row["material_key"])} for row in resin_rows]
         packaging = db.execute(
             "SELECT * FROM material_rate WHERE category='packaging' AND material_key NOT LIKE 'pet_%' "
-            "AND material_key NOT LIKE 'pp_%' ORDER BY label"
+            "AND material_key NOT LIKE 'pp_%' AND material_key NOT LIKE 'local_%' ORDER BY label"
         ).fetchall()
+        default_mode_row = db.execute(
+            "SELECT value FROM global_setting WHERE key='default_pricing_mode_is_market'"
+        ).fetchone()
+        default_pricing_mode = "market" if (default_mode_row and default_mode_row["value"]) else "actual"
         last_upload = table_sync.get_last_upload(db, "material_rate")
         return render_template("admin_material_rates.html", resin=resin, packaging=packaging,
-                                last_upload=last_upload)
+                                default_pricing_mode=default_pricing_mode, last_upload=last_upload)
 
     @app.route("/admin/strap-costing", methods=["GET", "POST"])
     @admin_required
@@ -1799,11 +3133,13 @@ def create_app():
         strap_pricing._dollar_rate()'s docstring)."""
         db = g.db
         if request.method == "POST":
-            # v88 -- Strap's own independent Dollar Rate (no longer shared
-            # with Stretch Film's Global Settings row).
-            val = request.form.get("strap_dollar_rate")
-            if val is not None and val != "":
-                db.execute("UPDATE global_setting SET value=? WHERE key='strap_dollar_rate'", (float(val),))
+            # v122 -- PET and PP now each have their own independent Dollar
+            # Rate (no longer shared strap_dollar_rate -- see
+            # strap_pricing._dollar_rate()'s matching v122 comment).
+            for key in ("pet_dollar_rate", "pp_dollar_rate"):
+                val = request.form.get(key)
+                if val is not None and val != "":
+                    db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
 
             # Material prices (pet_*/pp_* rows only).
             for row in db.execute(
@@ -1860,12 +3196,36 @@ def create_app():
                 if val is not None and val != "":
                     db.execute("UPDATE global_setting SET value=? WHERE key=?", (float(val), key))
 
+            # v124 -- "stuffing" restrictions per (line, core size, box/no-box):
+            # Rolls/Pallet, Pallets/Container (20ft & 40ft), Max Roll Weight (kg).
+            for row in db.execute("SELECT id FROM strap_stuffing_config").fetchall():
+                sid = row["id"]
+                rpp_val = request.form.get(f"stuffing_{sid}_rpp")
+                p20_val = request.form.get(f"stuffing_{sid}_p20")
+                p40_val = request.form.get(f"stuffing_{sid}_p40")
+                maxwt_val = request.form.get(f"stuffing_{sid}_maxwt")
+                if rpp_val is not None and rpp_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET rolls_per_pallet=? WHERE id=?",
+                               (int(float(rpp_val)), sid))
+                if p20_val is not None and p20_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET pallets_per_container_20=? WHERE id=?",
+                               (int(float(p20_val)), sid))
+                if p40_val is not None and p40_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET pallets_per_container_40=? WHERE id=?",
+                               (int(float(p40_val)), sid))
+                if maxwt_val is not None and maxwt_val != "":
+                    db.execute("UPDATE strap_stuffing_config SET max_roll_weight_kg=? WHERE id=?",
+                               (float(maxwt_val), sid))
+
             db.commit()
             flash("PET/PP Strap costing updated.", "success")
             return redirect(url_for("admin_strap_costing"))
 
-        # v88 -- Strap's own Dollar Rate (independent from Stretch Film's).
-        dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='strap_dollar_rate'").fetchone()
+        # v122 -- PET/PP each have their own Dollar Rate now (independent
+        # from Stretch Film's AND from each other -- see
+        # strap_pricing._dollar_rate()'s matching v122 comment).
+        pet_dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='pet_dollar_rate'").fetchone()
+        pp_dollar_rate = db.execute("SELECT value FROM global_setting WHERE key='pp_dollar_rate'").fetchone()
         material_rates = {
             "pet_resin": db.execute(
                 "SELECT * FROM material_rate WHERE material_key LIKE 'pet_%' AND category='resin' ORDER BY label"
@@ -1916,26 +3276,54 @@ def create_app():
         # v88 -- strap_dollar_rate also excluded here: it gets its own
         # dedicated "Dollar Rate" section on the page (see dollar_rate
         # above), not the generic FOB/credit-terms grid. v94 --
-        # strap_max_discount_pct excluded the same way, its own "Max
-        # Discount" section below (see max_discount below).
+        # strap_max_discount_pct(_pet/_pp) excluded the same way, their own
+        # "Max Discount" section below (see max_discount_pet/pp below).
+        # v128 -- strap_max_discount_pct_pet/_pp (the new per-line caps)
+        # excluded here too, same reason.
         freight = db.execute(
             "SELECT * FROM global_setting WHERE key LIKE 'strap_%' "
             "AND key NOT IN ('strap_shipping_rate_per_container_usd', 'strap_dollar_rate', "
-            "'strap_max_discount_pct') "
+            "'strap_max_discount_pct', 'strap_max_discount_pct_pet', 'strap_max_discount_pct_pp') "
             "ORDER BY label"
         ).fetchall()
         # v94 -- Strap's own Max Discount cap, independent of Stretch
-        # Film's (Global Cost Settings) -- see
-        # cost_engine.capped_discount_pct()/db._seed_strap_data().
-        max_discount = db.execute("SELECT value FROM global_setting WHERE key='strap_max_discount_pct'").fetchone()
+        # Film's (Global Cost Settings). v128 -- split again into PET's own
+        # and PP's own -- see cost_engine.capped_discount_pct()/
+        # db._seed_discount_cap_categories(). The old flat
+        # 'strap_max_discount_pct' row is left alone in the DB (nothing
+        # reads it for pricing any more) but no longer shown on this page.
+        max_discount_pet = db.execute(
+            "SELECT value FROM global_setting WHERE key='strap_max_discount_pct_pet'"
+        ).fetchone()
+        max_discount_pp = db.execute(
+            "SELECT value FROM global_setting WHERE key='strap_max_discount_pct_pp'"
+        ).fetchone()
+        # v124 -- "stuffing" restrictions grid (Rolls/Pallet, Pallets/
+        # Container 20ft & 40ft, Max Roll Weight), one row per (line, core
+        # size, box/no-box) -- see db._seed_strap_stuffing_config_v124() and
+        # strap_pricing._get_stuffing_config(). Grouped by line for display,
+        # in core-size then box/no-box order (matches STRAP_CORE_SIZES on
+        # the Pricing screen).
+        core_size_order = {"150": 0, "200": 1, "400-405": 2}
+        stuffing_rows = db.execute("SELECT * FROM strap_stuffing_config").fetchall()
+        stuffing_config = {"pet": [], "pp": []}
+        for r in stuffing_rows:
+            stuffing_config.setdefault(r["line_key"], []).append(r)
+        for line_key in stuffing_config:
+            stuffing_config[line_key].sort(
+                key=lambda r: (core_size_order.get(r["core_size_mm"], 99), r["has_box"])
+            )
         return render_template(
             "admin_strap_costing.html",
-            dollar_rate=dollar_rate["value"] if dollar_rate else 45,
+            pet_dollar_rate=pet_dollar_rate["value"] if pet_dollar_rate else 47,
+            pp_dollar_rate=pp_dollar_rate["value"] if pp_dollar_rate else 47,
             material_rates=material_rates,
             boms=boms,
             line_configs=line_configs,
             freight=freight,
-            max_discount=max_discount["value"] if max_discount else 2.0,
+            max_discount_pet=max_discount_pet["value"] if max_discount_pet else 2.0,
+            max_discount_pp=max_discount_pp["value"] if max_discount_pp else 2.0,
+            stuffing_config=stuffing_config,
         )
 
     @app.route("/admin/cost/labor", methods=["GET", "POST"])
@@ -2120,6 +3508,57 @@ def create_app():
     def admin_prestretch():
         db = g.db
         if request.method == "POST":
+            action = request.form.get("action")
+            # v145 -- owner-requested ("محتاجة اعرف ازود منتجات هنا"): this
+            # page used to only let you CHANGE which source SKU an
+            # ALREADY-EXISTING Pre-Stretch micron borrows its price from
+            # (the branch below, unchanged). There was no way anywhere in
+            # the app to add a brand-new Pre-Stretch micron -- the general
+            # Catalog & Rates > Products "Add product" form has no
+            # is_prestretch checkbox at all, so a product added there would
+            # silently default to is_prestretch=0 (see db.py's column
+            # default) and never show up here or in the Pre-Stretch quote
+            # picker. These two new branches (add_micron/delete_micron) are
+            # scoped to this page and only ever touch is_prestretch=1
+            # rows -- they can't create or delete a normal product.
+            if action == "add_micron":
+                micron = (request.form.get("micron") or "").strip()
+                source_id = request.form.get("prestretch_source_product_id") or None
+                if not micron:
+                    flash("اكتبي المايكرون الأول.", "error")
+                    return redirect(url_for("admin_prestretch"))
+                dup = db.execute(
+                    "SELECT id FROM product WHERE is_prestretch=1 AND micron=?", (micron,)
+                ).fetchone()
+                if dup:
+                    flash(f"المايكرون {micron}µm موجود بالفعل في الجدول.", "error")
+                    return redirect(url_for("admin_prestretch"))
+                # Same field pattern as every seeded Pre-Stretch row (see
+                # this route's own comment above prestretch_cost_components()
+                # in pricing.py): stretch_ability is always the fixed label
+                # "Pre-Stretch" (not a real stretch-ability spec -- Pre-
+                # Stretch borrows its price from the source SKU instead),
+                # ex_work_usd_kg is a harmless 0.0 placeholder (never read --
+                # material cost comes from the source SKU's own price, see
+                # prestretch_cost_components()), and roll/core weight,
+                # rolls/pallet are left NULL because the rep types those in
+                # per quotation line, not from the catalog.
+                db.execute(
+                    """INSERT INTO product
+                       (stretch_ability, micron, auto_manual, color, ex_work_usd_kg,
+                        is_prestretch, prestretch_source_product_id)
+                       VALUES ('Pre-Stretch', ?, 'Manual', 'Transparent', 0.0, 1, ?)""",
+                    (micron, source_id),
+                )
+                db.commit()
+                flash(f"اتضاف مايكرون {micron}µm جديد.", "success")
+                return redirect(url_for("admin_prestretch"))
+            if action == "delete_micron":
+                pid = request.form.get("product_id")
+                db.execute("DELETE FROM product WHERE id=? AND is_prestretch=1", (pid,))
+                db.commit()
+                flash("اتمسح المايكرون.", "success")
+                return redirect(url_for("admin_prestretch"))
             pid = request.form.get("product_id")
             source_id = request.form.get("prestretch_source_product_id") or None
             db.execute(
@@ -2591,7 +4030,25 @@ def build_pdf(q, lines, totals):
         # still comfortably clearing their own longest single-line value
         # (see the v75/v76.1 comments above for how those minimums were
         # measured), sum still exactly PAGE_CONTENT_WIDTH (510pt).
-        t = Table(rows, colWidths=[14, 78, 56, 69, 54, 32, 30, 32, 46, 33, 33, 33])
+        # v131 -- owner-reported: several headers ("Roll Weight", "Core
+        # Weight", "EX-Work Price") and, latently, the Packing column's own
+        # longest value ("Manual(2.3~3.5kg)") were wrapping MID-WORD
+        # ("Weigh"/"t", "EX-Wo"/"rk") instead of only at a space -- because
+        # reportlab's Paragraph treats a hyphenated/parenthesised run with
+        # no space in it (e.g. "EX-Work", "Manual(2.3~3.5kg)") as ONE
+        # unsplittable "word" for line-wrapping, and force-splits it
+        # character-by-character (splitLongWords, on by default) whenever
+        # that whole word doesn't fit the column -- wrapping at a space
+        # between separate words (e.g. "Rolls/" / "Pallet", "Pallets/" /
+        # "Container") is fine and expected, only a split WITHIN one word
+        # is the bug. Every column below is now sized with real
+        # reportlab.pdfmetrics.stringWidth() measurements of its own
+        # longest single unbreakable word/token (at this table's actual
+        # header 7.5pt / body 8pt fonts) plus this row's 8pt of L+R
+        # padding plus a few points of slack, so no word should ever need
+        # to force-split again -- still sums to exactly PAGE_CONTENT_WIDTH
+        # (510pt).
+        t = Table(rows, colWidths=[14, 72, 46, 80, 40, 36, 36, 32, 46, 42, 33, 33])
         t.hAlign = "LEFT"
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
@@ -2825,6 +4282,222 @@ def build_xlsx(q, lines, totals):
     # dropped too).
     # v105 -- EX-Work Price column added (12 columns now, was 11).
     widths = [5, 36, 15, 17, 14, 12, 12, 12, 16, 13, 13, 13]
+    for col, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def build_local_pdf(q, lines, total):
+    """Local Market's own PDF export -- same company letterhead/meta-table
+    look as Export's build_pdf() above, but a single, simple 6-column
+    EGP-priced line-items table (Product / Pallet / Packing / Qty (Pallets) /
+    Rolls per Pallet / Unit Price (EGP/KG) / Total (KG) / Line Total (EGP)),
+    matching exactly what local_view_quotation.html already shows on screen
+    -- no FOB/CIF/dual-family logic, since Local has neither."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=20 * mm,
+                             leftMargin=15 * mm, rightMargin=15 * mm)
+    PAGE_CONTENT_WIDTH = 180 * mm
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleX", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#1a1a1a"))
+    company_name_style = ParagraphStyle("CoName", parent=styles["Normal"], fontSize=15, fontName="Helvetica-Bold",
+                                         textColor=colors.HexColor("#1a1a1a"))
+    company_detail_style = ParagraphStyle("CoDetail", parent=styles["Normal"], fontSize=8,
+                                           textColor=colors.HexColor("#444444"), leading=11)
+
+    logo_path = os.path.join(BASE_DIR, "static", "logo.png")
+    company_lines = [
+        Paragraph(COMPANY_NAME, company_name_style),
+        Paragraph(f"Address&nbsp;&nbsp;: {COMPANY_ADDRESS}", company_detail_style),
+        Paragraph(f"Tel&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_TEL}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL2}", company_detail_style),
+        Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{COMPANY_TEL3}", company_detail_style),
+        Paragraph(f"Fax&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {COMPANY_FAX}", company_detail_style),
+        Paragraph(f"Email&nbsp;&nbsp;&nbsp;: {COMPANY_EMAIL}", company_detail_style),
+    ]
+    company_table = Table([[p] for p in company_lines], colWidths=[148 * mm])
+    company_table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("TOPPADDING", (0, 1), (0, 1), 6),
+    ]))
+
+    if os.path.exists(logo_path):
+        logo = RLImage(logo_path, width=30 * mm, height=30 * mm * (246 / 209))
+        letterhead = Table([[logo, company_table]], colWidths=[36 * mm, PAGE_CONTENT_WIDTH - 36 * mm])
+        letterhead.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (0, 0), 0),
+            ("LEFTPADDING", (1, 0), (1, 0), 8),
+        ]))
+    else:
+        letterhead = company_table
+    letterhead.hAlign = "LEFT"
+
+    elements = [letterhead, Spacer(1, 10)]
+    divider = Table([[""]], colWidths=[PAGE_CONTENT_WIDTH], rowHeights=[0.75],
+                     style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#cccccc"))]))
+    divider.hAlign = "LEFT"
+    elements.append(divider)
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph("Local Market Quotation", title_style))
+    elements.append(Spacer(1, 6))
+
+    created_at = q["created_at"] or ""
+    date_str = created_at[:10] if created_at else "-"
+    meta = [
+        ["Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str],
+        ["Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"],
+        ["Customer Class", q["customer_class"] or "-", "Destination", q["destination"] or "-"],
+        ["Discount", f"{q['global_discount_pct'] or 0}%", "", ""],
+    ]
+    meta_table = Table(meta, colWidths=[95, 160, 95, PAGE_CONTENT_WIDTH - 95 - 160 - 95])
+    meta_table.hAlign = "LEFT"
+    meta_table.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 14))
+
+    label_style = ParagraphStyle("LineLabel", parent=styles["Normal"], fontSize=8, leading=10)
+    header_style = ParagraphStyle("LineHeader", parent=styles["Normal"], fontSize=7.5, leading=9,
+                                   textColor=colors.white, alignment=1)
+
+    header = [Paragraph(t, header_style) for t in
+              ["#", "Product", "Pallet", "Packing", "Qty<br/>(Pallets)", "Rolls/<br/>Pallet",
+               "Unit Price<br/>(EGP/KG)", "Total<br/>(KG)", "Line Total<br/>(EGP)"]]
+    rows = [header]
+    for i, line in enumerate(lines, start=1):
+        rows.append([
+            str(i), Paragraph(line["label"], label_style),
+            Paragraph(line.get("pallet_type") or "-", label_style),
+            Paragraph(line.get("packing_type") or "-", label_style),
+            f"{line['quantity_pallets']:g}" if line.get("quantity_pallets") is not None else "-",
+            f"{line['custom_rolls_per_pallet']:g}" if line.get("custom_rolls_per_pallet") else "-",
+            f"{(line.get('unit_price_egp_kg') or 0):.2f}",
+            f"{(line.get('total_kg') or 0):.1f}",
+            f"{(line.get('line_total') or 0):.2f}",
+        ])
+    t = Table(rows, colWidths=[14, 150, 68, 80, 40, 38, 48, 36, 36])
+    t.hAlign = "LEFT"
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 14))
+
+    total_style = ParagraphStyle("TotalLine", parent=styles["Normal"], fontSize=12, fontName="Helvetica-Bold",
+                                  alignment=2)
+    elements.append(Paragraph(f"Total: {total:.2f} EGP", total_style))
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf
+
+
+def build_local_xlsx(q, lines, total):
+    """Excel version of build_local_pdf() -- same letterhead/meta/line
+    columns/grand total, as an .xlsx download, sitting next to the Local
+    quotation's Export PDF button."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Local Quotation"
+
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_font = Font(color="FFFFFF", bold=True)
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    right = Alignment(horizontal="right")
+
+    row = 1
+    ws.cell(row=row, column=1, value=COMPANY_NAME).font = Font(bold=True, size=13)
+    row += 1
+    ws.cell(row=row, column=1, value=COMPANY_ADDRESS).font = Font(size=8, color="444444")
+    row += 2
+
+    ws.cell(row=row, column=1, value="Local Market Quotation").font = Font(bold=True, size=15)
+    row += 2
+
+    created_at = q["created_at"] or ""
+    date_str = created_at[:10] if created_at else "-"
+    meta_rows = [
+        ("Quotation No.", q["quotation_no"] or f"#{q['id']}", "Date", date_str),
+        ("Customer", q["customer_name"] or "-", "Payment Term", q["payment_term"] or "-"),
+        ("Customer Class", q["customer_class"] or "-", "Destination", q["destination"] or "-"),
+        ("Discount", f"{q['global_discount_pct'] or 0}%", "", ""),
+    ]
+    for label1, val1, label2, val2 in meta_rows:
+        ws.cell(row=row, column=1, value=label1).font = bold
+        ws.cell(row=row, column=2, value=val1)
+        if label2:
+            ws.cell(row=row, column=3, value=label2).font = bold
+            ws.cell(row=row, column=4, value=val2)
+        row += 1
+    row += 1
+
+    header_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    headers = ["#", "Product", "Pallet", "Packing", "Qty\n(Pallets)", "Rolls/Pallet",
+               "Unit Price\n(EGP/KG)", "Total\n(KG)", "Line Total\n(EGP)"]
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = header_wrap
+    ws.row_dimensions[row].height = 28
+    row += 1
+
+    for i, line in enumerate(lines, start=1):
+        values = [
+            i, line["label"], line.get("pallet_type") or "-", line.get("packing_type") or "-",
+            line.get("quantity_pallets") or 0,
+            line.get("custom_rolls_per_pallet") if line.get("custom_rolls_per_pallet") else "-",
+            cost_engine.round_half_up(line.get("unit_price_egp_kg") or 0, 2),
+            cost_engine.round_half_up(line.get("total_kg") or 0, 1),
+            cost_engine.round_half_up(line.get("line_total") or 0, 2),
+        ]
+        for col, v in enumerate(values, start=1):
+            cell = ws.cell(row=row, column=col, value=v)
+            cell.border = border
+            if col >= 5:
+                cell.alignment = right
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Total (EGP)").font = bold
+    ws.cell(row=row, column=2, value=cost_engine.round_half_up(total, 2)).font = bold
+
+    widths = [5, 44, 18, 20, 12, 12, 14, 12, 14]
     for col, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(col)].width = w
 

@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+{% block title %}Local Pricing · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-header">
+    <h2 data-i18n="local_pricing_title">Local Pricing – New quotation</h2>
+    <div class="panel-actions">
+      <button type="button" class="btn btn-outline" id="langToggleBtn" style="font-size:0.8rem; padding:5px 10px;">🌐 العربية</button>
+      <button type="button" class="btn btn-danger-outline" id="newQuoteBtn" title="Start a fresh quotation (clears the saved draft)">🗑 New</button>
+      <button type="button" class="btn btn-primary" id="saveBtn">💾 <span data-i18n="save">Save</span></button>
+      <button type="button" class="btn btn-outline" id="exportExcelBtn" disabled>⇧ <span data-i18n="export_excel">Export Excel</span></button>
+      <button type="button" class="btn btn-outline" id="exportBtn" disabled>⇧ <span data-i18n="export_pdf">Export PDF</span></button>
+      <button type="button" class="btn btn-primary" id="calcBtn">⚡ <span data-i18n="calculate">Calculate</span></button>
+    </div>
+  </div>
+
+  {% if is_admin_role %}
+  <div class="field" style="max-width:320px;">
+    <label>Act as (preview prices as)</label>
+    <select id="actAsUser">
+      <option value="">Myself ({{ current_user.role|capitalize }})</option>
+      {% for u in preview_users or [] %}
+      <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-4">
+    <div class="field">
+      <label data-i18n="customer_class">Customer Class</label>
+      <select id="customer_class">
+        <option value="A">A</option>
+        <option value="B">B</option>
+      </select>
+    </div>
+    <div class="field">
+      <label data-i18n="destination">Destination</label>
+      <select id="destination">
+        <option value="" data-i18n="select_ellipsis">Select...</option>
+        {% for d in destinations %}
+        <option value="{{ d.name }}">{{ d.name }} ({{ '%.2f'|format(d.transport_egp_kg) }} EGP/KG)</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label data-i18n="payment_term">Payment Term</label>
+      <select id="payment_term">
+        <option value="Cash">Cash</option>
+        <option value="Credit">Credit</option>
+      </select>
+    </div>
+    <div class="field">
+      <label data-i18n="global_discount_pct">Global Discount %</label>
+      <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
+    </div>
+  </div>
+  <div class="grid grid-4">
+    <div class="field"><label data-i18n="customer_name">Customer Name</label><input type="text" id="customer_name"></div>
+    <div class="field"><label data-i18n="quotation_no">Quotation No.</label><input type="text" id="quotation_no"></div>
+  </div>
+
+  <h3 style="margin-top:20px;" data-i18n="quotation_lines">Quotation lines</h3>
+  <table class="lines-table lines-table-compact" id="linesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th data-i18n="col_product">Product</th>
+        <th data-i18n="col_pallet_type">Pallet type</th>
+        <th data-i18n="col_packing_type">Packing type</th>
+        <th data-i18n="col_colored">Colored</th>
+        <th data-i18n="col_uv">UV</th>
+        <th data-i18n="col_slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates">Extra Slippery</th>
+        <th data-i18n="col_width_mm">Width (mm)</th>
+        <th data-i18n="col_roll_kg">Roll wt (kg)</th>
+        <th data-i18n="col_core_kg">Core wt (kg)</th>
+        <th data-i18n="col_meters" title="Film length in meters -- type Meters to get the Roll weight, or type Roll weight to get the Meters (same formula as the Material Calculator sheet)">Meters</th>
+        <th data-i18n="col_rolls_pallet">Rolls/Pallet</th>
+        <th data-i18n="col_qty_pallets">Qty (Pallets)</th>
+        <th data-i18n="col_discount_pct">Discount %</th>
+        <th data-i18n="col_unit_price">Unit Price (EGP/KG)</th>
+        <th data-i18n="col_total_kg">Total (KG)</th>
+        <th data-i18n="col_line_total">Line Total (EGP)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="linesBody"></tbody>
+  </table>
+  <button type="button" class="btn btn-outline" id="addLineBtn" style="margin-top:10px;">+ <span data-i18n="add_line">Add line</span></button>
+
+  <div id="discountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-top:12px;"></div>
+
+  <!-- v174 -- owner-requested: PET Strap lines live on this SAME quotation
+       screen, same spirit as Export's own pricing.html (one Stretch Film
+       table + one Strap table, same page, same quotation/total) -- not a
+       separate "Local Strap Pricing" page (v173's original, now folded in
+       here). PP Strap isn't in this dropdown yet -- no PP_Local_pricing
+       workbook received from the owner yet, see STRAP_RECIPES below. -->
+  <h3 style="margin-top:28px;">Strap lines (PET / PP)</h3>
+  <table class="lines-table lines-table-compact" id="strapLinesTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Recipe</th>
+        <th>Width (mm)</th>
+        <th>Thickness (mm)</th>
+        <th>Meters/Coil</th>
+        <th>Core wt (kg)</th>
+        <th>Box</th>
+        <th>Pallet</th>
+        <th>Qty (Rolls)</th>
+        <th>Discount %</th>
+        <th>Unit Price (EGP/KG)</th>
+        <th>Total (KG)</th>
+        <th>Line Total (EGP)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="strapLinesBody"></tbody>
+  </table>
+  <button type="button" class="btn btn-outline" id="addStrapLineBtn" style="margin-top:10px;">+ Add strap line</button>
+
+  <div id="strapDiscountCapNotice" class="hint" style="display:none; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 12px; margin-top:12px;"></div>
+
+  <div class="totals-box" style="margin-top:20px;">
+    <div class="field"><label data-i18n="total_egp">Total (EGP)</label><div id="grandTotal" style="font-size:1.3rem; font-weight:600;">0.00 EGP</div></div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
+<script src="{{ url_for('static', filename='meters.js') }}?v={{ css_version }}"></script>
+<script>
+const PRODUCTS = {{ products|tojson }};
+const PALLET_TYPES = {{ pallet_types|tojson }};
+const PACKING_TYPES = {{ packing_types|tojson }};
+const STRAP_RECIPES = {{ strap_recipes|tojson }};
+let currentQuotationId = null;
+
+// v169 -- Arabic/English UI-chrome toggle, mirroring Export pricing.html's
+// own data-i18n/langToggleBtn mechanism (owner-requested: "نفس الانترفيس").
+// Scoped the same way as Export's: static page chrome (labels, buttons,
+// column headers) + the fixed Pallet/Packing/Payment-term option labels --
+// NOT a full runtime/product-catalog translation.
+let currentLang = (function () {
+  try { return localStorage.getItem('pricingLang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; }
+})();
+
+const I18N = {
+  en: {
+    local_pricing_title: 'Local Pricing – New quotation', save: 'Save', calculate: 'Calculate',
+    customer_class: 'Customer Class', destination: 'Destination', select_ellipsis: 'Select...',
+    payment_term: 'Payment Term', global_discount_pct: 'Global Discount %',
+    customer_name: 'Customer Name', quotation_no: 'Quotation No.',
+    quotation_lines: 'Quotation lines', add_line: 'Add line',
+    col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
+    col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'Width (mm)',
+    col_roll_kg: 'Roll wt (kg)', col_core_kg: 'Core wt (kg)', col_meters: 'Meters', col_rolls_pallet: 'Rolls/Pallet',
+    col_qty_pallets: 'Qty (Pallets)', col_discount_pct: 'Discount %',
+    col_unit_price: 'Unit Price (EGP/KG)', col_total_kg: 'Total (KG)', col_line_total: 'Line Total (EGP)',
+    total_egp: 'Total (EGP)',
+    discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
+    discount_capped_notice_prefix: '⚠️ Max Discount allowed — ',
+    export_excel: 'Export Excel', export_pdf: 'Export PDF',
+  },
+  ar: {
+    local_pricing_title: 'التسعير المحلي – عرض سعر جديد', save: 'حفظ', calculate: 'احسب',
+    customer_class: 'فئة العميل', destination: 'الوجهة', select_ellipsis: 'اختر...',
+    payment_term: 'شرط الدفع', global_discount_pct: 'الخصم العام %',
+    customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
+    quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
+    col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
+    col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'العرض (مم)',
+    col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_meters: 'الأمتار', col_rolls_pallet: 'رول/بالتة',
+    col_qty_pallets: 'الكمية (بالتة)', col_discount_pct: 'الخصم %',
+    col_unit_price: 'سعر الوحدة (جنيه/كجم)', col_total_kg: 'الإجمالي (كجم)', col_line_total: 'إجمالي السطر (جنيه)',
+    total_egp: 'الإجمالي (جنيه)',
+    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
+    discount_capped_notice_prefix: '⚠️ الحد الأقصى للخصم — ',
+    export_excel: 'تصدير Excel', export_pdf: 'تصدير PDF',
+  },
+};
+
+function t(key) {
+  return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key;
+}
+function tf(key, vars) {
+  let s = t(key);
+  for (const k in (vars || {})) { s = s.split('{' + k + '}').join(vars[k]); }
+  return s;
+}
+// v170 -- Local's own Max Discount cap notice: {key: {label, max}} per
+// capped category, rebuilt every recalcAll() -- same shape/behaviour as
+// Export pricing.html's own discountCapNotice, just against Local's
+// separate local_max_discount_pct_* settings/response fields.
+let lastCappedCategories = [];
+function buildDiscountCapNotice(categories) {
+  if (!categories || !categories.length) return '';
+  const list = categories.map(c => `${c.label}: ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
+  return tf('discount_capped_notice_prefix') + list;
+}
+
+// Same fixed-value lookup as Export pricing.html's TEXT_I18N_AR, reused here
+// since Local shares the identical Pallet type / Packing type / Payment term
+// option values.
+const TEXT_I18N_AR = {
+  'Standard Pallet': 'بالتة عادية', 'Euro Pallet': 'بالتة يورو',
+  'Automatic': 'أوتوماتيك', 'Manual(5kg)': 'يدوي (5 كجم)',
+  'Manual(2.3~3.5kg)': 'يدوي (2.3~3.5 كجم)', 'Manual(2.2kg)': 'يدوي (2.2 كجم)',
+  'Manual(1.5kg)': 'يدوي (1.5 كجم)', 'Cash': 'كاش', 'Credit': 'آجل',
+};
+function textLabel(value) {
+  return (currentLang === 'ar' && TEXT_I18N_AR[value]) || value;
+}
+
+function applyLanguage() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('#payment_term option, .f-pallet option, .f-packing option')
+    .forEach(opt => { opt.textContent = textLabel(opt.value); });
+  const btn = document.getElementById('langToggleBtn');
+  if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
+
+  const capNotice = document.getElementById('discountCapNotice');
+  if (capNotice && lastCappedCategories.length) {
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+  }
+}
+
+function setLanguage(lang) {
+  currentLang = lang;
+  try { localStorage.setItem('pricingLang', lang); } catch (e) {}
+  applyLanguage();
+}
+
+function previewAsUserId() {
+  const sel = document.getElementById('actAsUser');
+  return (sel && sel.value) ? sel.value : null;
+}
+
+function buildProductOptions() {
+  return PRODUCTS.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+}
+function buildSelectOptions(arr) {
+  return arr.map(v => `<option value="${v}">${textLabel(v)}</option>`).join('');
+}
+
+let lineCounter = 0;
+function addLine() {
+  lineCounter += 1;
+  const tr = document.createElement('tr');
+  tr.dataset.lineId = lineCounter;
+  tr.innerHTML = `
+    <td>${lineCounter}</td>
+    <td><select class="f-product">${buildProductOptions()}</select></td>
+    <td><select class="f-pallet">${buildSelectOptions(PALLET_TYPES)}</select></td>
+    <td><select class="f-packing">${buildSelectOptions(PACKING_TYPES)}</select></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-colored"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-uv"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates"></td>
+    <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-meters compact-input" min="0" step="1" title="Film length (m): type Meters to get the Roll weight, or type Roll weight to get the Meters. Uses Micron x Width x 0.925"></td>
+    <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, leave blank to use the catalog/packing-table default"></td>
+    <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
+    <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
+    <td class="num f-unit-price">-</td>
+    <td class="num f-total-kg">-</td>
+    <td class="num f-line-total">-</td>
+    <td><button type="button" class="btn btn-outline btn-sm f-remove">✕</button></td>
+  `;
+  document.getElementById('linesBody').appendChild(tr);
+  MeterSync.attach(tr, {
+    product: () => PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value)),
+    prestretch: () => false,
+  });
+  tr.querySelector('.f-remove').addEventListener('click', () => { tr.remove(); scheduleRecalc(); });
+  tr.querySelectorAll('select, input').forEach(el => {
+    el.addEventListener('change', scheduleRecalc);
+    el.addEventListener('input', scheduleRecalc);
+  });
+}
+
+let recalcTimer = null;
+function scheduleRecalc() {
+  clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(recalcAll, 250);
+}
+
+async function calcLine(tr) {
+  const payload = {
+    product_id: tr.querySelector('.f-product').value,
+    pallet_type: tr.querySelector('.f-pallet').value,
+    packing_type: tr.querySelector('.f-packing').value,
+    colored: tr.querySelector('.f-colored').checked,
+    uv: tr.querySelector('.f-uv').checked,
+    slippery: tr.querySelector('.f-slippery').checked,
+    custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
+    custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
+    custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
+    custom_rolls_per_pallet: tr.querySelector('.f-rpp').value ? parseFloat(tr.querySelector('.f-rpp').value) : null,
+    quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+    line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    customer_class: document.getElementById('customer_class').value,
+    destination: document.getElementById('destination').value,
+    payment_term: document.getElementById('payment_term').value,
+    preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/calculate-line', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+// v174 -- PET Strap lines, same table on the same quotation page (see this
+// template's v174 comment near the Strap lines <table> above).
+function buildStrapRecipeOptions() {
+  const opt = r => `<option value="${r.recipe_key}">${r.label}</option>`;
+  return '<optgroup label="PET Strap">' + STRAP_RECIPES.filter(r => r.line_key !== 'pp').map(opt).join('') + '</optgroup>' +
+         '<optgroup label="PP Strap">' + STRAP_RECIPES.filter(r => r.line_key === 'pp').map(opt).join('') + '</optgroup>';
+}
+let strapLineCounter = 0;
+function addStrapLine() {
+  strapLineCounter += 1;
+  const tr = document.createElement('tr');
+  tr.className = 'strap-line-row';
+  tr.dataset.lineId = strapLineCounter;
+  tr.innerHTML = `
+    <td>${strapLineCounter}</td>
+    <td><select class="f-recipe">${buildStrapRecipeOptions()}</select></td>
+    <td><input type="number" class="f-width compact-input" min="0" step="0.1" value="15"></td>
+    <td><input type="number" class="f-thickness compact-input" min="0" step="0.01" value="1"></td>
+    <td><input type="number" class="f-meters compact-input" min="0" step="10" value="1200"></td>
+    <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" value="0"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-box"></td>
+    <td style="text-align:center;"><input type="checkbox" class="f-pallet" checked></td>
+    <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
+    <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
+    <td class="num f-unit-price">-</td>
+    <td class="num f-total-kg">-</td>
+    <td class="num f-line-total">-</td>
+    <td><button type="button" class="btn btn-outline btn-sm f-remove">✕</button></td>
+  `;
+  document.getElementById('strapLinesBody').appendChild(tr);
+  tr.querySelector('.f-remove').addEventListener('click', () => { tr.remove(); scheduleRecalc(); });
+  tr.querySelectorAll('select, input').forEach(el => {
+    el.addEventListener('change', scheduleRecalc);
+    el.addEventListener('input', scheduleRecalc);
+  });
+}
+
+async function calcStrapLine(tr) {
+  const payload = {
+    recipe_key: tr.querySelector('.f-recipe').value,
+    width_mm: parseFloat(tr.querySelector('.f-width').value || 0),
+    thickness_mm: parseFloat(tr.querySelector('.f-thickness').value || 0),
+    meters_per_coil: parseFloat(tr.querySelector('.f-meters').value || 0),
+    core_weight_kg: parseFloat(tr.querySelector('.f-corewt').value || 0),
+    has_box: tr.querySelector('.f-box').checked,
+    has_pallet: tr.querySelector('.f-pallet').checked,
+    quantity_rolls: parseFloat(tr.querySelector('.f-qty').value || 0),
+    line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    payment_term: document.getElementById('payment_term').value,
+    preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/calculate-strap-line', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+async function recalcStrapAll() {
+  const rows = document.querySelectorAll('#strapLinesBody tr');
+  let grandTotal = 0;
+  let anyCapped = false;
+  let cappedMax = 0;
+  for (const tr of rows) {
+    const result = await calcStrapLine(tr);
+    if (!result) continue;
+    tr.querySelector('.f-unit-price').textContent = result.unit_price_egp_kg.toFixed(2);
+    tr.querySelector('.f-total-kg').textContent = result.total_kg.toFixed(1);
+    tr.querySelector('.f-line-total').textContent = result.line_gross.toFixed(2);
+    grandTotal += result.line_gross;
+    const discInput = tr.querySelector('.f-discount');
+    if (result.discount_capped) {
+      anyCapped = true;
+      cappedMax = result.discount_cap_max;
+      discInput.style.outline = '2px solid #d97706';
+      discInput.title = `Discount capped at ${result.discount_cap_max}%`;
+    } else {
+      discInput.style.outline = '';
+      discInput.title = '';
+    }
+  }
+  const capNotice = document.getElementById('strapDiscountCapNotice');
+  if (anyCapped) {
+    capNotice.style.display = '';
+    capNotice.textContent = `⚠️ Max Discount allowed — Strap: ${cappedMax}%`;
+  } else {
+    capNotice.style.display = 'none';
+  }
+  return grandTotal;
+}
+
+async function recalcAll() {
+  const rows = document.querySelectorAll('#linesBody tr');
+  let grandTotal = 0;
+  let anyCapped = false;
+  const cappedMap = {};
+  for (const tr of rows) {
+    const result = await calcLine(tr);
+    if (!result) continue;
+    tr.querySelector('.f-unit-price').textContent = result.unit_price_egp_kg.toFixed(2);
+    tr.querySelector('.f-total-kg').textContent = result.total_kg.toFixed(1);
+    tr.querySelector('.f-line-total').textContent = result.line_gross.toFixed(2);
+    grandTotal += result.line_gross;
+
+    const discInput = tr.querySelector('.f-discount');
+    if (result.discount_capped) {
+      anyCapped = true;
+      cappedMap[result.discount_cap_key] = {label: result.discount_cap_label, max: result.discount_cap_max};
+      discInput.style.outline = '2px solid #d97706';
+      discInput.title = tf('discount_capped_tooltip', {max: result.discount_pct_applied, label: result.discount_cap_label});
+    } else {
+      discInput.style.outline = '';
+      discInput.title = '';
+    }
+  }
+  grandTotal += await recalcStrapAll();
+  document.getElementById('grandTotal').textContent = grandTotal.toFixed(2) + ' EGP';
+
+  const capNotice = document.getElementById('discountCapNotice');
+  if (anyCapped) {
+    lastCappedCategories = Object.values(cappedMap);
+    capNotice.style.display = '';
+    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+  } else {
+    lastCappedCategories = [];
+    capNotice.style.display = 'none';
+  }
+}
+
+document.getElementById('addLineBtn').addEventListener('click', addLine);
+document.getElementById('addStrapLineBtn').addEventListener('click', addStrapLine);
+document.getElementById('calcBtn').addEventListener('click', recalcAll);
+['customer_class', 'destination', 'payment_term', 'global_discount_pct'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) { el.addEventListener('change', scheduleRecalc); el.addEventListener('input', scheduleRecalc); }
+});
+{% if is_admin_role %}
+document.getElementById('actAsUser').addEventListener('change', scheduleRecalc);
+{% endif %}
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const lines = [];
+  document.querySelectorAll('#linesBody tr').forEach(tr => {
+    lines.push({
+      product_id: tr.querySelector('.f-product').value,
+      pallet_type: tr.querySelector('.f-pallet').value,
+      packing_type: tr.querySelector('.f-packing').value,
+      colored: tr.querySelector('.f-colored').checked,
+      uv: tr.querySelector('.f-uv').checked,
+      slippery: tr.querySelector('.f-slippery').checked,
+      custom_width_mm: tr.querySelector('.f-width').value ? parseFloat(tr.querySelector('.f-width').value) : null,
+      custom_roll_weight_kg: tr.querySelector('.f-rollwt').value ? parseFloat(tr.querySelector('.f-rollwt').value) : null,
+      custom_core_weight_kg: tr.querySelector('.f-corewt').value ? parseFloat(tr.querySelector('.f-corewt').value) : null,
+      custom_rolls_per_pallet: tr.querySelector('.f-rpp').value ? parseFloat(tr.querySelector('.f-rpp').value) : null,
+      quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    });
+  });
+  document.querySelectorAll('#strapLinesBody tr').forEach(tr => {
+    lines.push({
+      product_line: 'pet_strap',
+      recipe_key: tr.querySelector('.f-recipe').value,
+      width_mm: parseFloat(tr.querySelector('.f-width').value || 0),
+      thickness_mm: parseFloat(tr.querySelector('.f-thickness').value || 0),
+      meters_per_coil: parseFloat(tr.querySelector('.f-meters').value || 0),
+      core_weight_kg: parseFloat(tr.querySelector('.f-corewt').value || 0),
+      has_box: tr.querySelector('.f-box').checked,
+      has_pallet: tr.querySelector('.f-pallet').checked,
+      quantity_rolls: parseFloat(tr.querySelector('.f-qty').value || 0),
+      line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+    });
+  });
+  const payload = {
+    id: currentQuotationId,
+    quotation_no: document.getElementById('quotation_no').value,
+    customer_name: document.getElementById('customer_name').value,
+    customer_class: document.getElementById('customer_class').value,
+    destination: document.getElementById('destination').value,
+    payment_term: document.getElementById('payment_term').value,
+    global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
+    lines, preview_as_user_id: previewAsUserId(),
+  };
+  const resp = await fetch('/local/api/save-quotation', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    currentQuotationId = data.id;
+    document.getElementById('exportBtn').disabled = false;
+    document.getElementById('exportBtn').onclick = () => window.open(`/local/quotations/${data.id}/pdf`, '_blank');
+    document.getElementById('exportExcelBtn').disabled = false;
+    document.getElementById('exportExcelBtn').onclick = () => window.open(`/local/quotations/${data.id}/excel`, '_blank');
+    alert('Quotation saved as ' + (data.quotation_no || ('#' + data.id)));
+  } else {
+    alert('Save failed.');
+  }
+});
+
+document.getElementById('langToggleBtn').addEventListener('click', () => {
+  setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+});
+applyLanguage();
+
+// v175 -- owner-reported: Local never had the Left/Right arrow-key cell
+// navigation Export's own pricing.html already has (v99 there) -- ported
+// over verbatim, scoped to Local's own two lines tables (#linesTable /
+// #strapLinesTable). Every writable field here is a <select>, a checkbox,
+// or a number input, so Left/Right always jumps straight to the next/
+// previous field rather than trying to detect a caret position.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'radio') return;
+  const root = el.closest('#linesTable, #strapLinesTable');
+  if (!root) return;
+  const fields = [...root.querySelectorAll(
+    'input:not([type="radio"]):not([disabled]):not([readonly]), select:not([disabled])'
+  )].filter(f => f.offsetParent !== null);
+  const idx = fields.indexOf(el);
+  if (idx === -1) return;
+  const nextIdx = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+  if (nextIdx < 0 || nextIdx >= fields.length) return;
+  e.preventDefault();
+  const target = fields[nextIdx];
+  target.focus();
+  try { if (typeof target.select === 'function') target.select(); } catch (err) {}
+});
+
+// v175 -- same Enter-key fix as Export's pricing.html (v99 there): Enter on
+// a checkbox toggles it, Enter on a <select> opens its dropdown.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    e.preventDefault();
+    el.checked = !el.checked;
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  } else if (el.tagName === 'SELECT') {
+    e.preventDefault();
+    try { if (typeof el.showPicker === 'function') el.showPicker(); } catch (err) {}
+  }
+});
+
+addLine();
+
+// v181 -- autosave (see static/draft.js): survives Back/Forward, refresh and
+// closing the tab; the trash button starts a fresh quotation.
+window._draft = new DraftSaver({
+  key: 'pricingDraft_local_{{ current_user.id if current_user else 0 }}',
+  headerIds: ['customer_class', 'destination', 'payment_term', 'global_discount_pct', 'customer_name',
+              'quotation_no', 'actAsUser'],
+  tables: [{body: '#linesBody', add: () => addLine()}, {body: '#strapLinesBody', add: () => addStrapLine()}],
+  getExtra: () => ({qid: currentQuotationId}),
+  setExtra: (x) => {
+    if (x && x.qid) {
+      currentQuotationId = x.qid;
+      document.getElementById('exportBtn').disabled = false;
+      document.getElementById('exportBtn').onclick = () => window.open(`/local/quotations/${x.qid}/pdf`, '_blank');
+      document.getElementById('exportExcelBtn').disabled = false;
+      document.getElementById('exportExcelBtn').onclick = () => window.open(`/local/quotations/${x.qid}/excel`, '_blank');
+    }
+  },
+  afterRestore: () => { recalcAll(); }
+});
+document.getElementById('newQuoteBtn').addEventListener('click', () => { window._draft.clear(); location.reload(); });
+window._draft.start();
+</script>
+{% endblock %}

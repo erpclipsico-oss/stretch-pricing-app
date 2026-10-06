@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Choose Workspace{% endblock %}
+{% block content %}
+<div class="panel" style="max-width:640px; margin:60px auto; text-align:center;">
+  <h2 style="margin-top:0;">Which workspace?</h2>
+  <p style="color:#666; margin-bottom:28px;">Choose Export or Local Pricing. You can switch any time from the "Workspace" button at the top of the page.</p>
+  <div style="display:flex; gap:20px; justify-content:center; flex-wrap:wrap;">
+    <a href="{{ url_for('pricing_page') }}" class="btn btn-primary" style="padding:22px 36px; font-size:1.1rem;">Export</a>
+    <a href="{{ url_for('local_pricing_page') }}" class="btn btn-primary" style="padding:22px 36px; font-size:1.1rem;">Local Pricing</a>
+  </div>
+</div>
+{% endblock %}

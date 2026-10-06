@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Quotations · Stretch Pricing{% endblock %}
+{% block title %}Local Quotations · Stretch Pricing{% endblock %}
 {% block content %}
 <div class="panel">
-  <div class="panel-header"><h2>Quotations</h2></div>
+  <div class="panel-header"><h2>Local Quotations</h2></div>
   <table class="lines-table">
     <thead>
       <tr>
@@ -11,7 +11,7 @@
         <th>Destination</th>
         <th>Created by</th>
         <th>Date</th>
-        <th>Total</th>
+        <th>Total (EGP)</th>
         <th></th>
       </tr>
     </thead>
@@ -23,16 +23,14 @@
         <td>{{ q.destination or '-' }}</td>
         <td>{{ q.creator_name or q.creator_username or '-' }}</td>
         <td>{{ q.created_at[:10] if q.created_at else '-' }}</td>
-        <td class="num">${{ '%.2f'|format(q.total) }}</td>
+        <td class="num">{{ '%.2f'|format(q.total) }} EGP</td>
         <td>
-          <a href="{{ url_for('view_quotation', qid=q.id) }}" class="btn btn-outline btn-sm">View</a>
-          <a href="{{ url_for('reprice_quotation', qid=q.id) }}" class="btn btn-outline btn-sm" title="Open as a NEW quotation at today's prices">Reprice</a>
-          <a href="{{ url_for('quotation_excel', qid=q.id) }}" class="btn btn-outline btn-sm">Excel</a>
-          <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-outline btn-sm">PDF</a>
+          <a href="{{ url_for('local_view_quotation', qid=q.id) }}" class="btn btn-outline btn-sm">View</a>
+          <a href="{{ url_for('local_reprice_quotation', qid=q.id) }}" class="btn btn-outline btn-sm" title="Open as a NEW quotation at today's prices">Reprice</a>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="empty">No quotations yet.</td></tr>
+      <tr><td colspan="7" class="empty">No Local quotations yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

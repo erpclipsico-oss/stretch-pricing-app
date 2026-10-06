@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Material Rates · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 {% set sync_table_key = 'material_rate' %}
 {% set sync_last_upload = last_upload %}
@@ -15,18 +16,89 @@
   <div class="panel-header"><h2>Material pricing — resin ($/ton)</h2></div>
   <p class="hint" style="margin-bottom:14px;">
     From the workbook's 'Material pricing' sheet. These are already in USD/ton and are used directly
-    (no exchange-rate conversion) in the material-composition cost for every product's BOM.
+    (no exchange-rate conversion) in the material-composition cost for every product's BOM. "Our Price" is
+    what the company actually prices with; "Market Price" is today's reference market price, kept here for
+    comparison and for the Market Pricing Mode below — each is independently editable per material.
+    This page (and both price columns) is only ever visible to Admin/Sub-admin — a plain sales rep never
+    sees it or either price.
   </p>
-  <form method="post">
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:100px;">$/ton</span></div>
-      {% for m in resin %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
-      {% endfor %}
+  <div class="price-note price-note-ok" style="margin-bottom:14px;">
+    <div class="price-note-title">Default Pricing Mode (for sales reps)</div>
+    A plain sales rep's quotes always use this default — Our Price or Market Price. Admin/sub_admin can
+    still preview either mode per-quote from the Pricing Mode dropdown on the Pricing page, regardless of this.
+    <div style="margin-top:8px;">
+      <select name="default_pricing_mode" form="materialRatesForm">
+        <option value="actual" {% if default_pricing_mode == 'actual' %}selected{% endif %}>Our Price (what we actually use)</option>
+        <option value="market" {% if default_pricing_mode == 'market' %}selected{% endif %}>Current Market Price</option>
+      </select>
     </div>
+  </div>
+  <!-- v160 -- owner-requested (2026-10-04 Arabic follow-up to v159): a real
+       bordered table (gridlines under every column header, like Excel), not
+       the flat .edit-grid rows used elsewhere -- and the column matching
+       whichever mode is currently the Default Pricing Mode above is
+       highlighted, so it's visually obvious at a glance which price is
+       actually live for sales reps right now. Scoped to just this table
+       (class="resin-price-table") so it doesn't touch any other admin
+       page's .edit-grid rows. -->
+  <style>
+    .resin-price-table { width:100%; border-collapse:collapse; margin-bottom:8px; }
+    .resin-price-table th, .resin-price-table td {
+      border:1px solid var(--border); padding:8px 18px; text-align:left;
+    }
+    .resin-price-table th {
+      font-size:0.7rem; text-transform:uppercase; color:var(--muted); font-weight:600;
+      background:#fafafa;
+    }
+    .resin-price-table td.dash { color:#999; text-align:center; }
+    .resin-price-table input[type=number] { width:100px; padding:6px 8px; font-size:0.85rem; }
+    /* v160 follow-up -- owner asked for visible breathing room between the
+       Actual and Market price columns specifically (not just the border
+       line between them), so the two numbers don't read as crammed
+       together right against the divider. */
+    .resin-price-table th:nth-child(3), .resin-price-table td:nth-child(3) {
+      padding-left:28px;
+    }
+    .resin-price-table th.col-active { background:#c8e6c9; color:#1b5e20; }
+    .resin-price-table td.col-active { background:#e8f5e9; }
+    .resin-price-table td.col-active input { font-weight:600; border-color:#66bb6a; }
+    /* v162 -- owner said the old "Actual"/"Market" column headers weren't
+       clear about what each one means -- a 2-line header now spells it
+       out: the bold top line is the short name (kept short so the column
+       stays narrow), the small line under it says what it actually is. */
+    .resin-price-table th .col-sub { display:block; font-weight:400; text-transform:none; font-size:0.68rem; margin-top:2px; }
+  </style>
+  <form method="post" id="materialRatesForm">
+    <table class="resin-price-table">
+      <thead>
+        <tr>
+          <th>Material</th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'actual' }}">
+            Our Price<span class="col-sub">(Actual — what we use at the company)</span>
+          </th>
+          <th class="{{ 'col-active' if default_pricing_mode == 'market' }}">
+            Market Price<span class="col-sub">(current price in the market today)</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in resin %}
+        <tr>
+          <td>{{ m.actual.label }}</td>
+          <td class="{{ 'col-active' if default_pricing_mode == 'actual' }}">
+            <input type="number" step="any" name="value_{{ m.actual.id }}" value="{{ m.actual.value }}">
+          </td>
+          {% if m.market %}
+          <td class="{{ 'col-active' if default_pricing_mode == 'market' }}">
+            <input type="number" step="any" name="value_{{ m.market.id }}" value="{{ m.market.value }}">
+          </td>
+          {% else %}
+          <td class="dash">—</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
 
     <div class="panel-header" style="margin-top:24px;"><h2>Material pricing — packaging (EGP/unit)</h2></div>
     <p class="hint" style="margin-bottom:14px;">
@@ -34,16 +106,18 @@
       <a href="{{ url_for('admin_global_settings') }}">Dollar Rate</a> wherever they feed into a $ cost
       (Core cost, Pallet component packaging cost).
     </p>
-    <div class="edit-grid">
-      <div class="edit-row header-row"><span style="width:220px;">Material</span><span style="width:80px;">Unit</span><span style="width:100px;">EGP</span></div>
+    <table class="admin-table">
+      <thead><tr><th>Material</th><th>Unit</th><th>EGP</th></tr></thead>
+      <tbody>
       {% for m in packaging %}
-      <div class="edit-row">
-        <span style="width:220px;">{{ m.label }}</span>
-        <span style="width:80px;">{{ m.unit }}</span>
-        <input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;">
-      </div>
+      <tr>
+        <td>{{ m.label }}</td>
+        <td>{{ m.unit }}</td>
+        <td><input type="number" step="any" name="value_{{ m.id }}" value="{{ m.value }}" style="width:100px;"></td>
+      </tr>
       {% endfor %}
-    </div>
+      </tbody>
+    </table>
     <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save all</button></div>
   </form>
 </div>

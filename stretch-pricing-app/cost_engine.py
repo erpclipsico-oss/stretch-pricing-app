@@ -22,6 +22,9 @@ import decimal
 import math
 import re
 
+from flask import g as _flask_g
+from flask import has_app_context as _has_app_context
+
 
 def round_half_up(value, decimals=2):
     """Standard "round half up" (a final digit of 5 or more always rounds
@@ -63,8 +66,66 @@ def _get_setting(conn, key, default=0.0):
 
 
 def _material_rate(conn, key, default=0.0):
+    # v155 -- Actual vs Market pricing toggle. When a request has chosen
+    # "Market Prices" (see market_material_overrides() below), app.py stashes
+    # the computed override dict on Flask's request-scoped `g` object as
+    # g.material_overrides before calling into any pricing/compute_line
+    # function. Every raw-material lookup in this module and in
+    # strap_pricing.py goes through this one function, so checking it here
+    # (instead of threading a pricing_mode argument through every function
+    # signature in both files) is the single, low-risk place to make the
+    # Market toggle affect the whole engine. Only the 5 keys the owner named
+    # (c4, exceed3518, exceed3812, exceedxp, enable) are ever present in the
+    # override dict -- every other material_key (vista6000, ld, vista, uvi,
+    # all packaging items, PET/PP resins, etc.) always falls through to the
+    # normal DB lookup below, in both Actual and Market mode.
+    # v155 follow-up fix -- this function is also called from plain scripts/
+    # migrations (db.py's _seed_missing_products(), recalculate_all_products(),
+    # admin bulk-recalc, etc.) that run with NO Flask request/app context at
+    # all. Flask's `g` is a proxy that RAISES RuntimeError("Working outside
+    # of application context") on any attribute access while unbound --
+    # getattr(..., default) only swallows AttributeError, not RuntimeError,
+    # so the plain getattr below blew up every such call site. Checking
+    # has_app_context() first avoids touching the proxy at all when there's
+    # no app context to read from (identical to the old behavior: no
+    # overrides, normal DB lookup).
+    overrides = getattr(_flask_g, "material_overrides", None) if _has_app_context() else None
+    if overrides and key in overrides and overrides[key] is not None:
+        return overrides[key]
     row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
     return row["value"] if row is not None and row["value"] is not None else default
+
+
+MARKET_MATERIAL_KEYS = (
+    "c4", "exceed3518", "exceed3812", "exceedxp", "enable",
+    # v161 -- owner confirmed (2026-10-04 Arabic follow-up) these 4 are
+    # imported too, same as the original 5 -- see market_material_overrides()
+    # below.
+    "vista6000", "uvi", "ld", "vista",
+)
+
+
+def market_material_overrides(conn):
+    """v159 -- owner-requested redesign of the v155 Actual/Market toggle
+    (2026-10-04 Arabic follow-up): each imported resin grade now has its
+    OWN directly-editable Market price -- shown side by side with its
+    Actual price in the same Material Rates table row (material_rate rows
+    'market_c4'/'market_exceed3518'/etc.) -- instead of only C4 and Exceed
+    3518 being editable with the other three auto-derived via fixed
+    +$100/+$190/+$50 deltas. v161 -- owner confirmed Vista 6000, UVI, LD
+    and Vista are imported too (originally excluded by mistake, thinking
+    they were locally sourced), so all 9 resin grades in MARKET_MATERIAL_KEYS
+    now get their own Market price. Every other raw material (all PET/PP
+    resins, all packaging) is intentionally absent from the returned dict,
+    so _material_rate() falls through to its normal Actual-price lookup
+    for them regardless of pricing_mode -- unchanged from v155."""
+    overrides = {}
+    for key in MARKET_MATERIAL_KEYS:
+        row = conn.execute(
+            "SELECT value FROM material_rate WHERE material_key=?", (f"market_{key}",)
+        ).fetchone()
+        overrides[key] = row["value"] if row is not None and row["value"] is not None else _material_rate(conn, key)
+    return overrides
 
 
 def with_overrides(product, roll_weight_kg=None, core_weight_kg=None, width_mm=None, auto_manual=None):
@@ -421,6 +482,7 @@ def pallet_component_total_usd(conn, packing_key):
 # roll_weight_kg>=25; any other packaging_group always applies regardless
 # of weight.
 _WEIGHT_GATED_PACKAGING_GROUPS = {"box_12m300"}
+_PACKAGING_GROUP_STEM = {"box_any": "box_12m300"}
 
 # v112 -- which pallet-size suffixes ('usd'/'eur') actually have seeded
 # pallet_component data for a given packaging_group. 'box_12m300' has both
@@ -438,10 +500,26 @@ _PACKAGING_GROUP_SUFFIXES = {
 }
 
 
-def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None):
+def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_kg=None, box_packaging=True):
     """auto_manual: 'Automatic' | 'Manual(5kg)' | 'Manual(2.3~3.5kg)' |
     'Manual(2.2kg)' | 'Manual(1.5kg)'. pallet_size: 'Standard' (USD/120x100)
-    or 'Euro' (EUR/120x80). packaging_group: a product-level override (see
+    or 'Euro' (EUR/120x80).
+
+    box_packaging (v120) -- owner-confirmed: a Manual-packed line can be
+    packed two real ways -- into a box (the manual_*box*_usd/eur tiers
+    below, unchanged), or, when box_packaging=False, wrapped without a box
+    -- every 6 rolls stretch-wrapped together instead. The owner pointed
+    directly at the sheet's own 'Pallet component'!N4:Q11 block ("pre-
+    stretch: 1) Packaging for No Boxes") as the exact structure to reuse:
+    Pallet + 5 Cardboard sheets + 1.5kg Corrugated sheets + 0.5kg Stretch
+    wrap, no Box/Cartoon angles/Scotch tape -- already seeded verbatim as
+    the (previously unused) 'automatic_prestretch_usd'/'_eur' pallet_component
+    row (see db.py's cost_seed.json), so this reuses that existing,
+    sheet-verified row rather than inventing a new one. Only changes the
+    Manual branch below -- Automatic and any packaging_group override are
+    unaffected (no box/no-box choice applies to either of those).
+
+    packaging_group: a product-level override (see
     product.packaging_group / db.py's _seed_box_packaging_v3) that bypasses
     the normal Automatic/Manual lookup entirely -- e.g. 12-micron 300%
     film, which is boxed (roll -> PE bag -> box) rather than packed the
@@ -468,12 +546,26 @@ def _pallet_key_for(auto_manual, pallet_size, packaging_group=None, roll_weight_
     is_eur = "euro" in (pallet_size or "").lower()
     suffix = "eur" if is_eur else "usd"
     if packaging_group:
+        # v178 -- 'box_any': the SAME bag-then-box pallet_component bucket as
+        # 'box_12m300', but picked explicitly by the owner for a SKU (e.g. the
+        # 50kg jumbo) so it is NOT weight-gated like the legacy 12m/300% rule.
+        stem = _PACKAGING_GROUP_STEM.get(packaging_group, packaging_group)
         weight_gates_out = packaging_group in _WEIGHT_GATED_PACKAGING_GROUPS and (roll_weight_kg or 0) >= 25
-        suffix_available = suffix in _PACKAGING_GROUP_SUFFIXES.get(packaging_group, {"usd", "eur"})
+        suffix_available = suffix in _PACKAGING_GROUP_SUFFIXES.get(stem, {"usd", "eur"})
         if not weight_gates_out and suffix_available:
-            return f"{packaging_group}_{suffix}"
+            return f"{stem}_{suffix}"
     am = (auto_manual or "Automatic").lower()
     if "manual" in am:
+        # v120 -- the sheet only has this "No Boxes" structure confirmed
+        # for the Standard/USD pallet (the sheet's own N4:Q11 block is
+        # headed "Type:1 Export", no Euro/EUR variant anywhere in that
+        # block or the matching Boxes block) -- 'automatic_prestretch_eur'
+        # is deliberately NOT seeded, same "never guess, never silently
+        # zero" pattern as _PACKAGING_GROUP_SUFFIXES above. A no-box Euro-
+        # pallet Manual line falls through to its normal box-tier lookup
+        # below until a real Euro-pallet no-box figure is confirmed.
+        if not box_packaging and suffix == "usd":
+            return f"automatic_prestretch_{suffix}"
         # v86 -- order matters: "Manual(2.3~3.5kg)" also contains the
         # literal substring "5kg" (inside "3.5kg"), so checking the bare
         # "5kg"/"5 kg" pattern first was silently misrouting every
@@ -593,7 +685,8 @@ def effective_rolls_per_pallet(conn, product, pallet_type=None, rolls_per_pallet
 # packaging_group points at.
 
 
-def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None,
+                                 box_packaging=True):
     """Stretch!AD column: automatic/manual packaging cost divided by rolls
     per pallet. Rolls/pallet comes from the Details-sheet packing_tier
     lookup (exact gross-weight bucket x pallet type), not a single
@@ -624,8 +717,50 @@ def packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_palle
         return 0.0
     packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
     key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group,
+                           product["roll_weight_kg"], box_packaging=box_packaging)
+    total = pallet_component_total_usd(conn, key)
+    return total / rolls_per_pallet
+
+
+# v117 -- Pre-Stretch's source-material catalog SKU (e.g. product id=24,
+# "17mic/300%", the 50kg jumbo roll fed into the rewinding process that
+# produces Pre-Stretch) is priced in the sheet by a DEDICATED row ("17J-
+# pre", Stretch row 40) that is NOT a plain clone of the same SKU's normal
+# sales row (row 39, what this app's generic unit_price_for()/
+# packaging_cost_per_roll_usd() replicates). Found by diffing every
+# formula column of rows 39 vs 40 side by side: row 40's own AD (packaging
+# cost) formula is IDENTICAL to row 39's except it subtracts the single
+# "Pallet" component line item first --
+# ('Pallet component'!$D$11-'Pallet component'!$D$6)/G40 instead of plain
+# $D$11/G39 -- i.e. Pallet component!D6/J6 (the wood-pallet piece itself,
+# 'Material pricing'!$C$20/$F$1) is EXCLUDED from the packaging cost this
+# source roll carries into the Pre-Stretch process, while every other
+# packaging item (cardboard, cap, corrugated sheets, stretch wrap) still
+# applies. Business meaning, consistent with the sheet: this jumbo roll
+# never actually ships out on its own standalone sales pallet -- it goes
+# straight into the rewinding line that turns it into Pre-Stretch product,
+# so its own pallet cost is never really incurred and the sheet correctly
+# leaves it out. Confirmed identical (same $D$6/$J$6 subtraction pattern)
+# across all 7 of the sheet's "*J-pre" source rows (40, 49, 27, 29, 31, 32,
+# 35), used by pricing.prestretch_cost_components() via
+# unit_price_for(..., exclude_pallet_from_packaging=True).
+def packaging_cost_per_roll_usd_excl_pallet(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+    """Same as packaging_cost_per_roll_usd() but with the pallet-only line
+    item (pallet_qty x the 'pallet' material rate) subtracted out of the
+    Pallet-component total before dividing by rolls/pallet -- Stretch!AD's
+    '*J-pre' row variant (see the comment above)."""
+    rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
+    if rolls_per_pallet <= 0:
+        return 0.0
+    packaging_group = product["packaging_group"] if "packaging_group" in product.keys() else None
+    key = _pallet_key_for(product["auto_manual"], pallet_type or product["pallet_size"], packaging_group,
                            product["roll_weight_kg"])
     total = pallet_component_total_usd(conn, key)
+    dollar_rate = _get_setting(conn, "dollar_rate", 45)
+    pc = get_pallet_component(conn, key)
+    pallet_only = ((pc["pallet_qty"] or 0) * _material_rate(conn, "pallet") / dollar_rate
+                   if (pc is not None and dollar_rate) else 0.0)
+    total = max(total - pallet_only, 0.0)
     return total / rolls_per_pallet
 
 
@@ -638,6 +773,103 @@ def core_cost_usd(conn, product):
     if not dollar_rate:
         return 0.0
     return core_weight * (core_rate / dollar_rate)
+
+
+# ---------------------------------------------------------------- Local Market's own
+# independent core/packaging/conversion costs (v170.1)
+#
+# v170.1 -- owner-reported, directly from her own Stretch_Local_Pricing
+# workbook ("مش مطبق الشيت بتاعه الاسترتش... زي ما انا بعتها لك بالظبط"):
+# Local used to reuse core_cost_usd()/packaging_cost_per_roll_usd()/
+# conversion_cost_usd_per_ton() above AS-IS, on the theory that those three
+# are genuine shared-factory-overhead costs identical regardless of which
+# market a roll sells into. The owner has now explicitly asked for Local to
+# be independent of Export for these too -- her own workbook carries its
+# own full parallel cost stack (its own packaging-material prices, its own
+# Pallet component sheet, its own Electricity/Wages/Fixed-cost-derived
+# Conversion Cost table) -- so these three functions are Local's own
+# counterparts, reading ONLY local_-prefixed data (local_dollar_rate,
+# local_<material> rates, local_pallet_component, local_conversion_cost_row)
+# and never touching Export's own tables/settings.
+
+def local_core_cost_usd(conn, product):
+    """Local's own counterpart to core_cost_usd() -- local_dollar_rate +
+    local_core material rate instead of Export's."""
+    dollar_rate = _get_setting(conn, "local_dollar_rate", 52)
+    core_rate = _material_rate(conn, "local_core")
+    core_weight = product["core_weight_kg"] or 0
+    if not dollar_rate:
+        return 0.0
+    return core_weight * (core_rate / dollar_rate)
+
+
+def local_pallet_component_total_usd(conn, packing_key):
+    """Local's own counterpart to pallet_component_total_usd() -- sums a
+    local_pallet_component row's line items at Local's own local_-prefixed
+    material rates (never Export's), converted at local_dollar_rate."""
+    pc = conn.execute(
+        "SELECT * FROM local_pallet_component WHERE packing_key=?", (packing_key,)
+    ).fetchone()
+    if pc is None:
+        return 0.0
+    dollar_rate = _get_setting(conn, "local_dollar_rate", 52)
+    if not dollar_rate:
+        return 0.0
+    total = 0.0
+    total += (pc["pallet_qty"] or 0) * _material_rate(conn, "local_pallet") / dollar_rate
+    total += (pc["cardboard_qty"] or 0) * _material_rate(conn, "local_cardboard") / dollar_rate
+    total += (pc["cap_qty"] or 0) * _material_rate(conn, "local_cap") / dollar_rate
+    total += (pc["corrugated_kg"] or 0) * _material_rate(conn, "local_corrugated_sheets") / dollar_rate
+    total += (pc["stretch_kg"] or 0) * _material_rate(conn, "local_stretch") / dollar_rate
+    return total
+
+
+def _local_pallet_key_for(auto_manual):
+    """Local's own packaging only models two buckets (her own 'Pallet
+    component' sheet has exactly 'Automatic' and 'Manual' blocks, no
+    Standard/Euro-pallet split and no per-box-size split) -- every
+    Manual(...) packing-type variant on the Local pricing screen prices off
+    the same single 'manual' row."""
+    am = (auto_manual or "Automatic").lower()
+    return "manual" if "manual" in am else "automatic"
+
+
+def local_packaging_cost_per_roll_usd(conn, product, pallet_type=None, rolls_per_pallet_override=None):
+    """Local's own counterpart to packaging_cost_per_roll_usd(). Rolls/
+    pallet still comes from the same shared Details-sheet packing_tier
+    lookup (effective_rolls_per_pallet()) -- pure physical rolls-per-pallet
+    geometry, not a market-dependent price, so it's kept shared, same as
+    the module docstring's original reasoning for core/packaging/
+    conversion -- but the $ COST per component now comes from Local's own
+    local_pallet_component/local_ material rates exclusively."""
+    rolls_per_pallet = effective_rolls_per_pallet(conn, product, pallet_type, rolls_per_pallet_override)
+    if rolls_per_pallet <= 0:
+        return 0.0
+    key = _local_pallet_key_for(product["auto_manual"])
+    total = local_pallet_component_total_usd(conn, key)
+    return total / rolls_per_pallet
+
+
+def local_conversion_cost_usd_per_ton(conn, micron, roll_type):
+    """Local's own counterpart to conversion_cost_usd_per_ton() -- a plain
+    lookup against local_conversion_cost_row (transcribed from her own
+    workbook's 'Conversion cost' sheet) instead of live-deriving from
+    Export's own Electricity/variable_cost_item/fixed-cost tables. Exact
+    (micron, roll_type) match if seeded, else nearest micron for that same
+    roll_type (same fallback spirit as get_local_bom_row())."""
+    row = conn.execute(
+        "SELECT usd_per_ton FROM local_conversion_cost_row WHERE micron=? AND roll_type=?",
+        (micron, roll_type),
+    ).fetchone()
+    if row is not None:
+        return row["usd_per_ton"] or 0.0
+    candidates = conn.execute(
+        "SELECT * FROM local_conversion_cost_row WHERE roll_type=?", (roll_type,)
+    ).fetchall()
+    if not candidates:
+        return 0.0
+    nearest = min(candidates, key=lambda r: abs((r["micron"] or 0) - (micron or 0)))
+    return nearest["usd_per_ton"] or 0.0
 
 
 # ------------------------------------------------------------ Margin factor (v18)
@@ -735,6 +967,21 @@ EXTRAS_SETTING_KEYS = {
     "credit_term": "extra_credit_term_usd_kg",
 }
 
+# v135 -- owner-requested: the flat credit-term surcharge above is retired
+# in favor of one that varies by how many days the term actually is (Arabic:
+# "عايزه اخلي الاجل ال 30 يوم يزود 2 سنت وال 60 يوم يزود 3 سنت وال 90 يوم
+# يزود 4 سنت"). Keyed by the exact Payment Term dropdown string (app.py's
+# payment_terms list) so no new lookup table is needed. See
+# db.EXTRAS_GLOBAL_SETTINGS for the seeded defaults/labels (still editable
+# in Admin > Global Cost Settings, alongside the old flat setting, which is
+# kept in the DB but no longer read -- see that file's matching v135 note).
+CREDIT_TERM_TIER_SETTING_KEYS = {
+    "30 days": ("extra_credit_term_30_usd_kg", 0.02),
+    "60 days": ("extra_credit_term_60_usd_kg", 0.03),
+    "90 days": ("extra_credit_term_90_usd_kg", 0.04),
+}
+
+
 def extras_settings(conn):
     """Current value of all three Extras settings, as a plain dict."""
     return {
@@ -758,10 +1005,23 @@ def color_extra_usd_kg(conn, colored):
 def credit_term_extra_usd_kg(conn, credit_term):
     """v79 -- 'Credit payment terms extra': the Stretch Film / Pre-Stretch
     counterpart of strap_pricing.compute_strap_line()'s credit-term
-    surcharge. `credit_term` is the quotation's own flag (payment_term
-    isn't Cash), truthy/falsy -- see app.py's _is_credit_term()."""
+    surcharge. `credit_term` is the quotation's own Payment Term STRING
+    (e.g. '30 days'), or '' / falsy for Cash -- see app.py's
+    _is_credit_term() (v135 -- used to be a plain True/False flag; now the
+    exact term string so the surcharge can vary by term, below).
+
+    v135 -- owner-requested: no longer one flat $/KG for any non-Cash term
+    -- 30/60/90 days each now have their own admin-editable surcharge (see
+    CREDIT_TERM_TIER_SETTING_KEYS above). A term string that doesn't match
+    one of the three known tiers (shouldn't happen -- the Payment Term
+    dropdown only ever offers these three plus Cash) falls back to the old
+    flat setting so nothing silently prices at $0."""
     if not credit_term:
         return 0.0
+    tier = CREDIT_TERM_TIER_SETTING_KEYS.get(credit_term)
+    if tier:
+        key, default = tier
+        return _get_setting(conn, key, default)
     return _get_setting(conn, EXTRAS_SETTING_KEYS["credit_term"], 0.03)
 
 
@@ -790,43 +1050,135 @@ def apply_hidden_markup(price, markup_mode, markup_value):
     return price + value
 
 
-def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch"):
+# v128 -- owner-requested further split: the single "Stretch Film" cap and
+# the single "PET/PP Strap" cap each become several independent caps, one
+# per category, instead of one flat number covering every line in that
+# product family. Stretch splits into the same 5 categories the rest of the
+# app already recognizes (roll_type_bucket() + is_prestretch); Strap splits
+# into its existing pet/pp product_line. Each tuple is
+# (category_key, display_label, global_setting key).
+STRETCH_DISCOUNT_CAP_CATEGORIES = [
+    ("standard", "Standard", "max_discount_pct_standard"),
+    ("power", "Power", "max_discount_pct_power"),
+    ("power_plus", "Power Plus", "max_discount_pct_power_plus"),
+    ("rigid", "Rigid", "max_discount_pct_rigid"),
+    ("prestretch", "Prestretch", "max_discount_pct_prestretch"),
+]
+STRAP_DISCOUNT_CAP_CATEGORIES = [
+    ("pet", "PET Strap", "strap_max_discount_pct_pet"),
+    ("pp", "PP Strap", "strap_max_discount_pct_pp"),
+]
+_STRETCH_BUCKET_TO_CATEGORY = {"St": "standard", "P": "power", "P_plus": "power_plus", "RIGID": "rigid"}
+
+
+def discount_cap_category(product_family, product=None, is_prestretch_line=False, product_line=None):
+    """v128 -- picks which of the per-category Max Discount settings applies
+    to one specific line. Returns (category_key, label, global_setting_key).
+
+    Strap: driven by product_line ('pet'/'pp' -- defaults to 'pp' if not
+    given, matching the rest of the app's own default). Stretch/Pre-Stretch:
+    Pre-Stretch is always its own category regardless of the product passed
+    in; otherwise the category comes from this product's own Stretch
+    Ability, via the same roll_type_bucket() the Electricity/Conversion
+    cost sheets already use (St/P/P_plus/RIGID -> Standard/Power/Power
+    Plus/Rigid), so no new taxonomy was invented for this."""
+    if product_family == "strap":
+        key = "pet" if product_line == "pet" else "pp"
+        label = "PET Strap" if key == "pet" else "PP Strap"
+        return key, label, f"strap_max_discount_pct_{key}"
+    if is_prestretch_line:
+        return "prestretch", "Prestretch", "max_discount_pct_prestretch"
+    bucket = roll_type_bucket(product["stretch_ability"] if product is not None else None)
+    key = _STRETCH_BUCKET_TO_CATEGORY.get(bucket, "standard")
+    label = dict((k, l) for k, l, _ in STRETCH_DISCOUNT_CAP_CATEGORIES)[key]
+    return key, label, f"max_discount_pct_{key}"
+
+
+def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch",
+                         product=None, is_prestretch_line=False, product_line=None):
     """v47 -- owner-requested guardrail: combines a quotation line's own
     Discount % with the quotation's Global Discount % (percentage points,
     added together, same as every call site already did), then silently
     caps the total at the admin-configured 'Max Discount allowed' setting.
 
     v94 -- owner-requested split: Stretch Film / Pre-Stretch and PET/PP
-    Strap now each have their OWN Max Discount setting, edited on their own
-    page, instead of the one shared cap v47 originally set up (the owner's
-    instruction at the time was that this should be one rule everywhere --
-    she has since asked for it to be two independent ones instead, one per
-    product family, so this is the current, authoritative behavior).
-    product_family='stretch' (the default -- every existing caller except
-    Strap's own) reads global_setting key db.MAX_DISCOUNT_SETTING_KEY
-    ('max_discount_pct', Admin > Global Cost Settings, seeded at 2.0).
-    product_family='strap' reads 'strap_max_discount_pct' instead (Admin >
-    PET/PP Strap Costing, seeded from whatever max_discount_pct's value
-    already was at the moment of the split -- see db.py's migration -- so
-    the cap in effect today didn't silently change for either line).
-    Stretch discount comes straight off the margin factor
+    Strap each got their OWN Max Discount setting. v128 -- owner-requested
+    further split: each of those two is now several independent caps, one
+    per category (see discount_cap_category() above and
+    STRETCH_DISCOUNT_CAP_CATEGORIES / STRAP_DISCOUNT_CAP_CATEGORIES) --
+    e.g. Standard and Power film can each have their own cap, same for PET
+    vs PP Strap. Stretch discount comes straight off the margin factor
     (pricing._discounted_factor()); Strap's comes off its own BOM profit_pct
     the same way as of v93 (strap_pricing.compute_strap_line()) -- the two
-    mechanisms match now, but the CAP itself is independently configurable.
+    mechanisms match, but the CAP itself is independently configurable per
+    category. If a category's own setting hasn't been seeded yet for some
+    reason, this falls back to the old flat family-wide setting
+    ('max_discount_pct' / 'strap_max_discount_pct', seeded at 2.0) so a
+    missing row never silently means "no cap".
 
     This is the single place the cap is enforced, and it runs server-side
     on every price calculation AND on save -- so a sales rep typing more
     discount than allowed can never actually make it into a computed or
     saved price, regardless of what the UI does or doesn't catch first.
 
-    Returns (effective_discount_pct, was_capped) -- `was_capped` lets the
-    caller warn the rep in the UI that what they typed got reduced."""
+    Returns (effective_discount_pct, was_capped, category_key,
+    category_label, max_allowed) -- `was_capped` lets the caller warn the
+    rep; the category fields let the caller build a per-category message
+    instead of a generic one."""
     requested = (line_discount_pct or 0) + (global_discount_pct or 0)
-    setting_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
+    cat_key, cat_label, setting_key = discount_cap_category(
+        product_family, product=product, is_prestretch_line=is_prestretch_line, product_line=product_line
+    )
+    legacy_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
+    legacy_default = _get_setting(conn, legacy_key, 2.0)
+    max_allowed = _get_setting(conn, setting_key, legacy_default)
+    if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
+        return max_allowed, True, cat_key, cat_label, max_allowed
+    return requested, False, cat_key, cat_label, max_allowed
+
+
+# v170 -- owner-requested ("تبقى سابريتلي غير برضو بتاعت الاكسبورت"): Local
+# Market's own Max Discount caps, completely separate settings from
+# Export's STRETCH_DISCOUNT_CAP_CATEGORIES above -- editing one never
+# touches the other, and each can be set to a different % independently.
+# Local has no Pre-Stretch yet (see local_pricing.py's module docstring),
+# so only the 4 Stretch categories apply; PET/PP Strap isn't built in Local
+# at all yet (same docstring) so there is no Strap cap to add here until
+# that phase exists.
+LOCAL_DISCOUNT_CAP_CATEGORIES = [
+    ("standard", "Standard", "local_max_discount_pct_standard"),
+    ("power", "Power", "local_max_discount_pct_power"),
+    ("power_plus", "Power Plus", "local_max_discount_pct_power_plus"),
+    ("rigid", "Rigid", "local_max_discount_pct_rigid"),
+]
+
+
+def local_discount_cap_category(product):
+    """Same St/P/P_plus/RIGID -> Standard/Power/Power Plus/Rigid mapping as
+    discount_cap_category() uses for Export (via roll_type_bucket()), since
+    Local's product catalog carries the exact same Stretch Ability text --
+    but reading Local's own local_max_discount_pct_* settings, never
+    Export's max_discount_pct_*."""
+    bucket = roll_type_bucket(product["stretch_ability"] if product is not None else None)
+    key = _STRETCH_BUCKET_TO_CATEGORY.get(bucket, "standard")
+    label = dict((k, l) for k, l, _ in LOCAL_DISCOUNT_CAP_CATEGORIES)[key]
+    return key, label, f"local_max_discount_pct_{key}"
+
+
+def local_capped_discount_pct(conn, line_discount_pct, global_discount_pct, product=None):
+    """Local Market's own counterpart to capped_discount_pct() above --
+    identical mechanics (combine line + global discount in percentage
+    points, silently cap at the admin-configured max, enforced server-side
+    on every calculate AND save), but reads Local's own
+    local_max_discount_pct_* settings (Admin > Local > Local Costing), never
+    Export's. Returns (effective_discount_pct, was_capped, category_key,
+    category_label, max_allowed)."""
+    requested = (line_discount_pct or 0) + (global_discount_pct or 0)
+    cat_key, cat_label, setting_key = local_discount_cap_category(product)
     max_allowed = _get_setting(conn, setting_key, 2.0)
     if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
-        return max_allowed, True
-    return requested, False
+        return max_allowed, True, cat_key, cat_label, max_allowed
+    return requested, False, cat_key, cat_label, max_allowed
 
 
 def foreign_seller_extra_multiplier(conn, seller_type):
@@ -869,7 +1221,8 @@ def conversion_roll_type_for(stretch_ability, micron):
 
 # ---------------------------------------------------------------- Main EX-Work computation
 
-def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0):
+def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_override=None, uv_fraction=0.0,
+                            exclude_pallet_from_packaging=False, box_packaging=True, slippery=False):
     """Full replication of Stretch!AG (EX-Work Cost (KG) - gross weight)
     for the standard product-row case (covers the great majority of SKUs:
     any roll with a Stretch Ability % and a Micron, Automatic or Manual
@@ -906,6 +1259,10 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     # it eats into the C4 leftover the same way every other resin does, at
     # the existing "uvi" material_rate ($5500/ton, already seeded/correct).
     material_cost += mat_cost("uvi", comp.get("uvi", 0.0))
+    if slippery:
+        # v180 -- Extra Slippery: dosage% x plastic weight x EGP/kg / dollar rate
+        material_cost += (_get_setting(conn, "slippery_dosage_pct", 0.6) / 100.0 * plastic_weight
+                          * _material_rate(conn, "slippery") / (_get_setting(conn, "dollar_rate", 45) or 45))
 
     core_cost = core_cost_usd(conn, product)
     # v86 -- Stretch!AD's own formula gates every packaging term behind
@@ -919,8 +1276,19 @@ def compute_ex_work_usd_kg(conn, product, pallet_type=None, rolls_per_pallet_ove
     # micron 12 with roll weight overridden down to its own 0.3kg core
     # weight: sheet AG=0.6667, this used to give 1.1454 by still charging
     # a full packaging share).
-    packaging_cost = (packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override)
-                       if plastic_weight > 0 else 0.0)
+    # v117: exclude_pallet_from_packaging -- see
+    # packaging_cost_per_roll_usd_excl_pallet()'s docstring -- used only for
+    # Pre-Stretch's source-material lookup (unit_price_for(...,
+    # exclude_pallet_from_packaging=True)); every normal call leaves this
+    # False and gets the plain packaging_cost_per_roll_usd() as before.
+    if exclude_pallet_from_packaging:
+        packaging_cost = (packaging_cost_per_roll_usd_excl_pallet(conn, product, pallet_type,
+                                                                    rolls_per_pallet_override)
+                           if plastic_weight > 0 else 0.0)
+    else:
+        packaging_cost = (packaging_cost_per_roll_usd(conn, product, pallet_type, rolls_per_pallet_override,
+                                                        box_packaging=box_packaging)
+                           if plastic_weight > 0 else 0.0)
 
     interest_rate = _get_setting(conn, "material_interest_rate", 0.0)
     material_interest = material_cost * interest_rate

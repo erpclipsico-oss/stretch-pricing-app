@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Local Conversion Cost · Stretch Pricing{% endblock %}
+{% block container_extra_class %} container-wide{% endblock %}
+{% block content %}
+<div class="price-note price-note-ok">
+  <div class="price-note-title">Local Pricing System (Stretch Film, Phase 1)</div>
+  Local's OWN Conversion Cost table ($/ton, transcribed from your own workbook's "Conversion cost" sheet),
+  completely independent from Export's own (live-derived from Electricity/Wages/Fixed-cost pages).
+  Editing a row here never changes Export's own Conversion Cost.
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Local Conversion Cost ($/ton)</h2></div>
+  <p class="hint" style="margin-bottom:14px;">
+    One $/ton figure per Micron × Roll type (St/Standard, P/Power, P_plus/Power Plus, RIGID).
+    A micron not listed below falls back to the nearest seeded micron for that same roll type.
+  </p>
+  <div class="admin-table-scroll">
+  <table class="admin-table">
+    <thead>
+      <tr><th>Roll type</th><th>Micron</th><th>$/ton</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.roll_type }}</td>
+        <td>{{ r.micron }}</td>
+        <td><input type="number" step="any" value="{{ r.usd_per_ton }}" style="width:100px;" name="usd_per_ton" form="convrow{{ r.id }}"></td>
+        <td><button type="submit" class="btn btn-primary btn-sm" form="convrow{{ r.id }}">Save</button></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="empty">No Local Conversion Cost rows yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% for r in rows %}
+  <form id="convrow{{ r.id }}" method="post"><input type="hidden" name="row_id" value="{{ r.id }}"></form>
+  {% endfor %}
+</div>
+{% endblock %}
