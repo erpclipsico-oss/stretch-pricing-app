@@ -5,6 +5,7 @@
   <div class="panel-header">
     <h2>{{ q.quotation_no or ('Quotation #' ~ q.id) }}</h2>
     <div class="panel-actions">
+      <a href="{{ url_for('reprice_quotation', qid=q.id) }}" class="btn btn-success" title="Open these exact lines as a NEW quotation, recalculated at today's prices">🔄 Reprice (new copy)</a>
       <a href="{{ url_for('quotation_excel', qid=q.id) }}" class="btn btn-outline">⇧ Export Excel</a>
       <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-primary">⇧ Export PDF</a>
     </div>

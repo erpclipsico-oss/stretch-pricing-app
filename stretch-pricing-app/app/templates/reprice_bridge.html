@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Reprice</title></head>
+<body style="font-family:sans-serif;padding:24px;">
+<p id="msg">Opening the quotation for repricing...</p>
+<script>
+try {
+  localStorage.setItem({{ key|tojson }}, JSON.stringify({{ draft|tojson }}));
+  location.replace({{ target|tojson }});
+} catch (e) {
+  document.getElementById('msg').textContent =
+    'Your browser blocked local storage, so the quotation could not be reopened for repricing.';
+}
+</script>
+</body></html>

@@ -1368,6 +1368,93 @@ def create_app():
         q, lines, totals = load_quotation(g.db, qid)
         return render_template("view_quotation.html", q=q, lines=lines, totals=totals)
 
+    # ---------- v183: "Reprice" -- reopen a saved quotation as a NEW draft ----------
+    # Owner request: open any saved quotation with the exact same specs and
+    # recalculate every price at today's rates; Save then creates a NEW
+    # quotation (the old one is never touched). Implemented by writing the
+    # quotation into the pricing page's own autosave draft (static/draft.js)
+    # and redirecting there, so the page's normal logic re-prices every line.
+    def _dctl(k, v, t="v"):
+        return {"k": k, "n": 1, "t": t, "v": v}
+
+    def _drow(controls, rpp_edited=False):
+        return {"c": [c for c in controls if c is not None], "rpp": "1" if rpp_edited else ""}
+
+    def _opt(k, v, t="v"):
+        return None if v in (None, "") else _dctl(k, v, t)
+
+    @app.route("/quotations/<int:qid>/reprice")
+    @login_required
+    @export_access_required
+    def reprice_quotation(qid):
+        q, lines, _totals = load_quotation(g.db, qid)
+        stretch_rows, strap_rows = [], []
+        for l in lines:
+            keys = l.keys()
+            pl = l["product_line"] if "product_line" in keys else "stretch_film"
+            if pl in ("pet", "pp"):
+                def pick(a, b):
+                    return l[a] if (a in keys and l[a] is not None) else (l[b] if b in keys else None)
+                core_w = pick("strap_custom_core_weight_kg", "sp_core_weight_kg")
+                core_size = None
+                if core_w is not None:
+                    core_size = min(strap_pricing.CORE_SIZES_MM.items(), key=lambda kv: abs(kv[1] - core_w))[0]
+                ctr20 = pick("strap_custom_ctr20", "sp_ctr20")
+                strap_rows.append(_drow([
+                    _dctl("f-strap-product", "custom_" + pl),
+                    _opt("f-strap-bom", pick("strap_custom_bom_key", "sp_bom_key")),
+                    _opt("f-strap-width", pick("strap_custom_width_mm", "sp_width_mm")),
+                    _opt("f-strap-thickness", pick("strap_custom_thickness_mm", "sp_thickness_mm")),
+                    _opt("f-strap-core", core_size),
+                    _opt("f-strap-meters", pick("strap_custom_meters_per_coil", "sp_meters_per_coil")),
+                    _dctl("f-strap-box", bool(pick("strap_custom_has_box", "sp_has_box")), "c"),
+                    _dctl("f-strap-pallet", bool(pick("strap_custom_has_pallet", "sp_has_pallet")), "c"),
+                    _dctl("f-strap-container", "20ft" if ctr20 else "40ft"),
+                    _dctl("f-strap-discount", l["line_discount_pct"] or 0),
+                ]))
+                continue
+            presh = bool(l["is_prestretch"]) if "is_prestretch" in keys else False
+            custom_rpp = l["custom_rolls_per_pallet"] if "custom_rolls_per_pallet" in keys else None
+            if presh:
+                box = (l["prestretch_packaging_type"] == "boxes") if "prestretch_packaging_type" in keys else False
+                rollwt, corewt = l["prestretch_roll_weight_kg"], l["prestretch_core_weight_kg"]
+                rpp = l["prestretch_rolls_per_pallet"]
+                width = None
+            else:
+                box = bool(l["box_packaging"]) if "box_packaging" in keys and l["box_packaging"] is not None else True
+                rollwt, corewt = l["custom_roll_weight_kg"], l["custom_core_weight_kg"]
+                rpp, width = custom_rpp, l["custom_width_mm"]
+            stretch_rows.append(_drow([
+                _dctl("f-product", l["product_id"]),
+                _opt("f-pallet", l["pallet_type"]),
+                _opt("f-packing", l["packing_type"]),
+                _opt("f-basis", l["pricing_basis"]),
+                _dctl("f-colored", bool(l["colored"]), "c"),
+                _dctl("f-uv", bool(l["uv_type"]), "c"),
+                _dctl("f-slippery", bool(l["slippery"]) if "slippery" in keys else False, "c"),
+                _dctl("f-box", box, "c"),
+                _opt("f-width", width),
+                _opt("f-rollwt", rollwt),
+                _opt("f-corewt", corewt),
+                _opt("f-rpp", rpp),
+                _dctl("f-qty", l["quantity_pallets"] or 0),
+                _dctl("f-discount", l["line_discount_pct"] or 0),
+            ], rpp_edited=(not presh and custom_rpp is not None)))
+        qk = q.keys()
+        header = {
+            "loading_port": q["loading_port"] or "", "destination": q["destination"] or "",
+            "payment_term": q["payment_term"] or "Cash", "global_discount_pct": q["global_discount_pct"] or 0,
+            "customer_name": q["customer_name"] or "", "quotation_no": "",
+        }
+        if "pricing_mode" in qk and q["pricing_mode"]:
+            header["pricing_mode"] = q["pricing_mode"]
+        draft = {"v": 1, "ts": 0, "header": header, "tables": [stretch_rows, strap_rows], "extra": {},
+                 "note": f"Reopened from {q['quotation_no'] or ('quotation #' + str(q['id']))} -- prices were "
+                         f"recalculated with today's rates. Press Save to create a NEW quotation "
+                         f"(the original is untouched)."}
+        return render_template("reprice_bridge.html", key=f"pricingDraft_export_{g.user['id']}",
+                               draft=draft, target=url_for("pricing_page"))
+
     @app.route("/quotations/<int:qid>/pdf")
     @login_required
     @export_access_required
@@ -2286,6 +2373,54 @@ def create_app():
     def local_view_quotation(qid):
         q, lines, total = _load_local_quotation(g.db, qid)
         return render_template("local_view_quotation.html", q=q, lines=lines, total=total)
+
+    @app.route("/local/quotations/<int:qid>/reprice")
+    @login_required
+    @local_access_required
+    def local_reprice_quotation(qid):
+        # v183 -- same "Reprice" idea as Export's (see reprice_quotation()).
+        q, lines, _total = _load_local_quotation(g.db, qid)
+        stretch_rows, strap_rows = [], []
+        for l in lines:
+            keys = l.keys()
+            if (l["product_line"] if "product_line" in keys else "stretch_film") == "pet_strap":
+                strap_rows.append(_drow([
+                    _dctl("f-recipe", l["strap_recipe_key"]),
+                    _opt("f-width", l["strap_width_mm"]),
+                    _opt("f-thickness", l["strap_thickness_mm"]),
+                    _opt("f-meters", l["strap_meters_per_coil"]),
+                    _opt("f-corewt", l["strap_core_weight_kg"]),
+                    _dctl("f-box", bool(l["strap_has_box"]), "c"),
+                    _dctl("f-pallet", bool(l["strap_has_pallet"]), "c"),
+                    _dctl("f-qty", l["strap_quantity_rolls"] or 0),
+                    _dctl("f-discount", l["line_discount_pct"] or 0),
+                ]))
+                continue
+            custom_rpp = l["custom_rolls_per_pallet"]
+            stretch_rows.append(_drow([
+                _dctl("f-product", l["product_id"]),
+                _opt("f-pallet", l["pallet_type"]),
+                _opt("f-packing", l["packing_type"]),
+                _dctl("f-colored", bool(l["colored"]), "c"),
+                _dctl("f-slippery", bool(l["slippery"]) if "slippery" in keys else False, "c"),
+                _opt("f-width", l["custom_width_mm"]),
+                _opt("f-rollwt", l["custom_roll_weight_kg"]),
+                _opt("f-corewt", l["custom_core_weight_kg"]),
+                _opt("f-rpp", custom_rpp),
+                _dctl("f-qty", l["quantity_pallets"] or 0),
+                _dctl("f-discount", l["line_discount_pct"] or 0),
+            ], rpp_edited=custom_rpp is not None))
+        header = {
+            "customer_class": q["customer_class"] or "A", "destination": q["destination"] or "",
+            "payment_term": q["payment_term"] or "Cash", "global_discount_pct": q["global_discount_pct"] or 0,
+            "customer_name": q["customer_name"] or "", "quotation_no": "",
+        }
+        draft = {"v": 1, "ts": 0, "header": header, "tables": [stretch_rows, strap_rows], "extra": {},
+                 "note": f"Reopened from {q['quotation_no'] or ('quotation #' + str(q['id']))} -- prices were "
+                         f"recalculated with today's rates. Press Save to create a NEW quotation "
+                         f"(the original is untouched)."}
+        return render_template("reprice_bridge.html", key=f"pricingDraft_local_{g.user['id']}",
+                               draft=draft, target=url_for("local_pricing_page"))
 
     @app.route("/local/quotations/<int:qid>/pdf")
     @login_required

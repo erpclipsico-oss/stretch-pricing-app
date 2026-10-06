@@ -147,7 +147,7 @@
       const bar = document.createElement('div');
       bar.className = 'hint';
       bar.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:6px;padding:8px 12px;margin:0 0 12px;';
-      bar.textContent = '↺ Restored your last unsaved work on this screen. Use the 🗑 button to start a fresh quotation.';
+      bar.textContent = d.note ? ('↺ ' + d.note) : '↺ Restored your last unsaved work on this screen. Use the 🗑 button to start a fresh quotation.';
       const host = document.querySelector('.panel');
       if (host) host.insertBefore(bar, host.firstChild.nextSibling || host.firstChild);
     }

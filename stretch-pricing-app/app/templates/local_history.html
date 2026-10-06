@@ -26,6 +26,7 @@
         <td class="num">{{ '%.2f'|format(q.total) }} EGP</td>
         <td>
           <a href="{{ url_for('local_view_quotation', qid=q.id) }}" class="btn btn-outline btn-sm">View</a>
+          <a href="{{ url_for('local_reprice_quotation', qid=q.id) }}" class="btn btn-outline btn-sm" title="Open as a NEW quotation at today's prices">Reprice</a>
         </td>
       </tr>
       {% else %}
