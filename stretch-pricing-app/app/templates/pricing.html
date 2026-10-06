@@ -165,6 +165,7 @@
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll kg</th>
         <th data-i18n="col_core_kg">Core kg</th>
+        <th data-i18n="col_meters" title="Film length in meters -- type Meters to get the Roll kg, or type Roll kg to get the Meters (same formula as the Material Calculator sheet)">Meters</th>
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
         <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher">Pallets/container</th>
         <!-- v133 -- owner-requested removal (Arabic: "الكونتينر يختاروه
@@ -308,6 +309,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
+<script src="{{ url_for('static', filename='meters.js') }}?v={{ css_version }}"></script>
 <script>
 // v100.1 -- owner-reported (audit of every micron x Stretch Ability
 // against the reference Excel sheet): about a third of the catalog
@@ -324,7 +326,7 @@
 // flag -- see syncPrestretchVisibility()'s sibling syncVerifiedWarning().
 const PRODUCTS = [
   {% for p in products %}
-  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
+  {id: {{ p.id }}, micron: {{ (p.micron|float(0))|tojson }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
   {% endfor %}
 ];
 // v128 -- lets the discount-cap notice show its full detailed explanation
@@ -404,7 +406,7 @@ const I18N = {
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
     col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'Box',
-    col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
+    col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg', col_meters: 'Meters',
     hint_width_is_stretch_film: '(Stretch-film width)',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
     col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
@@ -452,7 +454,7 @@ const I18N = {
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
     col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'بوكس',
-    col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
+    col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_meters: 'الأمتار',
     hint_width_is_stretch_film: '(عرض الستريتش فيلم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
     col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
@@ -868,6 +870,7 @@ function addLine(prefill) {
     </td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
+    <td><input type="number" class="f-meters compact-input" min="0" step="1" title="Film length (m): type Meters to get the Roll kg, or type Roll kg to get the Meters. Uses Micron x Width x 0.925 (Pre-Stretch: width counted as 420 / 450)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
     <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher"></td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
@@ -1143,6 +1146,11 @@ function addLine(prefill) {
   // syncBoxCheckbox() above), so it needs its own listener here too, not
   // just on product change.
   tr.querySelector('.f-packing').addEventListener('change', syncBoxCheckbox);
+  // v185 -- Meters <-> Roll kg (static/meters.js)
+  MeterSync.attach(tr, {
+    product: () => PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value)),
+    prestretch: () => isPrestretch(tr.querySelector('.f-product').value),
+  });
   // v100 -- newly-created rows must reflect the currently active language
   // immediately (option text especially), not just elements present at
   // initial page load.
@@ -1940,7 +1948,11 @@ async function calculateAll() {
     // never before (net-converting before building FOB used to tip the
     // ROUNDUP() a cent low).
     const fobUnit = roundUp(rc.exwUnitRaw + lineFobAddonPerKg, 2);
-    const cifUnit = roundHalfUp(fobUnit + lineFreightPerKg, 2);
+    // v184 -- Pre-Stretch: sheet's AP118 is (container + FOB addon + freight) / net kg,
+    // unrounded (only AO is ROUNDUP'd), so build CFR from the raw net price directly.
+    const cifUnit = rc.isPrestretchLine
+      ? roundHalfUp(rc.exwUnitRaw + lineFobAddonPerKg + lineFreightPerKg, 2)
+      : roundHalfUp(fobUnit + lineFreightPerKg, 2);
     // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown --
     // when the row's own Price basis is a Roll basis, show the $ amount
     // for ONE WHOLE ROLL instead (unit $/KG x that roll's weight), with a

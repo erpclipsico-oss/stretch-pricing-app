@@ -630,6 +630,7 @@ def init_db():
     _seed_extra_slippery_v180(conn)
     _apply_owner_resin_prices_v181(conn)
     _apply_owner_values_v182(conn)
+    _apply_owner_resin_prices_v188(conn)
     _seed_12micron_300_jumbo_v176(conn)
     conn.close()
 
@@ -1020,6 +1021,8 @@ def _migrate(conn):
     # the owner has since edited in admin).
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Alexandria (Egypt)', 1500)")
     conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Damietta (Egypt)', 1800)")
+    # v187 -- owner-requested: Gebze port (Turkey), FOB add-on $200.
+    conn.execute("INSERT OR IGNORE INTO loading_port (port, fob_addon_usd) VALUES ('Gebze port (Turkey)', 200)")
     conn.commit()
 
     # v87 -- strap_line_config's Fixed Cost / Direct Labor were stored as
@@ -4441,10 +4444,10 @@ def _seed_extra_slippery_v180(conn):
 OWNER_RESIN_PRICES_V181 = {
     "c4": 1305,
     "exceed3518": 1505,
-    "exceed3812": 1605,
-    "exceedxp": 1695,
+    "exceed3812": 1555,
+    "exceedxp": 1620,
     "vista6000": 2550,
-    "enable": 1555,
+    "enable": 1535,
     "uvi": 5500,
     "ld": 1500,
     "vista": 2550,
@@ -4479,6 +4482,32 @@ def _apply_owner_resin_prices_v181(conn):
 # a fresh/ephemeral database (Render free tier) gets them on every boot; a
 # persistent one gets them once and later edits are never overwritten.
 OWNER_VALUES_V182_GATE = "owner_values_v182_applied"
+
+
+OWNER_RESIN_V188_GATE = "owner_resin_prices_v188_applied"
+
+
+def _apply_owner_resin_prices_v188(conn):
+    """v188 -- owner's updated Our-Price resin rates (2026-10-06 screenshot):
+    Exceed 3812 1555, Exceed XP 1620, Enable 1535 (the rest unchanged).
+    Same gated one-time approach as v181 for a persistent database."""
+    from . import cost_engine
+    if conn.execute("SELECT 1 FROM global_setting WHERE key=?", (OWNER_RESIN_V188_GATE,)).fetchone():
+        return
+    changed = False
+    for key, value in OWNER_RESIN_PRICES_V181.items():
+        row = conn.execute("SELECT value FROM material_rate WHERE material_key=?", (key,)).fetchone()
+        if row is not None and row["value"] != value:
+            conn.execute("UPDATE material_rate SET value=? WHERE material_key=?", (value, key))
+            changed = True
+    conn.execute(
+        "INSERT OR IGNORE INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (OWNER_RESIN_V188_GATE, "internal marker -- owner resin prices v188 applied", 1,
+         "Internal marker: the v188 one-time application of the owner's updated Our-Price resin rates has run."),
+    )
+    conn.commit()
+    if changed:
+        cost_engine.recalculate_all_products(conn)
 
 
 def _apply_owner_values_v182(conn):

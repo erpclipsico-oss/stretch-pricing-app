@@ -76,6 +76,7 @@
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll wt (kg)</th>
         <th data-i18n="col_core_kg">Core wt (kg)</th>
+        <th data-i18n="col_meters" title="Film length in meters -- type Meters to get the Roll weight, or type Roll weight to get the Meters (same formula as the Material Calculator sheet)">Meters</th>
         <th data-i18n="col_rolls_pallet">Rolls/Pallet</th>
         <th data-i18n="col_qty_pallets">Qty (Pallets)</th>
         <th data-i18n="col_discount_pct">Discount %</th>
@@ -129,6 +130,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
+<script src="{{ url_for('static', filename='meters.js') }}?v={{ css_version }}"></script>
 <script>
 const PRODUCTS = {{ products|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
@@ -154,7 +156,7 @@ const I18N = {
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
     col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'Width (mm)',
-    col_roll_kg: 'Roll wt (kg)', col_core_kg: 'Core wt (kg)', col_rolls_pallet: 'Rolls/Pallet',
+    col_roll_kg: 'Roll wt (kg)', col_core_kg: 'Core wt (kg)', col_meters: 'Meters', col_rolls_pallet: 'Rolls/Pallet',
     col_qty_pallets: 'Qty (Pallets)', col_discount_pct: 'Discount %',
     col_unit_price: 'Unit Price (EGP/KG)', col_total_kg: 'Total (KG)', col_line_total: 'Line Total (EGP)',
     total_egp: 'Total (EGP)',
@@ -170,7 +172,7 @@ const I18N = {
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
     col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_width_mm: 'العرض (مم)',
-    col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_rolls_pallet: 'رول/بالتة',
+    col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_meters: 'الأمتار', col_rolls_pallet: 'رول/بالتة',
     col_qty_pallets: 'الكمية (بالتة)', col_discount_pct: 'الخصم %',
     col_unit_price: 'سعر الوحدة (جنيه/كجم)', col_total_kg: 'الإجمالي (كجم)', col_line_total: 'إجمالي السطر (جنيه)',
     total_egp: 'الإجمالي (جنيه)',
@@ -259,6 +261,7 @@ function addLine() {
     <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer) -- leave blank to use the catalog default"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer) -- leave blank to use the catalog default"></td>
+    <td><input type="number" class="f-meters compact-input" min="0" step="1" title="Film length (m): type Meters to get the Roll weight, or type Roll weight to get the Meters. Uses Micron x Width x 0.925"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, leave blank to use the catalog/packing-table default"></td>
     <td><input type="number" class="f-qty compact-input" min="0" step="1" value="1"></td>
     <td><input type="number" class="f-discount compact-input" min="0" max="100" step="0.1" value="0"></td>
@@ -268,6 +271,10 @@ function addLine() {
     <td><button type="button" class="btn btn-outline btn-sm f-remove">✕</button></td>
   `;
   document.getElementById('linesBody').appendChild(tr);
+  MeterSync.attach(tr, {
+    product: () => PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value)),
+    prestretch: () => false,
+  });
   tr.querySelector('.f-remove').addEventListener('click', () => { tr.remove(); scheduleRecalc(); });
   tr.querySelectorAll('select, input').forEach(el => {
     el.addEventListener('change', scheduleRecalc);

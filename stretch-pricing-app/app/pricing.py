@@ -328,7 +328,9 @@ def compute_line(db, product, country_class, customer_class, quantity_pallets, r
     # since that's just Gross EX-Work (already rounded) re-divided by net
     # weight -- unaffected by this fix, confirmed unchanged in testing.
     if pricing_basis in ("net", "net_per_kg") and net_roll_weight > 0 and round_result:
-        unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
+        unit_price = unit_price * gross_roll_weight / net_roll_weight
+        if round_result:
+            unit_price = cost_engine.round_half_up(unit_price, 2)
         roll_weight = net_roll_weight
     else:
         roll_weight = gross_roll_weight
@@ -468,7 +470,7 @@ def prestretch_ex_work_usd_kg(db, product, roll_weight_kg, core_weight_kg, rolls
 def prestretch_unit_price_for(db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
                                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0, seller_type=None,
                                colored=False, discount_pct=0, hidden_markup_mode=None, hidden_markup_value=0,
-                               credit_term=False):
+                               credit_term=False, round_result=True):
     roll_weight = roll_weight_kg or 0
     if roll_weight <= 0:
         return 0.0
@@ -498,13 +500,14 @@ def prestretch_unit_price_for(db, product, country_class, customer_class, roll_w
     # v79: same 'Extras > Credit payment terms extra' surcharge Stretch
     # Film's unit_price_for() gets, applied last like it is there.
     price += cost_engine.credit_term_extra_usd_kg(db, credit_term)
-    return cost_engine.round_half_up(price, 2)
+    return cost_engine.round_half_up(price, 2) if round_result else price
 
 
 def compute_prestretch_line(db, product, country_class, customer_class, quantity_pallets, roll_weight_kg,
                              core_weight_kg, rolls_per_pallet, packaging_type, price_adjustment_usd_kg=0,
                              pricing_basis="per_kg", seller_type=None, colored=False, discount_pct=0,
-                             hidden_markup_mode=None, hidden_markup_value=0, credit_term=False):
+                             hidden_markup_mode=None, hidden_markup_value=0, credit_term=False,
+                             round_result=True):
     """Pre-Stretch counterpart of compute_line(): returns (unit_price_usd_kg, total_kg)
     from the rep's entered per-line roll weight / core weight / rolls-per-pallet /
     packaging type, instead of the product catalog's fixed values.
@@ -522,7 +525,7 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
         db, product, country_class, customer_class, roll_weight_kg, core_weight_kg,
         rolls_per_pallet, packaging_type, price_adjustment_usd_kg, seller_type=seller_type, colored=colored,
         discount_pct=discount_pct, hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
-        credit_term=credit_term,
+        credit_term=credit_term, round_result=round_result,
     )
     gross_roll_weight = roll_weight_kg or 0
     net_roll_weight = max(gross_roll_weight - (core_weight_kg or 0), 0)
@@ -545,7 +548,9 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
     # re-divide by the net weight, same math as before -- only the gate
     # controlling WHEN this applies has changed.
     if net_roll_weight > 0:
-        unit_price = cost_engine.round_half_up(unit_price * gross_roll_weight / net_roll_weight, 2)
+        unit_price = unit_price * gross_roll_weight / net_roll_weight
+        if round_result:
+            unit_price = cost_engine.round_half_up(unit_price, 2)
         roll_weight = net_roll_weight
     else:
         roll_weight = gross_roll_weight

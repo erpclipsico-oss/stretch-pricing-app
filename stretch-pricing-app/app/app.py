@@ -422,10 +422,20 @@ def create_app():
                 hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
                 credit_term=credit_term,
             )
+            # v184 -- unrounded NET price (the sheet's AI*H/J never rounds
+            # before FOB/CFR are built from it) -- see pricing.compute_prestretch_line.
+            unit_price_raw, _ = compute_prestretch_line(
+                g.db, product, country_class, customer_class, qty, roll_weight_kg, core_weight_kg,
+                rolls_per_pallet, packaging_type, price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                seller_type=seller_type, colored=colored, discount_pct=discount_pct,
+                hidden_markup_mode=hidden_markup_mode, hidden_markup_value=hidden_markup_value,
+                credit_term=credit_term, round_result=False,
+            )
             gross = cost_engine.round_half_up(unit_price * total_kg, 2)
             gross_full = cost_engine.round_half_up(unit_price_full * total_kg, 2)
             return jsonify({
                 "unit_price_usd_kg": unit_price,
+                "unit_price_usd_kg_raw": unit_price_raw,
                 "unit_price_full_usd_kg": unit_price_full,
                 "total_kg": total_kg,
                 "line_gross": gross,
@@ -1229,16 +1239,24 @@ def create_app():
                     hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
                     credit_term=credit_term,
                 )
+                unit_price_raw_ps, _ = compute_prestretch_line(
+                    db, product, country_class, customer_class, float(l.get("quantity_pallets") or 0),
+                    roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
+                    price_adjustment_usd_kg=adjustment, pricing_basis=pricing_basis,
+                    seller_type=creator_seller_type, colored=colored, discount_pct=discount_pct,
+                    hidden_markup_mode=creator_stretch_markup_mode, hidden_markup_value=creator_stretch_markup_value,
+                    credit_term=credit_term, round_result=False,
+                )
                 db.execute(
                     """INSERT INTO quotation_line
                        (quotation_id, product_id, pallet_type, packing_type, quantity_pallets,
-                        unit_price_usd_kg, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
+                        unit_price_usd_kg, unit_price_usd_kg_raw, unit_price_full_usd_kg, total_kg, line_discount_pct, pricing_basis,
                         colored, prestretch_roll_weight_kg, prestretch_core_weight_kg,
                         prestretch_rolls_per_pallet, prestretch_packaging_type,
                         prestretch_pallets_per_container, container_pref)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (quotation_id, product["id"], pallet_type, l.get("packing_type", "Automatic"),
-                     float(l.get("quantity_pallets") or 0), unit_price, unit_price_full, total_kg,
+                     float(l.get("quantity_pallets") or 0), unit_price, unit_price_raw_ps, unit_price_full, total_kg,
                      line_discount_pct, pricing_basis, int(colored),
                      roll_weight_kg, core_weight_kg, rolls_per_pallet, packaging_type,
                      pallets_per_container, ps_container_pref),
@@ -1828,6 +1846,12 @@ def create_app():
                     raw_base + (fob_addon / fob_denom_kg if fob_denom_kg else 0), 2)
                 cif_unit = cost_engine.round_half_up(
                     fob_unit + (freight_amt / fob_denom_kg if fob_denom_kg else 0), 2)
+                if "is_prestretch" in l.keys() and l["is_prestretch"] and fob_denom_kg:
+                    # v184 -- Pre-Stretch CFR $/KG = the sheet's AP118 =
+                    # (container price + FOB addon + freight) / net kg, never
+                    # rounded up and not built from the already-rounded FOB.
+                    cif_unit = cost_engine.round_half_up(
+                        raw_base + (fob_addon + freight_amt) / fob_denom_kg, 2)
                 # v110 -- Pre-Stretch lines are excluded here: they never set
                 # eff_roll_weight above (only the `elif not is_prestretch`
                 # branch does) and already get their own Net handling
