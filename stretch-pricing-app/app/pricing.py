@@ -547,7 +547,11 @@ def compute_prestretch_line(db, product, country_class, customer_class, quantity
     # Keep the $ total per roll fixed (unit_price_gross * gross_weight) and
     # re-divide by the net weight, same math as before -- only the gate
     # controlling WHEN this applies has changed.
-    if net_roll_weight > 0:
+    # v189 -- owner-requested: Pre-Stretch can be priced on EITHER basis
+    # again ($/KG or $/Roll, Gross or Net). Net ('net'/'net_per_kg', the
+    # sheet's AO/AP) re-divides over the net weight as before; Gross
+    # ('gross'/'per_kg') keeps the gross-weight price (AI) and gross kg.
+    if net_roll_weight > 0 and pricing_basis in ("net", "net_per_kg"):
         unit_price = unit_price * gross_roll_weight / net_roll_weight
         if round_result:
             unit_price = cost_engine.round_half_up(unit_price, 2)

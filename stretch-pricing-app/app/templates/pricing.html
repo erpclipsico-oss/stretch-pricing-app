@@ -1012,13 +1012,20 @@ function addLine(prefill) {
   function syncBasisOptions(show) {
     const basisSelect = tr.querySelector('.f-basis');
     const current = basisSelect.value;
-    const bases = show
-      ? PRICING_BASES.filter(b => b[0] !== 'gross' && b[0] !== 'per_kg')
-      : PRICING_BASES;
+    // v189 -- Pre-Stretch offers all four bases again (Gross/Net x $/KG, $/Roll)
+    const bases = PRICING_BASES;
     basisSelect.innerHTML = bases.map(b => `<option value="${b[0]}">${codeLabel(b[0])}</option>`).join('');
     basisSelect.value = bases.some(b => b[0] === current)
       ? current
       : (show ? 'net_per_kg' : 'per_kg');
+    // first time a line becomes Pre-Stretch: keep the sheet's own default (Net $/KG);
+    // the rep can switch to Gross afterwards and it is never overridden again.
+    if (show && !tr.dataset.psBasisInit) {
+      tr.dataset.psBasisInit = '1';
+      if (current === 'per_kg') basisSelect.value = 'net_per_kg';
+    } else if (!show) {
+      delete tr.dataset.psBasisInit;
+    }
   }
 
   // v120 -- owner-confirmed: the "Box" column's checkbox (".f-box") is now
