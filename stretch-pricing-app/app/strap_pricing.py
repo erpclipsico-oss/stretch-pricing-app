@@ -53,33 +53,16 @@ TARGET_GROSS_WEIGHT_KG = {
     "pp": (12.0, 12.2),
 }
 
-# v135 -- see compute_strap_line()'s matching v135 comment: the credit-term
-# surcharge now varies by how many days the Payment Term is, keyed by the
-# exact dropdown string (app.py's payment_terms list). Mirrors
-# cost_engine.CREDIT_TERM_TIER_SETTING_KEYS but with Strap's own,
-# separately-editable setting keys (Admin > PET/PP Strap Costing), same as
-# the old flat strap_credit_surcharge_usd_kg was its own setting, never
-# shared with Stretch Film's.
-STRAP_CREDIT_TERM_TIER_SETTING_KEYS = {
-    "30 days": ("strap_credit_surcharge_30_usd_kg", 0.02),
-    "60 days": ("strap_credit_surcharge_60_usd_kg", 0.03),
-    "90 days": ("strap_credit_surcharge_90_usd_kg", 0.04),
-}
 
-
-def suggest_meters_per_coil(conn, line_key, gm_per_m, core_weight_kg, has_box=None):
+def suggest_meters_per_coil(line_key, gm_per_m, core_weight_kg):
     """Owner-confirmed rule: pick meters/coil so the gross roll weight
     (net + core) lands as close as possible to the top of the target
     window without exceeding it. Rounded down to the nearest 10m (coils
     are wound in practical round numbers, and rounding down -- never up --
-    guarantees the max is never exceeded).
-
-    v124 -- the target ceiling now comes from gross_weight_max_kg(), which
-    is admin-editable per core-size/box (Admin > PET/PP Strap Costing), not
-    a fixed per-line constant -- see that function's docstring."""
+    guarantees the max is never exceeded)."""
     if not gm_per_m or gm_per_m <= 0:
         return 0
-    target_max = gross_weight_max_kg(conn, line_key, core_weight_kg, has_box)
+    _, target_max = TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))
     net_target_max_kg = target_max - (core_weight_kg or 0)
     if net_target_max_kg <= 0:
         return 0
@@ -87,63 +70,26 @@ def suggest_meters_per_coil(conn, line_key, gm_per_m, core_weight_kg, has_box=No
     return int(meters // 10) * 10
 
 
-def _core_size_mm_for(core_weight_kg):
-    """Reverse lookup of CORE_SIZES_MM: the core-diameter label (e.g.
-    '400-405') for a given core weight in kg, or None if it doesn't match
-    one of the three owner-confirmed core sizes."""
-    for mm, kg in CORE_SIZES_MM.items():
-        if kg == core_weight_kg:
-            return mm
-    return None
-
-
-def _get_stuffing_config(conn, line_key, core_weight_kg, has_box):
-    """v124 -- admin-editable "stuffing" figures (Rolls/Pallet,
-    Pallets/Container 20ft & 40ft, Max Roll Weight) for one (line, core
-    size, box/no-box) combination -- see db._seed_strap_stuffing_config_v124()
-    for the seeded starting values (identical to the previously-hardcoded
-    ones) and admin_strap_costing.html for the editable grid. Returns None
-    if conn is None (e.g. a call site with no DB handle) or the combination
-    isn't recognized, so callers fall back to their own hardcoded default."""
-    if conn is None:
-        return None
-    core_size_mm = _core_size_mm_for(core_weight_kg)
-    if core_size_mm is None:
-        return None
-    row = conn.execute(
-        """SELECT rolls_per_pallet, pallets_per_container_20, pallets_per_container_40, max_roll_weight_kg
-           FROM strap_stuffing_config WHERE line_key=? AND core_size_mm=? AND has_box=?""",
-        (line_key, core_size_mm, 1 if has_box else 0),
-    ).fetchone()
-    return dict(row) if row else None
-
-
-def gross_weight_max_kg(conn, line_key, core_weight_kg=None, has_box=None):
-    """The hard ceiling for this line's gross roll weight. v124 -- admin-
-    editable per core-size/box (Admin > PET/PP Strap Costing) via
-    strap_stuffing_config; falls back to the old fixed per-line figure
-    (TARGET_GROSS_WEIGHT_KG -- 20.2kg PET / 12.2kg PP) when no core
-    weight is given, the combination isn't recognized, or the configured
-    value is 0/blank."""
-    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box) if core_weight_kg is not None else None
-    if cfg and cfg["max_roll_weight_kg"]:
-        return cfg["max_roll_weight_kg"]
+def gross_weight_max_kg(line_key):
+    """The owner-confirmed hard ceiling (top of TARGET_GROSS_WEIGHT_KG's
+    window) for this line's gross roll weight, or 0 if the line isn't
+    recognized."""
     return TARGET_GROSS_WEIGHT_KG.get(line_key, (0, 0))[1]
 
 
-def gross_weight_exceeds_max(conn, line_key, gross_weight_kg, core_weight_kg=None, has_box=None):
+def gross_weight_exceeds_max(line_key, gross_weight_kg):
     """v96 -- hard-validation companion to suggest_meters_per_coil() above.
     That function only ever proposes a DEFAULT meters/coil when the field is
     left blank/0 -- it never stops a rep from typing in a larger meters/coil
     by hand, which can push the actual (net + core) gross roll weight past
-    the ceiling with nothing catching it. This is that check: compute_strap_line()
-    calls it and app.py uses the result to block Save (and warn live)
-    whenever a line's real gross weight is over the line, telling the rep to
-    reduce Meters/Coil. A tiny epsilon absorbs float noise so a roll landing
+    the owner-confirmed ceiling (20.2kg PET / 12.2kg PP) with nothing
+    catching it. This is that check: compute_strap_line() calls it and
+    app.py uses the result to block Save (and warn live) whenever a line's
+    real gross weight is over the line, telling the rep to reduce
+    Meters/Coil. A tiny epsilon absorbs float noise so a roll landing
     exactly on the ceiling (e.g. suggest_meters_per_coil()'s own output)
-    never trips it. v124 -- the ceiling itself is now admin-editable per
-    core-size/box, see gross_weight_max_kg()."""
-    max_kg = gross_weight_max_kg(conn, line_key, core_weight_kg, has_box)
+    never trips it."""
+    max_kg = gross_weight_max_kg(line_key)
     return bool(max_kg) and gross_weight_kg > max_kg + 1e-6
 
 # v34 -- BOM composition %, profit % and waste % are now stored (and
@@ -231,16 +177,11 @@ def _material_rate(conn, line_key, suffix):
     return row["value"] if row else 0.0
 
 
-def _dollar_rate(conn, line_key):
+def _dollar_rate(conn):
     # v88 -- owner-requested split: independent from Stretch Film's own
-    # "dollar_rate" (Global Cost Settings).
-    # v122 -- owner-requested further split: PET and PP no longer share one
-    # Dollar Rate either -- each line now has its own ("pet_dollar_rate" /
-    # "pp_dollar_rate"), set independently on the PET/PP Strap Costing
-    # page. Replaces the single shared "strap_dollar_rate" row (left in
-    # place in the DB, unused, rather than deleted -- see db.py's matching
-    # v122 seed comment).
-    return _get_setting(conn, f"{line_key}_dollar_rate", 47)
+    # "dollar_rate" (Global Cost Settings) -- see db.py's strap_dollar_rate
+    # seed note. Editable on the PET/PP Strap Costing page.
+    return _get_setting(conn, "strap_dollar_rate", 45)
 
 
 def _get_bom(conn, line_key, bom_key):
@@ -361,62 +302,41 @@ def _packaging_addons(conn, line_key, dollar_rate, core_weight_kg, has_box, has_
     return jwan + stretch + box + cardboard + pallet
 
 
-def suggest_rolls_per_pallet(conn, line_key, core_weight_kg, has_box):
-    """The rolls/pallet figure shown to a rep/customer (quote builder live
-    preview + the printed PDF/Excel/view page) and used to convert
-    pallets -> total coils. Purely a quantity-conversion default;
-    overriding it does not change the container-freight math itself, which
-    keeps using the verified per-sheet formula in _container_share below
-    (same relationship suggest_pallets_per_container has to that function
-    -- see its own docstring).
-
-    v124 -- now admin-editable per (line, core size, box/no-box) via
-    strap_stuffing_config (Admin > PET/PP Strap Costing) -- see
-    _get_stuffing_config(). Falls back to the v120 owner-confirmed fixed
-    figures (150mm->72, 200mm->60, 400mm->56, same for box/no-box) when
-    conn is None or the row is somehow missing (shouldn't happen once
-    seeded), and to the pre-v120 has_box-based split for a core weight
-    outside those three recognized sizes."""
-    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box)
-    if cfg and cfg["rolls_per_pallet"]:
-        return cfg["rolls_per_pallet"]
-    if core_weight_kg == 0.25:
-        return 72
-    if core_weight_kg == 0.5:
-        return 60
-    if core_weight_kg == 1.0:
-        return 56
+def suggest_rolls_per_pallet(core_weight_kg, has_box):
+    """The rolls/pallet figure implicit in each sheet's own container-share
+    formula (the "72"/"66"/"52" divisors), surfaced as its own value so a
+    rep can see -- and override -- it directly instead of it staying
+    buried inside the FOB/CFR math. Purely a quantity-conversion default
+    (Qty (pallets) x Rolls/pallet -> total coils); overriding it does not
+    change the container-freight math itself, which keeps using the
+    verified per-sheet formula in _container_share below."""
     small = core_weight_kg < CORE_WEIGHT_THRESHOLD_KG
     if small:
         return 72 if has_box else 66
     return 52
 
 
-def suggest_pallets_per_container(conn, line_key, core_weight_kg, has_box, ctr20, ctr40):
+def suggest_pallets_per_container(core_weight_kg, has_box, ctr20, ctr40):
     """The Pallets/Container figure shown to a rep/customer (quote builder
-    live preview + the printed PDF/Excel/view page), and (v124) also what
-    the live builder multiplies by the rep's own Containers count to get
-    the locked, read-only Pallets total (see pricing.html's calculateAll()).
+    live preview + the printed PDF/Excel/view page) -- purely informational,
+    read-only.
 
-    v124 -- now admin-editable per (line, core size, box/no-box, 20ft/40ft)
-    via strap_stuffing_config (Admin > PET/PP Strap Costing) -- see
-    _get_stuffing_config(). Falls back to the v91 owner-confirmed flat
-    figures (20 pallets/40ft container, 10 pallets/20ft container, no
-    exception for core weight or Box/No-Box) when conn is None, the row is
-    missing, or its 20ft/40ft value is 0/blank.
+    v91 -- owner-confirmed, twice, explicitly overriding the small-core
+    (<0.7kg) 11/22/24 split this used to return (which came from the
+    per-sheet container-SHARE formula in _container_share below, used to
+    spread the flat per-container FOB/freight cost across each coil -- see
+    that function's own docstring). The owner was clear that figure is not
+    her real max loading and she never asked for that split: her own
+    stated max loading for PET/PP Strap is a flat 20 pallets/40ft container,
+    10 pallets/20ft container, full stop -- no exception for a lighter
+    core weight or for Box vs No-Box. This function now just returns that.
 
     Deliberately NOT touched: _container_share()/compute_strap_line()'s
     actual FOB/CFR $ math, which keeps dividing by the verified per-sheet
     11/22/24/10/20 split (still exactly matches PET_Export_pricing /
-    PP_Export_pricing's own formulas) -- this function (and its backing
-    config) only ever controlled what number gets PRINTED/used to derive
-    Pallets, never the $ price."""
-    cfg = _get_stuffing_config(conn, line_key, core_weight_kg, has_box)
-    if cfg:
-        if ctr20 and cfg["pallets_per_container_20"]:
-            return cfg["pallets_per_container_20"]
-        if ctr40 and cfg["pallets_per_container_40"]:
-            return cfg["pallets_per_container_40"]
+    PP_Export_pricing's own formulas) -- the owner's correction was about
+    what number gets PRINTED as Pallets/Container, not about the $ price,
+    which she has not disputed."""
     if ctr20:
         return 10
     if ctr40:
@@ -445,8 +365,7 @@ def _container_share(rate_usd, core_weight_kg, ctr20, ctr40, has_box):
 
 def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=False,
                         hidden_markup_mode=None, hidden_markup_value=0,
-                        fob_container_usd=None, shipping_container_usd=None,
-                        profit_pct_override=None):
+                        fob_container_usd=None, shipping_container_usd=None):
     """Full per-roll/per-kg breakdown for one strap_product row. Returns a
     dict with ex_work_price_roll, fob_price_roll/kg, cfr_price_roll/kg
     (Cash terms unless credit_term=True, in which case the flat $/kg
@@ -481,21 +400,12 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     is a flat USD/KG amount added onto the FINAL fob/cfr $/KG price,
     mirroring how the credit-term surcharge below is applied. Neither is
     surfaced anywhere in the price breakdown -- see app.py's
-    _calculate_strap_line/api_save_quotation.
-
-    profit_pct_override (v136): owner-requested "what price gives me what
-    margin" tool -- mirrors pricing.unit_price_for()'s matching
-    margin_pct_override param. When given (a plain fraction, e.g. 0.0 or
-    1.0 -- NOT a percent), REPLACES the BOM's own profit_pct + the
-    discount-pct reduction entirely, used only to probe two reference
-    prices (at 0% and 100% profit) so app.py can hand the client two points
-    on the price-vs-margin line to invert for any price typed in. None (the
-    default) leaves normal pricing untouched."""
+    _calculate_strap_line/api_save_quotation."""
     cfg = LINE_CONFIG[line_key]
     line_numbers = _get_line_config(conn, line_key)
     bom = _get_bom(conn, line_key, product["bom_key"])
     components = bom["components"]
-    dollar_rate = _dollar_rate(conn, line_key)
+    dollar_rate = _dollar_rate(conn)
 
     net_weight_g_per_m = meter_weight_g_per_m(line_key, product, components)
     roll_net_kg = product["meters_per_coil"] * net_weight_g_per_m / 1000.0
@@ -537,12 +447,7 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
     # Cost/Direct Labor never being discounted either. At discount_pct=0
     # this is numerically identical to the old formula, so today's prices
     # are unchanged.
-    # v136 -- margin-probe override (see this function's docstring): bypass
-    # the BOM profit lookup + discount reduction entirely when set.
-    if profit_pct_override is not None:
-        discounted_profit_pct = profit_pct_override
-    else:
-        discounted_profit_pct = max((bom["profit"] or 0) - (discount_pct or 0) / 100.0, 0.0)
+    discounted_profit_pct = max((bom["profit"] or 0) - (discount_pct or 0) / 100.0, 0.0)
     core_rate = _material_rate(conn, line_key, "core") / dollar_rate if dollar_rate else 0.0
     coil_price = ex_work_roll * (1 + discounted_profit_pct) + core_weight_kg * core_rate * (1 + PACKAGING_FACTORS["core"])
 
@@ -594,18 +499,7 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
             cfr_price_roll = cfr_price_kg * gross_weight_kg
 
     if credit_term:
-        # v135 -- owner-requested: the flat surcharge above is retired in
-        # favor of one that varies by how many days the term is (mirrors
-        # cost_engine.CREDIT_TERM_TIER_SETTING_KEYS's matching Stretch Film
-        # change -- Arabic: "عايزه اخلي الاجل ال 30 يوم يزود 2 سنت وال 60
-        # يوم يزود 3 سنت وال 90 يوم يزود 4 سنت"). `credit_term` is now the
-        # exact Payment Term string (e.g. '30 days'), not a plain
-        # True/False -- see app.py's _is_credit_term(). Falls back to the
-        # old flat setting for any term string that isn't one of the three
-        # known tiers (shouldn't happen -- the dropdown only offers these
-        # three plus Cash).
-        surcharge = _get_setting(conn, *STRAP_CREDIT_TERM_TIER_SETTING_KEYS.get(
-            credit_term, ("strap_credit_surcharge_usd_kg", 0.03)))
+        surcharge = _get_setting(conn, "strap_credit_surcharge_usd_kg", 0.03)
         if fob_price_roll > 0:
             fob_price_kg = fob_price_kg + surcharge
             fob_price_roll = fob_price_kg * gross_weight_kg
@@ -620,10 +514,8 @@ def compute_strap_line(conn, line_key, product, discount_pct=0, credit_term=Fals
         # in the Pricing screen when a line's real gross roll weight (net +
         # core, from whatever meters/coil is actually set) is over the
         # owner-confirmed ceiling for this line.
-        "gross_weight_max_kg": gross_weight_max_kg(conn, line_key, core_weight_kg, bool(product["has_box"])),
-        "gross_weight_exceeded": gross_weight_exceeds_max(
-            conn, line_key, gross_weight_kg, core_weight_kg, bool(product["has_box"])
-        ),
+        "gross_weight_max_kg": gross_weight_max_kg(line_key),
+        "gross_weight_exceeded": gross_weight_exceeds_max(line_key, gross_weight_kg),
         "net_weight_kg": roll_net_kg,
         "meter_weight_g_per_m": net_weight_g_per_m,
         "material_cost": material_cost,

@@ -85,28 +85,6 @@
       <label data-i18n="global_discount_pct">Global Discount %</label>
       <input type="number" id="global_discount_pct" value="0" min="0" max="100" step="0.1">
     </div>
-    {% if is_admin_role %}
-    <!-- v155 -- owner-requested Actual/Market pricing dropdown (Arabic
-         spec, item 4): admin/sub_admin only, same gating as "Act as" /
-         margin-probe (IS_ADMIN below). A plain sales rep never sees this
-         field at all -- server-rendered out entirely, same pattern as the
-         margin-probe column (see the "is_admin_role" v137 comment further
-         down this file) -- and api.py's _resolve_pricing_mode() forces
-         'actual' for anyone whose role isn't admin/sub_admin regardless of
-         what the client sends, so this is belt-and-braces, not the only
-         guard. "Market Prices" substitutes different C4/Exceed 3518/Exceed
-         3812/Exceed XP/Enable raw-material prices for the WHOLE quotation
-         (every Stretch Film / Pre-Stretch line); it has no effect on PET/
-         PP Strap lines (different raw materials entirely) or on any other
-         material. -->
-    <div class="field">
-      <label data-i18n="pricing_mode">Pricing Mode</label>
-      <select id="pricing_mode">
-        <option value="actual" data-i18n="pricing_mode_actual">Actual Prices</option>
-        <option value="market" data-i18n="pricing_mode_market">Market Prices</option>
-      </select>
-    </div>
-    {% endif %}
   </div>
 
   <!-- v47: shown whenever a line's (Line Discount % + Global Discount %) exceeded
@@ -149,74 +127,16 @@
         <th data-i18n="col_price_basis">Price basis</th>
         <th data-i18n="col_colored" data-i18n-title="tip_colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line">Colored</th>
         <th data-i18n="col_uv" data-i18n-title="tip_uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability">UV</th>
-        <th data-i18n="col_slippery" data-i18n-title="tip_slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates">Extra Slippery</th>
-        <!-- v119 -- owner-requested (Arabic: "اعمل باكجينج وبعدين فوق زي
-             التايتلز ... وبوكس تحت تبقى تشيك بوكس زيها زي كولر دو اليو"):
-             a proper column, same position/style as Colored/UV, instead of
-             the old inline text+checkbox tucked under the row.
-             v120 -- owner-requested rename (Arabic: "دي المفروض يبقى اسمها
-             بوكس"): column renamed "Box" (was "Packaging"). Now functional
-             (price-affecting) for BOTH Pre-Stretch (Box/No Box, unchanged)
-             AND Manual (Box / no-box-stretch-wrap-of-6, owner-confirmed --
-             see cost_engine._pallet_key_for()'s matching v120 comment).
-             Still shown-but-disabled (forced unchecked) for Automatic,
-             which has no box/no-box choice at all. -->
-        <th data-i18n="col_packaging" data-i18n-title="tip_packaging" title="Box packaging. Checked = packed in a box. Unchecked = Pre-Stretch: No-Box packaging; Manual: every 6 rolls stretch-wrapped together without a box. No effect on Automatic.">Box</th>
         <th data-i18n="col_width_mm">Width (mm)</th>
         <th data-i18n="col_roll_kg">Roll kg</th>
         <th data-i18n="col_core_kg">Core kg</th>
-        <th data-i18n="col_meters" title="Film length in meters -- type Meters to get the Roll kg, or type Roll kg to get the Meters (same formula as the Material Calculator sheet)">Meters</th>
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
-        <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher">Pallets/container</th>
-        <!-- v133 -- owner-requested removal (Arabic: "الكونتينر يختاروه
-             فورتي فيت بقوا أو توانتي فيت شيلها ... بتأثرش على حاجة"): this
-             40ft/20ft picker never affected price (v127, by design -- only
-             the printed reference Pallets/Container figure), and the owner
-             confirmed it serves no purpose for her reps, so it's removed
-             here and from the Strap table below. The saved
-             quotation_line.container_pref column/PDF logic is untouched --
-             app.py already defaults it to "40ft" whenever a line doesn't
-             send one (l.get("container_pref") or "40ft"), so every line
-             quietly reads as 40ft from here on, same as before this column
-             existed. -->
+        <th data-i18n="col_pallets_container" data-i18n-title="tip_pallets_container" title="How many pallets of this line the customer is ordering">Pallets/container</th>
+        <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container size the printed Pallets/Container figure should show (doesn't affect price)">Container</th>
         <th data-i18n="col_discount_pct">Discount %</th>
         <th data-i18n="col_exw_kg">EX-Work $/kg</th>
         <th data-i18n="col_fob_kg">FOB $/kg</th>
         <th data-i18n="col_cif_kg">CIF $/kg</th>
-        <!-- v136 -- owner-requested "what price gives me what margin" tool
-             (Arabic: "تسيبلي جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان
-             السعر دا حيكون الفاكتور مثلاً 14% او 9%"): type any $/KG price
-             here and this shows what margin % (the same margin_factor-
-             table number normally looked up automatically) that price
-             would actually represent, given this line's own cost -- purely
-             a live what-if, never sent to the server or saved. Not shown
-             for a Pre-Stretch line (api_calculate_line's response carries
-             no margin_probe_*_usd_kg for those -- see that route's matching
-             v136 comment). v137 -- owner-requested: admin/sub_admin only
-             (Arabic: "تعملها في شاشه الادمن و الساب ادمن فقط") -- the whole
-             column is server-rendered out for a plain rep (is_admin_role),
-             and the JS row-builders below also skip creating the <td>/
-             listener per row (IS_ADMIN), and the API response carries no
-             margin_probe_* figures for a non-admin/sub_admin request either
-             (see api_calculate_line's/_calculate_strap_line's matching
-             v137 comment) -- a rep never even receives the numbers, not
-             just never sees the column. -->
-        {% if is_admin_role %}
-        <!-- v147 -- owner-requested reorder (Arabic: "زي ترتيبهم في السعر
-             ... فوت تعمل الاف او بي الاول وبعد كده سي اي اف زي ما انت عامل
-             في التسعير الاساسي"): these two probe columns now read
-             FOB-then-CIF, matching the real price columns' own left-to-
-             right order just to their left (EX-WORK, FOB, CIF) -- so each
-             probe sits under/near the real column it mirrors instead of
-             the reverse order it had before (v143 added FOB after CIF,
-             the order they were requested in, not the order that reads
-             clearly). Purely a display/DOM-order change: class names
-             (.f-margin-probe stays CIF's, .f-margin-probe-fob stays FOB's)
-             and updateMarginProbe()'s kind parameter are untouched, so
-             nothing about how either probe calculates changes. -->
-        <th class="margin-probe-th" data-i18n="col_margin_probe_fob" data-i18n-title="tip_margin_probe_fob" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (FOB)</th>
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe" title="Type a delivered/CIF $/KG price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
-        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -244,29 +164,9 @@
         <th data-i18n="col_roll_weight_kg" data-i18n-title="tip_roll_weight_kg" title="Computed gross weight per roll (net strap weight + core weight)">Roll Weight (kg)</th>
         <th data-i18n="col_box">Box</th>
         <th data-i18n="col_pallet">Pallet</th>
-        <th data-i18n="col_container" data-i18n-title="tip_container" title="Which container this line's FOB/CIF is spread over -- matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly">Container</th>
-        <!-- v149 -- RESTORED: the v133 removal below turned out to be based
-             on a mistaken belief that this picker never affected price --
-             it does (see _container_share() in strap_pricing.py, confirmed
-             byte-for-byte against both the PET and PP source Excel sheets'
-             own CTR. 20ft/CTR. 40ft formulas). The picker is back, wired to
-             the real strap_ctr20/strap_ctr40 flags below, for both PP and
-             PET strap lines.
-             v133 -- owner-requested removal, same as Stretch's own Container
-             (40ft/20ft) column above -- see that column's matching v133
-             comment. Every strap line now always prices/stuffs as 40ft
-             (ctr40 defaults true server-side whenever neither is sent --
-             unchanged _build_custom_strap_product() logic in app.py).
-             v135 -- the "Containers" (how many, plain count) column that
-             used to sit here is ALSO gone now: the owner first asked to
-             keep it (v134) then, in the very next request, asked to remove
-             it too (Arabic: "شيل Containers اللي في سطر الستراب") -- it
-             only ever multiplied Pallets/Rolls-per-pallet up for no real
-             use, never affected price on its own. "Pallets" below is no
-             longer locked/computed from it -- it's a plain typed quantity
-             again now, same as Stretch Film's own Qty field. -->
+        <th data-i18n="col_container">Container</th>
         <th data-i18n="col_rolls_pallet">Rolls/pallet</th>
-        <th data-i18n="col_pallets_locked" data-i18n-title="tip_pallets_locked" title="Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line. To order a different quantity, add another strap line.">Pallets</th>
+        <th data-i18n="col_qty_pallets">Qty (pallets)</th>
         <th data-i18n="col_discount_pct">Discount %</th>
         <th data-i18n="col_exw_roll">EX-Work $/Roll</th>
         <th data-i18n="col_fob_roll" data-i18n-title="tip_fob_roll" title="Ex-Work + per-container FOB share, priced per roll (not per kg)">FOB $/Roll</th>
@@ -279,19 +179,6 @@
              server's own field names (cfr_price_roll etc.) are internal
              and untouched. -->
         <th data-i18n="col_cif_roll" data-i18n-title="tip_cif_roll" title="FOB + per-container shipping share, priced per roll (not per kg)">CIF $/Roll</th>
-        <!-- v136 -- same "what price gives me what margin" tool as Stretch
-             Film's own table above, in $/Roll here (Strap's natural unit)
-             instead of $/KG. v137 -- admin/sub_admin only, same as the
-             Stretch Film column -- see that column's matching v137
-             comment. -->
-        {% if is_admin_role %}
-        <!-- v147 -- same FOB-then-CIF reorder as the Stretch Film table's
-             matching v147 comment above, so both probe columns read in
-             the same left-to-right order as the real EX-WORK/FOB/CIF
-             price columns just to their left. -->
-        <th class="margin-probe-th" data-i18n="col_margin_probe_fob" data-i18n-title="tip_margin_probe_fob_roll" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (FOB)</th>
-        <th class="margin-probe-th" data-i18n="col_margin_probe" data-i18n-title="tip_margin_probe_roll" title="Type a delivered/CIF $/Roll price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.">Margin sim (CIF)</th>
-        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -308,8 +195,6 @@
        figures are gone. -->
 </div>
 
-<script src="{{ url_for('static', filename='draft.js') }}?v={{ css_version }}"></script>
-<script src="{{ url_for('static', filename='meters.js') }}?v={{ css_version }}"></script>
 <script>
 // v100.1 -- owner-reported (audit of every micron x Stretch Ability
 // against the reference Excel sheet): about a third of the catalog
@@ -326,14 +211,9 @@
 // flag -- see syncPrestretchVisibility()'s sibling syncVerifiedWarning().
 const PRODUCTS = [
   {% for p in products %}
-  {id: {{ p.id }}, micron: {{ (p.micron|float(0))|tojson }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
+  {id: {{ p.id }}, label: {{ p.label|tojson }}, roll_weight_kg: {{ p.roll_weight_kg or 0 }}, core_weight_kg: {{ p.core_weight_kg or 0 }}, width_mm: {{ p.width_mm or 0 }}, rolls_per_pallet: {{ p.rolls_per_pallet or 0 }}, is_prestretch: {{ p.is_prestretch|tojson }}, verified: {{ (p.fob_usd_kg is not none)|tojson }}},
   {% endfor %}
 ];
-// v128 -- lets the discount-cap notice show its full detailed explanation
-// only to admin/sub_admin; a regular sales rep only ever sees the short
-// per-category "Standard 5%, Power 3%" list (see discount_capped_notice_*
-// in I18N and buildDiscountCapNotice() below).
-const IS_ADMIN = {{ is_admin_role|tojson }};
 const PALLET_TYPES = {{ pallet_types|tojson }};
 const PACKING_TYPES = {{ packing_types|tojson }};
 const PRICING_BASES = {{ pricing_bases|tojson }};
@@ -350,8 +230,7 @@ const FREIGHT = [
 ];
 const STRAP_PRODUCTS = [
   {% for p in strap_products %}
-  {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }},
-   has_box: {{ (p.has_box or 0)|tojson }}},
+  {id: {{ p.id }}, line_key: {{ p.line_key|tojson }}, label: {{ p.label|tojson }}},
   {% endfor %}
 ];
 const STRAP_BOM_LABELS = {{ strap_bom_labels|tojson }};
@@ -385,11 +264,7 @@ let currentLang = (function () {
 // outside calculateAll() so applyLanguage() can re-render an already-visible
 // notice in the new language the instant the toggle is clicked, instead of
 // waiting for the next recalc/act-as change to refresh it.
-// v128 -- was a single {max} number; now a list of {key, label, max} for
-// however many categories got capped on this quote (e.g. Standard AND
-// Power in the same quote each show their own number) -- see
-// buildDiscountCapNotice() below.
-let lastCappedCategories = [];    // [] when no notice is showing
+let lastDiscountCapPct = null;    // null when no notice is showing
 let lastGrossWeightLine = null;   // null when no notice is showing
 let lastActAsName = null;         // null when no "Act as" note is showing
 
@@ -400,45 +275,34 @@ const I18N = {
     act_as: 'Act as (preview prices as)', myself_admin: 'Myself (Admin)',
     loading_port: 'Loading Port', destination: 'Destination', select_ellipsis: 'Select...',
     payment_term: 'Payment Term', global_discount_pct: 'Global Discount %',
-    pricing_mode: 'Pricing Mode', pricing_mode_actual: 'Actual Prices', pricing_mode_market: 'Market Prices',
     customer_name: 'Customer Name', quotation_no: 'Quotation No.',
     quotation_lines: 'Quotation lines', add_line: 'Add line',
     strap_lines: 'PET / PP Strap lines', add_strap_line: 'Add strap line',
     col_product: 'Product', col_pallet_type: 'Pallet type', col_packing_type: 'Packing type',
-    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'Box',
-    col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg', col_meters: 'Meters',
-    hint_width_is_stretch_film: '(Stretch-film width)',
+    col_price_basis: 'Price basis', col_colored: 'Colored', col_uv: 'UV',
+    col_width_mm: 'Width (mm)', col_roll_kg: 'Roll kg', col_core_kg: 'Core kg',
     col_rolls_pallet: 'Rolls/pallet', col_pallets_container: 'Pallets/container',
-    col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
+    col_container: 'Container', col_discount_pct: 'Discount %', col_exw_kg: 'EX-Work $/kg',
     col_fob_kg: 'FOB $/kg',
     col_cif_kg: 'CIF $/kg', col_material: 'Material', col_thickness_mm: 'Thickness (mm)',
     col_gm: 'g/m', col_breaking_strength: 'Breaking Strength (kg)',
     col_meters_coil: 'Meters/coil', col_core_size: 'Core size',
     col_roll_weight_kg: 'Roll Weight (kg)', col_box: 'Box', col_pallet: 'Pallet',
-    col_container: 'Container', tip_container: "Which container this line's FOB/CIF is spread over -- a 20ft container splits the same per-container FOB/shipping $ amount across fewer pallets than a 40ft one, so it usually prices a bit higher per roll. Matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly.",
     col_qty_pallets: 'Qty (pallets)', col_exw_roll: 'EX-Work $/Roll',
     col_fob_roll: 'FOB $/Roll', col_cif_roll: 'CIF $/Roll',
-    col_pallets_locked: 'Pallets',
-    tip_pallets_locked: "Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line. To order a different quantity, add another strap line.",
-    col_margin_probe: 'Margin sim (CIF)',
-    tip_margin_probe: "Type a delivered/CIF $/KG price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
-    tip_margin_probe_roll: "Type a delivered/CIF $/Roll price (e.g. a competitor's or customer's target landed price) -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
-    col_margin_probe_fob: 'Margin sim (FOB)',
-    tip_margin_probe_fob: "Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
-    tip_margin_probe_fob_roll: "Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT, unlike the CIF column) -- to see what factor % it represents (the same % as Admin > Margin Factors). Not sent or saved -- just a live what-if.",
-    tip_margin_probe_prestretch_na: "Not available for Pre-Stretch -- its price borrows another SKU's own price rather than applying a margin % to its own cost",
-    prestretch_packaging_note: 'Pre-Stretch packaging (Box)', ps_pallets_container: 'Pallets/Container (Fixed)',
+    prestretch_details: 'Pre-Stretch details', ps_roll_wt: 'Roll wt (KG)',
+    ps_core_wt: 'Core wt (KG)', ps_rolls_pallet: 'Rolls/Pallet', ps_packaging: 'Packaging',
     tip_colored: "Extras > Color extra: adds the configured $/KG surcharge to this line",
-    tip_slippery: "Extra Slippery additive (0.6% dosage); its price is editable in Material Rates",
     tip_uv: "Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from the product's own Stretch Ability",
-    tip_pallets_container: 'How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher',
+    tip_pallets_container: 'How many pallets of this line the customer is ordering',
+    tip_container: "Which container size the printed Pallets/Container figure should show (doesn't affect price)",
     tip_gm: 'Updates instantly as Width/Thickness/Material change',
     tip_roll_weight_kg: 'Computed gross weight per roll (net strap weight + core weight)',
     tip_fob_roll: 'Ex-Work + per-container FOB share, priced per roll (not per kg)',
     tip_cif_roll: 'FOB + per-container shipping share, priced per roll (not per kg)',
     tip_breaking_strength: 'Auto-computed from Width/Thickness (Ultimate breaking force). Type your own value here instead to see the equivalent g/m -- this field is informational only and never changes the priced g/m/weight.',
-    discount_capped_tooltip: 'Discount capped at {max}% (max allowed for {label})',
-    discount_capped_notice_prefix: '⚠️ Max Discount allowed — ',
+    discount_capped_tooltip: 'Discount capped at {max}% (the maximum allowed) because the entered value was higher than allowed',
+    discount_capped_notice: '⚠️ On one or more lines, the entered discount was higher than allowed, so it was automatically capped at {max}% (the maximum allowed from Admin > Global Cost Settings). The affected line is outlined in orange.',
     gross_weight_notice: "🚫 {line}: roll weight exceeds the maximum allowed -- reduce Meters/Coil on the line outlined in red. The quotation can't be saved until this is fixed.",
     act_as_note: "Prices below reflect {name}'s own pricing.",
   },
@@ -448,45 +312,34 @@ const I18N = {
     act_as: 'التسعير كأنك (معاينة الأسعار)', myself_admin: 'أنا (أدمن)',
     loading_port: 'ميناء الشحن', destination: 'الوجهة', select_ellipsis: 'اختر...',
     payment_term: 'شرط الدفع', global_discount_pct: 'الخصم العام %',
-    pricing_mode: 'نوع التسعير', pricing_mode_actual: 'السعر الفعلي', pricing_mode_market: 'سعر السوق',
     customer_name: 'اسم العميل', quotation_no: 'رقم عرض السعر',
     quotation_lines: 'خطوط عرض السعر', add_line: 'إضافة خط',
     strap_lines: 'خطوط شريط PET / PP', add_strap_line: 'إضافة خط شريط',
     col_product: 'المنتج', col_pallet_type: 'نوع البالتة', col_packing_type: 'نوع التعبئة',
-    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV', col_slippery: 'Extra Slippery', col_packaging: 'بوكس',
-    col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)', col_meters: 'الأمتار',
-    hint_width_is_stretch_film: '(عرض الستريتش فيلم)',
+    col_price_basis: 'أساس التسعير', col_colored: 'ملوّن', col_uv: 'UV',
+    col_width_mm: 'العرض (مم)', col_roll_kg: 'وزن الرول (كجم)', col_core_kg: 'وزن الكور (كجم)',
     col_rolls_pallet: 'رول/بالتة', col_pallets_container: 'بالتة/كونتينر',
-    col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
+    col_container: 'الكونتينر', col_discount_pct: 'الخصم %', col_exw_kg: 'EX-Work $/كجم',
     col_fob_kg: 'FOB $/كجم',
     col_cif_kg: 'CIF $/كجم', col_material: 'الخامة', col_thickness_mm: 'السمك (مم)',
     col_gm: 'جم/م', col_breaking_strength: 'قوة الشد (كجم)',
     col_meters_coil: 'متر/كويل', col_core_size: 'مقاس الكور',
     col_roll_weight_kg: 'وزن الرول (كجم)', col_box: 'كرتونة', col_pallet: 'بالتة',
-    col_container: 'الكونتينر', tip_container: 'الكونتينر اللي نصيب الشحن/الـ FOB بتاع السطر ده بيتقسم عليه -- الكونتينر 20 قدم بيقسم نفس مبلغ الشحن/FOB على عدد بالتات أقل من الـ 40 قدم، فبيطلع السعر للرول أعلى شوية. نفس الظبط اللي في الاكسل شيت الأصلي أعمدة CTR. 20ft / CTR. 40ft بالظبط.',
     col_qty_pallets: 'الكمية (بالتة)', col_exw_roll: 'EX-Work $/رول',
     col_fob_roll: 'FOB $/رول', col_cif_roll: 'CIF $/رول',
-    col_pallets_locked: 'البالتات',
-    tip_pallets_locked: 'عدد بالتات السطر ده -- محسوب أوتوماتيك على حسب سعة الكونتينر (20ft/40ft) ومقاس الكور والبوكس المختارين، مش قابل للتعديل. لو عايزة كمية مختلفة، ضيفي سطر ستراب تاني.',
-    col_margin_probe: 'محاكاة الفاكتور (CIF)',
-    tip_margin_probe: 'اكتبي سعر التسليم/CIF $/كجم (زي سعر منافس أو سعر مستهدف من العميل) -- نصيب الشحن بتاع السطر ده بيتشال أوتوماتيك -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
-    tip_margin_probe_roll: 'اكتبي سعر التسليم/CIF $/رول (زي سعر منافس أو سعر مستهدف من العميل) -- نصيب الشحن بتاع السطر ده بيتشال أوتوماتيك -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
-    col_margin_probe_fob: 'محاكاة الفاكتور (FOB)',
-    tip_margin_probe_fob: 'اكتبي سعر FOB $/كجم -- نصيب الـFOB (البورت) بتاع السطر ده بس بيتشال أوتوماتيك (مش شحن الوجهة، عكس عمود الـCIF) -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
-    tip_margin_probe_fob_roll: 'اكتبي سعر FOB $/رول -- نصيب الـFOB (البورت) بتاع السطر ده بس بيتشال أوتوماتيك (مش شحن الوجهة، عكس عمود الـCIF) -- عشان تشوفي ده هيمثل فاكتور كام % (نفس النسبة اللي في Admin > Margin Factors). مش بيتبعت أو يتحفظ، مجرد محاكاة لايف',
-    tip_margin_probe_prestretch_na: 'مش متاحة للبريستريتش -- سعره بيتاخد من سعر SKU تاني مش بتطبيق نسبة هامش على تكلفته هو',
-    prestretch_packaging_note: 'تعبئة البري-ستريتش (بوكس)', ps_pallets_container: 'بالتة/كونتينر (ثابت)',
+    prestretch_details: 'تفاصيل البري-ستريتش', ps_roll_wt: 'وزن الرول (كجم)',
+    ps_core_wt: 'وزن الكور (كجم)', ps_rolls_pallet: 'رول/بالتة', ps_packaging: 'التعبئة',
     tip_colored: 'إضافات > إضافة لون: بيضيف السعر المحدد $/كجم على السطر ده',
-    tip_slippery: 'إضافة Extra Slippery (نسبة 0.6%)؛ سعرها بيتعدل من Material Rates',
     tip_uv: 'بيضيف نسبة UVI ثابتة 2% (تصنيف 6 شهور)؛ النوع (Power/Power Plus/Standard/Rigid) بيتحدد تلقائيًا حسب Stretch Ability بتاع المنتج',
-    tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده -- وبرضو عليه بيتوزع سعر الـ FOB/CIF لكل كيلو: زودتي العدد السعر بيقل، قللتيه السعر بيزيد',
+    tip_pallets_container: 'عدد البالتات المطلوبة من السطر ده',
+    tip_container: 'مقاس الكونتينر اللي هيظهر بيه رقم بالتة/كونتينر (مش بيأثر على السعر)',
     tip_gm: 'بيتحدث فورًا مع تغيير العرض/السمك/الخامة',
     tip_roll_weight_kg: 'الوزن الإجمالي المحسوب للرول (وزن الشريط + وزن الكور)',
     tip_fob_roll: 'EX-Work + نصيب الكونتينر من الـ FOB، بالسعر للرول الواحد (مش للكيلو)',
     tip_cif_roll: 'FOB + نصيب الكونتينر من الشحن، بالسعر للرول الواحد (مش للكيلو)',
     tip_breaking_strength: 'بيتحسب تلقائيًا من العرض/السمك (قوة الشد القصوى). اكتبي رقم بنفسك بدل كده عشان تشوفي الجرام/متر المعادل ليه -- الحقل ده للمعلومة بس ومش بيغيّر الجرام/الوزن المستخدم في التسعير.',
-    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح لـ {label})',
-    discount_capped_notice_prefix: '⚠️ الحد الأقصى للخصم — ',
+    discount_capped_tooltip: 'تم تقييد الخصم عند {max}% (الحد الأقصى المسموح به) لأن القيمة المدخلة أعلى من المسموح',
+    discount_capped_notice: '⚠️ في سطر (أو أكتر) الخصم المدخل كان أعلى من المسموح، فاتقفل تلقائيًا عند {max}% (الحد الأقصى المسموح من Admin > Global Cost Settings). السطر المتأثر متعلّم باللون البرتقالي.',
     gross_weight_notice: '🚫 {line}: وزن الرول تجاوز الحد الأقصى المسموح -- قلّلي المتر/الكويل في السطر المتعلّم باللون الأحمر. عرض السعر مش هيتحفظ لحد ما ده يتصلح.',
     act_as_note: 'الأسعار اللي تحت دي بتعكس أسعار {name}.',
   },
@@ -513,20 +366,6 @@ function tf(key, vars) {
     s = s.split('{' + k + '}').join(vars[k]);
   }
   return s;
-}
-
-// v129 -- owner-requested (after seeing v128's admin-only long explanation
-// live -- too much even for her): the discount-capped warning stays SHORT
-// for EVERYONE now, admin included -- just "Max Discount allowed --
-// <Category>: <max>%" per capped category, nothing else. No more separate
-// admin-only sentence. `categories` is [{label, max}, ...], deduplicated by
-// the caller so each category only appears once even if several lines hit
-// the same cap. IS_ADMIN is kept (see its const above) in case a future
-// admin-only addition is wanted again, but nothing currently uses it here.
-function buildDiscountCapNotice(categories) {
-  if (!categories || !categories.length) return '';
-  const list = categories.map(c => `${c.label}: ${c.max}%`).join(currentLang === 'ar' ? '، ' : ', ');
-  return tf('discount_capped_notice_prefix') + list;
 }
 
 // English label <-> Arabic label, keyed by the option's own `value`
@@ -567,12 +406,8 @@ function applyLanguage() {
   // -- each option's `value` never changes, only its displayed text does.
   document.querySelectorAll('#payment_term option, .f-pallet option, .f-packing option')
     .forEach(opt => { opt.textContent = textLabel(opt.value); });
-  document.querySelectorAll('.f-basis option')
+  document.querySelectorAll('.f-basis option, .f-ps-packaging option')
     .forEach(opt => { opt.textContent = codeLabel(opt.value); });
-  // v119 -- Packaging is now a plain "Packaging" <th data-i18n="col_packaging">
-  // column header (handled by the generic [data-i18n] loop above), so the
-  // old special-cased ".f-ps-packaging-label" re-translation block that
-  // used to live here is gone -- nothing extra needed.
   const btn = document.getElementById('langToggleBtn');
   if (btn) btn.textContent = currentLang === 'ar' ? '🌐 English' : '🌐 العربية';
 
@@ -580,9 +415,12 @@ function applyLanguage() {
   // now-active language, instead of leaving it stuck in whatever language
   // it was first generated in until the next recalc.
   const capNotice = document.getElementById('discountCapNotice');
-  if (capNotice && lastCappedCategories.length) {
-    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+  if (capNotice && lastDiscountCapPct != null) {
+    capNotice.textContent = tf('discount_capped_notice', {max: lastDiscountCapPct});
   }
+  document.querySelectorAll('.f-discount, .f-strap-discount').forEach(el => {
+    if (el.title) el.title = tf('discount_capped_tooltip', {max: lastDiscountCapPct});
+  });
   const weightNotice = document.getElementById('grossWeightNotice');
   if (weightNotice && lastGrossWeightLine != null) {
     weightNotice.textContent = tf('gross_weight_notice', {line: lastGrossWeightLine});
@@ -644,146 +482,6 @@ function roundUp(num, decimals) {
   return Math.ceil((num - Number.EPSILON) * factor) / factor;
 }
 
-// v136 -- "what price gives me what margin" what-if tool (Arabic: "تسيبلي
-// جمبه خانة فاضية اكتبلك فيها سعر تطلعلي ان السعر دا حيكون الفاكتور مثلاً
-// 14% او 9%"). tr.dataset.marginLow is the ONE reference price
-// api_calculate_line()/_calculate_strap_line() return -- the SAME line,
-// same extras, but with the margin/profit % forced to 0% instead of the
-// real looked-up-and-discounted one (see those routes' matching v136/v139
-// comments) -- i.e. this line's own cost-equivalent price.
-// v139 tried "margin on price" ((price-cost)/price) instead, but the
-// owner cross-checked it against her own system (confirmed real factor
-// 13% -> real EX-Work 1.78 -> cost 1.575) and confirmed she wants the
-// EXACT SAME "factor" % as Admin > Margin Factors -- (price-cost)/cost,
-// what real prices are actually built from -- so v140 reverted to that:
-//   implied_factor_pct = (typed - low) / low * 100
-// v142 -- owner-requested (Arabic: "عايز ان السعر يوصل بلده بالسعر
-// الفلاني ... السعر اللي انا بديه لك ده بتشيل منه برضو بترجعه هو تاني
-// للاكس ورك"): the price she types is a landed/delivered CIF-equivalent
-// figure (what she's actually comparing against -- a competitor's or
-// customer's all-in target price), not the bare EX-Work price, so it's
-// first reduced by this line's own freight/port gap (marginFreightGap)
-// to get the EX-Work-equivalent price, THEN the v140 formula above runs
-// on that.
-// v143 -- owner-requested (Arabic: "ممكن تعمل لي واحد سي اي اف واحد زيه
-// جنبه اف او بي"): a SECOND probe, `kind: 'fob'`, right next to the CIF
-// one -- same idea, but the typed price is an FOB-basis (not fully
-// freight-inclusive) target: only this line's own FOB port-addon share
-// (marginFreightGapFob = FOB - EX-Work) is subtracted, NOT the
-// destination freight leg too (marginFreightGap = CIF - EX-Work, which
-// includes both). `kind` (default 'cif') picks the input/output
-// elements (.f-margin-probe vs .f-margin-probe-fob) and which stashed
-// gap to subtract; everything else -- the v140 factor formula, the
-// isStrap unit -- is shared identically between the two probes.
-// Shared by both the Stretch Film ($/KG) and Strap ($/Roll) tables --
-// isStrap only changes the "$/kg"/"$/Roll" unit shown in the output, the
-// math is identical either way. Purely client-side: never sent to the
-// server, never saved, recomputed on every keystroke with no round trip.
-function updateMarginProbe(tr, isStrap, kind) {
-  // v137 -- owner-requested: admin/sub_admin only. IS_ADMIN false means the
-  // column's <td> was never rendered into this row at all (see addLine()'s/
-  // addStrapLine()'s matching v137 comment), so there's nothing to update.
-  if (!IS_ADMIN) return;
-  const isFob = kind === 'fob';
-  const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
-  const out = tr.querySelector(isFob ? '.f-margin-probe-fob-out' : '.f-margin-probe-out');
-  const low = parseFloat(tr.dataset.marginLow);
-  const high = parseFloat(tr.dataset.marginHigh);
-  const typed = parseFloat(input.value);
-  // v148 -- owner-reported (Arabic: "المارجن بيحسب عمولاتهم كأنها من ضمن
-  // المارجن وهي أصلاً مش من ضمن المارجن ... كل ده تكلفة بس المارجن ثابت"):
-  // restores the ORIGINAL two-point formula the v139/v140 single-reference
-  // one had replaced. `low`/`high` are this line's own price recomputed
-  // at 0% and 100% factor (app.py's matching v148 comment) -- every other
-  // cost on the line (Color extra, a credit Payment Term's surcharge,
-  // Strap's packaging/core cost, even rep commission) is baked into BOTH
-  // the same way, so it cancels out in (high - low), leaving exactly the
-  // one unit of margin fraction: implied_factor_pct = (typed - low) /
-  // (high - low) * 100. The old (typed - low) / low formula looked
-  // right for Act As Manuel/Pasquale (their commission is a pure % on the
-  // whole price, so it happened to cancel there too) but was quietly wrong
-  // whenever Color or a credit Payment Term was on, since those are flat
-  // $/KG add-ons with no markup of their own -- they inflated `low` (the
-  // denominator) without inflating the numerator by the same amount,
-  // reading a lower % than the real Admin > Margin Factors number even
-  // though the actual profit $ never moved. Verified against a real line
-  // with Color + a credit term + Act As Manuel all on at once: this
-  // formula reproduces the exact Admin factor %, the old one didn't.
-  if (!isFinite(low) || !isFinite(high) || high === low) {
-    out.textContent = '';
-    return;
-  }
-  if (input.value === '' || !isFinite(typed)) {
-    out.textContent = '';
-    return;
-  }
-  // v142/v143 -- she types a landed/delivered price (CIF, or now FOB too),
-  // not the bare EX-Work price, so subtract THIS line's own freight/port
-  // gap (the CIF-basis or FOB-basis one, per `kind` -- both stashed by
-  // calculateAll() right where FOB/CIF/EX-Work are computed -- see that
-  // function's matching v142/v143 comments) to get the EX-Work-equivalent
-  // price BEFORE computing the factor. Defaults to 0 (typed treated as
-  // already EX-Work) if that gap isn't available yet, e.g. before the
-  // first Calculate.
-  const gapKey = isFob ? 'marginFreightGapFob' : 'marginFreightGap';
-  const freightGap = parseFloat(tr.dataset[gapKey]);
-  const exWorkEquivalent = typed - (isFinite(freightGap) ? freightGap : 0);
-  const impliedPct = (exWorkEquivalent - low) / (high - low) * 100;
-  const unit = isStrap ? '/roll' : '/kg';
-  const basisWord = isFob ? 'FOB' : 'CIF';
-  const shareWord = isFob ? 'FOB port-addon' : 'freight/port';
-  out.textContent = `→ ${roundHalfUp(impliedPct, 1)}% factor`;
-  out.title = `At \$${typed}${unit} delivered (${basisWord}), the EX-Work equivalent (\$${roundHalfUp(exWorkEquivalent, 2)}${unit}, after subtracting this line's own \$${roundHalfUp(isFinite(freightGap) ? freightGap : 0, 2)}${unit} ${shareWord} share) implies a ${roundHalfUp(impliedPct, 2)}% factor -- the exact same % you'd set in Admin > Margin Factors, unaffected by Color/credit-term/commission`;
-}
-
-// v148c -- owner-requested (Arabic: "قلل الفرق"): the "use current price"
-// button (see addLine()'s/addStrapLine()'s matching v148/v148c comments).
-// Filling the probe input with the DISPLAYED (2dp-rounded) FOB/CIF price
-// and re-running updateMarginProbe() above still shows a small residual
-// (e.g. 8.2% instead of 8.00%) even though the underlying math is exact --
-// because that displayed price, and the EX-Work price it's built from, are
-// genuinely rounded to 2dp as a deliberate step of the pricing formula
-// itself (matching the source Excel sheet's ROUNDUP() -- see pricing.py's
-// v70.2/v100/v110 notes), not just a display artifact. For the Stretch
-// Film table only, the server also hands back that EX-Work price at FULL
-// precision (unit_price_usd_kg_raw, stashed as tr.dataset.rawExw -- see
-// the per-line response handler's matching v148c comment), so this button
-// computes the factor straight from THAT instead of re-deriving an
-// EX-Work-equivalent from the rounded FOB/CIF cell -- proven to land on
-// exactly the nominal Admin > Margin Factors % (verified to 6 decimals,
-// with or without UV/Color/credit-term/commission, every time). The input
-// box is still filled with the normal displayed price, just for her own
-// reference -- only the % shown comes from the higher-precision path.
-// Strap has no equivalent raw figure available (its own ex_work_price_roll
-// is rounded unconditionally inside compute_strap_line(), not just for
-// display -- see strap_pricing.py), so its button falls back to the same
-// reconstruct-from-displayed-price path updateMarginProbe() always used.
-function fillExactPrice(tr, isFob) {
-  if (!IS_ADMIN) return;
-  const dispVal = isFob ? tr.dataset.fobDispValue : tr.dataset.cifDispValue;
-  if (dispVal === undefined) return;
-  const input = tr.querySelector(isFob ? '.f-margin-probe-fob' : '.f-margin-probe');
-  input.value = dispVal;
-  const rawExw = tr.dataset.rawExw;
-  if (rawExw === undefined) {
-    // Strap (or Pre-Stretch, where the button/input are disabled anyway) --
-    // no raw figure to bypass to, fall back to the normal reconstruction.
-    updateMarginProbe(tr, true, isFob ? 'fob' : undefined);
-    return;
-  }
-  const low = parseFloat(tr.dataset.marginLow);
-  const high = parseFloat(tr.dataset.marginHigh);
-  const raw = parseFloat(rawExw);
-  const out = tr.querySelector(isFob ? '.f-margin-probe-fob-out' : '.f-margin-probe-out');
-  if (!isFinite(low) || !isFinite(high) || high === low || !isFinite(raw)) {
-    out.textContent = '';
-    return;
-  }
-  const impliedPct = (raw - low) / (high - low) * 100;
-  out.textContent = `→ ${roundHalfUp(impliedPct, 2)}% factor (exact)`;
-  out.title = `Computed straight from this line's own full-precision EX-Work price ($${raw.toFixed(4)}/kg, before the 2dp rounding the displayed price uses) -- the exact same % as Admin > Margin Factors, with zero rounding noise, unaffected by Color/UV/Box/credit-term/commission.`;
-}
-
 function firstNumber(str) {
   const m = String(str == null ? '' : str).match(/[\d.]+/);
   return m ? parseFloat(m[0]) : 0;
@@ -801,16 +499,6 @@ function isPrestretch(productId) {
 function previewAsUserId() {
   const sel = document.getElementById('actAsUser');
   return (sel && sel.value) ? sel.value : null;
-}
-
-// v155 -- Actual/Market pricing dropdown (admin/sub_admin only -- the
-// control isn't even rendered on a plain rep's page, same pattern as
-// previewAsUserId() above). Returns 'actual' when the control isn't on the
-// page at all, matching the server's own default/forced value for anyone
-// who isn't admin/sub_admin (see app.py's _resolve_pricing_mode()).
-function pricingMode() {
-  const sel = document.getElementById('pricing_mode');
-  return sel ? sel.value : 'actual';
 }
 
 // v44 -- auto-recalculate. Previously every price-affecting field (Pallet
@@ -862,51 +550,21 @@ function addLine(prefill) {
     </td>
     <td style="text-align:center;"><input type="checkbox" class="f-colored" title="Extras &gt; Color extra: adds the configured $/KG surcharge to this line"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-uv" title="Adds a flat 2% UVI resin fraction (6-month tier); the Power/Power Plus/Standard/Rigid variant is derived automatically from this product's own Stretch Ability"></td>
-    <td style="text-align:center;"><input type="checkbox" class="f-slippery" title="Extra Slippery additive (0.6% dosage); its price is editable in Material Rates"></td>
-    <td style="text-align:center;"><input type="checkbox" class="f-box" title="Box packaging"></td>
-    <td>
-      <input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)">
-      <small class="f-width-hint" data-i18n="hint_width_is_stretch_film" style="display:none; color:#888; white-space:nowrap;">Stretch-film width</small>
-    </td>
+    <td><input type="number" class="f-width compact-input" min="0" step="1" title="Actual roll/core width in mm for this order (editable per customer)"></td>
     <td><input type="number" class="f-rollwt compact-input" min="0" step="0.01" title="Actual roll weight for this order (editable per customer)"></td>
     <td><input type="number" class="f-corewt compact-input" min="0" step="0.01" title="Actual core weight for this order (editable per customer)"></td>
-    <td><input type="number" class="f-meters compact-input" min="0" step="1" title="Film length (m): type Meters to get the Roll kg, or type Roll kg to get the Meters. Uses Micron x Width x 0.925 (Pre-Stretch: width counted as 420 / 450)"></td>
     <td><input type="number" class="f-rpp compact-input" min="0" step="1" title="Rolls per pallet -- editable per order, pre-filled from the catalog/packing table"></td>
-    <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="How many pallets of this line the customer is ordering -- also what FOB/CIF $/KG is spread over (v127): more pallets = lower $/KG, fewer = higher"></td>
+    <td><input type="number" class="f-qty compact-input" value="1" min="0" step="0.5" title="Pallets per container -- how many pallets of this line"></td>
+    <td>
+      <select class="f-container" title="Which container size (40ft/20ft) this line's Pallets/Container figure AND its FOB/CIF $/KG full-container spread are based on (v104)">
+        <option value="40ft" selected>40ft</option>
+        <option value="20ft">20ft</option>
+      </select>
+    </td>
     <td><input type="number" class="f-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only"></td>
     <td class="f-exw num">0.000</td>
     <td class="f-fob num">0.000</td>
     <td class="f-cif num">0.000</td>
-    <!-- v136 -- "what price gives me what margin" what-if tool (see the
-         col_margin_probe header's matching v136 comment). Never read by
-         readLines()/calculateAll()'s request payload -- purely a local,
-         client-side calculation off tr.dataset.marginLow (v139: just the
-         one reference price now, see updateMarginProbe()'s v139 comment).
-         v137 -- admin/sub_admin only (IS_ADMIN, see that header's matching
-         v137 comment): the <td> itself is left out of the row entirely for
-         a plain rep, not just visually hidden. v147 -- FOB probe now comes
-         FIRST (was CIF first) so these two <td>s stay in the same order as
-         their headers -- see the col_margin_probe_fob header's matching
-         v147 comment. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <span style="display:inline-flex; align-items:center; gap:2px;">
-        <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/kg" style="width:58px;" title="Type a delivered/FOB $/KG price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-        <button type="button" class="btn-fill-price" data-kind="fob" title="Fill in this line's own current FOB $/KG exactly -- no manual retyping/rounding error">⇩</button>
-      </span>
-      <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
-    <!-- v143 -- second Margin sim input, CIF-basis (see col_margin_probe
-         header's matching v147 comment). Same idea as the FOB one just
-         above, but subtracts this line's own full freight/port share
-         (tr.dataset.marginFreightGap) instead of just the FOB port-addon
-         gap -- see updateMarginProbe()'s v143 comment. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <span style="display:inline-flex; align-items:center; gap:2px;">
-        <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/kg" style="width:58px;" title="Type a delivered/CIF $/KG price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-        <button type="button" class="btn-fill-price" data-kind="cif" title="Fill in this line's own current CIF $/KG exactly -- no manual retyping/rounding error">⇩</button>
-      </span>
-      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('linesBody').appendChild(tr);
@@ -916,69 +574,51 @@ function addLine(prefill) {
     if (next && next.classList.contains('prestretch-row')) next.remove();
     renumber();
   });
-  if (IS_ADMIN) {
-    // v148 -- owner-requested "use current price" auto-fill button (see
-    // this function's matching v148 comment on the dataset stash above):
-    // copies this line's own already-displayed FOB/CIF $/KG straight into
-    // the probe input with zero transcription error, then re-runs the
-    // probe -- same math as typing it by hand, just without any typo or
-    // copy-paste mismatch.
-    tr.querySelectorAll('.btn-fill-price').forEach(btn => {
-      btn.addEventListener('click', () => fillExactPrice(tr, btn.dataset.kind === 'fob'));
-    });
-  }
 
-  // v136 -- "what price gives me what margin" what-if tool: purely local,
-  // recomputed instantly from tr.dataset.marginLow (v139: the one
-  // reference price calculateAll() stashes there on every recalculate --
-  // see this function's matching v136/v139 comment below), no server round
-  // trip needed per keystroke. See updateMarginProbe() (shared with the
-  // Strap table) for the actual math. v137 -- admin/sub_admin only: the <td>/
-  // input above was never created for a plain rep, so skip the listener.
-  if (IS_ADMIN) {
-    tr.querySelector('.f-margin-probe').addEventListener('input', () => updateMarginProbe(tr, false));
-    // v143 -- second (FOB-basis) probe, same row -- see updateMarginProbe()'s
-    // matching v143 comment.
-    tr.querySelector('.f-margin-probe-fob').addEventListener('input', () => updateMarginProbe(tr, false, 'fob'));
-  }
+  // Pre-Stretch lines need three extra typed-in inputs (roll wt, core wt,
+  // rolls/pallet) plus a packaging-type choice, since Pre-Stretch is
+  // made-to-order and has no fixed catalog roll weight -- shown as a second
+  // row directly under the line, revealed only when a Pre-Stretch product
+  // is selected.
+  const pr = document.createElement('tr');
+  pr.className = 'prestretch-row';
+  pr.style.display = 'none';
+  pr.innerHTML = `
+    <td></td>
+    <td colspan="4" style="font-size:0.8rem; color:#666;"><span data-i18n="prestretch_details">Pre-Stretch details</span> &rarr;</td>
+    <td colspan="14">
+      <span style="display:inline-flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:0.78rem;"><span data-i18n="ps_roll_wt">Roll wt (KG)</span>
+          <input type="number" class="f-ps-rollwt" min="0" step="0.01" style="width:70px;"></label>
+        <label style="font-size:0.78rem;"><span data-i18n="ps_core_wt">Core wt (KG)</span>
+          <input type="number" class="f-ps-corewt" min="0" step="0.01" style="width:70px;"></label>
+        <label style="font-size:0.78rem;"><span data-i18n="ps_rolls_pallet">Rolls/Pallet</span>
+          <input type="number" class="f-ps-rpp" min="0" step="1" style="width:70px;"></label>
+        <label style="font-size:0.78rem;"><span data-i18n="ps_packaging">Packaging</span>
+          <!-- v99 -- owner-reported: this select had no explicit width, so
+               the page-wide "select { width:100%; }" rule (style.css) made
+               it stretch to the full row width and wrap onto its own line
+               below the label instead of sitting right next to it like
+               Roll wt/Core wt/Rolls per Pallet above (those are <input>s
+               with their own inline width:70px, which already overrides
+               that same rule -- this select just never had the matching
+               override). -->
+          <select class="f-ps-packaging" style="width:150px;">
+            ${PRESTRETCH_PACKAGING_TYPES.map(t => `<option value="${t[0]}">${codeLabel(t[0])}</option>`).join('')}
+          </select>
+        </label>
+      </span>
+    </td>
+  `;
+  tr.after(pr);
 
-  // v119 -- owner-requested (Arabic: "ليه كتب لي باليتس بير كونتينر مرتين"
-  // + "اعمل باكجينج وبعدين فوق زي التايتلز ... تشيك بوكس زيها زي كولر دو
-  // اليو"): this whole separate "Pre-Stretch details" sub-row is GONE.
-  // Its two fields are folded into the main row instead:
-  //   - Packaging (Box/No Box) is now the ".f-box" checkbox in its own
-  //     "Packaging" column (see addLine()'s <td> block above), same
-  //     position/style as Colored/UV -- see syncPrestretchVisibility()
-  //     below for how it's wired per product type.
-  //   - The separate "Pallets/Container (Fixed)" figure (Stretch!AK118)
-  //     is GONE too -- owner-confirmed her own Pre-Stretch workflow never
-  //     needs it to differ from this line's own "Pallets/Container" order
-  //     quantity (both were always being typed as the same number
-  //     anyway), so FOB/CIF for Pre-Stretch now always spreads over this
-  //     line's own order quantity (rc.totalKg in the FOB loop below) --
-  //     this is exactly the v114 "Pallets/Container" field left blank,
-  //     which app.py's/pricing.py's own fallback already handles
-  //     correctly (fob_denom_kg falls back to total_kg when no separate
-  //     figure is sent), so no backend change was needed for this part.
   function prefillRollSpec() {
     const p = PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value));
     if (!p) return;
-    // Pre-Stretch products have no catalog roll_weight_kg/core_weight_kg/
-    // width_mm/rolls_per_pallet (made-to-order -- see product table), so
-    // this naturally leaves the fields blank for a freshly-picked
-    // Pre-Stretch product, same as before, but now the rep types straight
-    // into these same fields instead of a separate locked-looking row.
     tr.querySelector('.f-rollwt').value = p.roll_weight_kg || '';
     tr.querySelector('.f-corewt').value = p.core_weight_kg || '';
     tr.querySelector('.f-width').value = p.width_mm || '';
     tr.querySelector('.f-rpp').value = p.rolls_per_pallet || '';
-    // v126 -- owner-reported (Arabic: "ليه لما بغير ستاندرد من يورو ما
-    // بيغيرش في السعر"): a fresh product selection fills Rolls/Pallet from
-    // the catalog default, same as always -- but that's a SYSTEM default,
-    // not the rep's own typed-in override, so clear the "rep edited this"
-    // flag here. See the matching v126 comment on the .f-rpp 'input'
-    // listener below for what this flag is for.
-    delete tr.dataset.rppEdited;
   }
 
   // v97 -- owner-confirmed: "$/Roll (Net)" is only a meaningful, genuinely
@@ -1012,105 +652,41 @@ function addLine(prefill) {
   function syncBasisOptions(show) {
     const basisSelect = tr.querySelector('.f-basis');
     const current = basisSelect.value;
-    // v189 -- Pre-Stretch offers all four bases again (Gross/Net x $/KG, $/Roll)
-    const bases = PRICING_BASES;
+    const bases = show
+      ? PRICING_BASES.filter(b => b[0] !== 'gross' && b[0] !== 'per_kg')
+      : PRICING_BASES;
     basisSelect.innerHTML = bases.map(b => `<option value="${b[0]}">${codeLabel(b[0])}</option>`).join('');
     basisSelect.value = bases.some(b => b[0] === current)
       ? current
       : (show ? 'net_per_kg' : 'per_kg');
-    // first time a line becomes Pre-Stretch: keep the sheet's own default (Net $/KG);
-    // the rep can switch to Gross afterwards and it is never overridden again.
-    if (show && !tr.dataset.psBasisInit) {
-      tr.dataset.psBasisInit = '1';
-      if (current === 'per_kg') basisSelect.value = 'net_per_kg';
-    } else if (!show) {
-      delete tr.dataset.psBasisInit;
-    }
-  }
-
-  // v120 -- owner-confirmed: the "Box" column's checkbox (".f-box") is now
-  // real and price-affecting for Pre-Stretch AND Manual, not just
-  // Pre-Stretch. Pre-Stretch: Box/No Box, unchanged mechanism. Manual:
-  // checked = packed into a box (today's price, unchanged); unchecked =
-  // every 6 rolls stretch-wrapped together without a box (reuses the
-  // sheet's own Pre-Stretch "No Boxes" packaging structure -- see
-  // cost_engine._pallet_key_for()'s matching v120 comment). Automatic has
-  // no box/no-box choice at all, so it stays forced unchecked+disabled.
-  function syncBoxCheckbox() {
-    const boxCb = tr.querySelector('.f-box');
-    const isPs = isPrestretch(tr.querySelector('.f-product').value);
-    const isManual = (tr.querySelector('.f-packing').value || '').toLowerCase().includes('manual');
-    if (isPs) {
-      boxCb.disabled = false;
-      // default unchanged from the old dropdown's own default
-      // ("no_boxes" was PRESTRETCH_PACKAGING_TYPES[0], unselected) --
-      // only set it the FIRST time this line becomes Pre-Stretch, never
-      // stomp a choice the rep already made.
-      if (!boxCb.dataset.psInit) {
-        boxCb.checked = false;
-        boxCb.dataset.psInit = '1';
-      }
-    } else if (isManual) {
-      delete boxCb.dataset.psInit;
-      boxCb.disabled = false;
-      // default to checked (box) the FIRST time this line becomes Manual,
-      // matching every quotation saved before this checkbox was wired to
-      // price -- never stomp a choice the rep already made.
-      if (!boxCb.dataset.manualInit) {
-        boxCb.checked = true;
-        boxCb.dataset.manualInit = '1';
-      }
-    } else {
-      delete boxCb.dataset.psInit;
-      delete boxCb.dataset.manualInit;
-      boxCb.checked = false;
-      boxCb.disabled = true;
-    }
   }
 
   function syncPrestretchVisibility() {
     const show = isPrestretch(tr.querySelector('.f-product').value);
     syncBasisOptions(show);
+    pr.style.display = show ? '' : 'none';
     tr.querySelector('.f-packing').disabled = show;
-    // v153 -- owner-requested clarification (Arabic: "Clearly indicate that
-    // the requested widths are: Stretch-film widths"): on a Pre-Stretch
-    // line, the Width field here is the WIDE source jumbo Stretch-Film roll
-    // this Pre-Stretch roll gets slit from, not the finished narrow
-    // Pre-Stretch roll's own width -- easy to misread as the latter since
-    // it's the exact same input box every other product uses for its own
-    // (finished) roll width. Swaps the tooltip (and a small inline label)
-    // only for a Pre-Stretch line; every other product's Width field is
-    // untouched.
-    const widthField = tr.querySelector('.f-width');
-    const widthHint = tr.querySelector('.f-width-hint');
+    tr.querySelector('.f-pallet').disabled = show;
+    // Pre-Stretch lines aren't stuffed into a container via the packing-
+    // tier table at all (see load_quotation()'s comment), so the printed
+    // Pallets/Container figure is always blank for them -- this selector
+    // has nothing to pick from.
+    tr.querySelector('.f-container').disabled = show;
+    // Pre-Stretch already has its own dedicated roll wt / core wt inputs
+    // (made-to-order, no catalog default, no Width field) -- the generic
+    // per-line roll-spec inputs on the main row don't apply to it.
+    tr.querySelector('.f-rollwt').disabled = show;
+    tr.querySelector('.f-corewt').disabled = show;
+    tr.querySelector('.f-width').disabled = show;
+    tr.querySelector('.f-rpp').disabled = show;
     if (show) {
-      widthField.title = "Stretch-film width (mm) -- the WIDE source jumbo roll this Pre-Stretch roll is slit from, not the finished Pre-Stretch roll's own width.";
-      if (widthHint) widthHint.style.display = '';
+      tr.querySelector('.f-rollwt').value = '';
+      tr.querySelector('.f-corewt').value = '';
+      tr.querySelector('.f-width').value = '';
+      tr.querySelector('.f-rpp').value = '';
     } else {
-      widthField.title = "Actual roll/core width in mm for this order (editable per customer)";
-      if (widthHint) widthHint.style.display = 'none';
+      prefillRollSpec();
     }
-    syncBoxCheckbox();
-    // v115 -- owner-confirmed: Pallet Type (Standard/Euro) and Container
-    // (20ft/40ft) stay selectable for Pre-Stretch too, exactly like every
-    // other product -- the sheet's own Pre-Stretch row has a "Pallet size"
-    // column too (Stretch!C118), and a Pre-Stretch order can genuinely be
-    // stuffed on either pallet type or either container size, same as any
-    // other line. These used to be force-disabled here on the assumption
-    // that Pre-Stretch "isn't stuffed into a container via the packing-
-    // tier table" -- true for the OLD auto-lookup, but irrelevant now that
-    // v115 added a manual Pallets/Container figure (the "Pre-Stretch
-    // details" row below) instead: Pallet Type and Container are just this
-    // line's own record of what it's quoted on, same as any other product,
-    // and Pallet Type was never wired to Pre-Stretch's own cost math
-    // (packaging cost is driven entirely by the Packaging Boxes/No-Boxes
-    // choice below, not by pallet type).
-    // v114 -- Width/Roll wt/Core wt/Rolls-per-pallet stay enabled and are
-    // typed in directly here for Pre-Stretch too, exactly like every other
-    // product (owner-confirmed). prefillRollSpec() already blanks them out
-    // for a Pre-Stretch product on its own (no catalog default), so no
-    // separate disable/clear branch is needed any more.
-    prefillRollSpec();
   }
   tr.querySelector('.f-product').addEventListener('change', syncPrestretchVisibility);
   tr.querySelector('.f-product').addEventListener('change', scheduleRecalc);
@@ -1119,44 +695,17 @@ function addLine(prefill) {
   // v44 -- see scheduleRecalc()'s comment: every field that feeds the
   // price now auto-recalculates instead of requiring a manual Calculate
   // click, most importantly Packing type and Pricing basis.
-  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv', '.f-slippery', '.f-box'].forEach(sel => {
+  ['.f-pallet', '.f-packing', '.f-basis', '.f-colored', '.f-uv'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
   ['.f-qty', '.f-width', '.f-rollwt', '.f-corewt', '.f-rpp', '.f-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
-  // v126 -- owner-reported bug fix (Arabic: "ليه لما بغير ستاندرد من يورو
-  // ما بيغيرش في السعر ... لما بغير في شكل الباليتة يتغير"): Rolls/Pallet
-  // used to be sent back to the server as a "custom_rolls_per_pallet"
-  // override on EVERY recalculate whenever the field was non-empty --
-  // which it always was, since prefillRollSpec() auto-fills it from the
-  // catalog the moment a product is picked. cost_engine.
-  // effective_rolls_per_pallet() gives an explicit override absolute
-  // priority over its own Standard/Euro packing-tier lookup (by design,
-  // for a rep who genuinely typed a custom rolls/pallet for a non-catalog
-  // roll weight) -- so that auto-filled catalog value was silently
-  // freezing Rolls/Pallet (and the packaging cost built on it) at
-  // whatever the FIRST-selected Pallet Type/Packing type produced,
-  // forever, no matter how many times Pallet Type was switched afterwards.
-  // Only the small, separate Pallet-component $ difference (automatic_usd
-  // vs automatic_eur etc.) still came through, which is why the price
-  // moved by a cent instead of the real amount.
-  // Fix: only genuine rep keystrokes into this field (a real 'input'
-  // event, tracked here) are sent as an override; a value that's still
-  // just sitting there from prefillRollSpec()'s own catalog default is
-  // never sent, so the server's own pallet-type-aware tier lookup always
-  // wins until the rep actually overrides it themselves. See readLines()/
-  // calculateAll()'s matching v126 comments where the flag is read.
-  tr.querySelector('.f-rpp').addEventListener('input', () => { tr.dataset.rppEdited = '1'; });
-  // v119 -- Packing type also drives the Packaging checkbox's own
-  // checked/disabled state for a non-Pre-Stretch line (see
-  // syncBoxCheckbox() above), so it needs its own listener here too, not
-  // just on product change.
-  tr.querySelector('.f-packing').addEventListener('change', syncBoxCheckbox);
-  // v185 -- Meters <-> Roll kg (static/meters.js)
-  MeterSync.attach(tr, {
-    product: () => PRODUCTS.find(p => String(p.id) === String(tr.querySelector('.f-product').value)),
-    prestretch: () => isPrestretch(tr.querySelector('.f-product').value),
+  ['.f-ps-packaging'].forEach(sel => {
+    pr.querySelector(sel).addEventListener('change', scheduleRecalc);
+  });
+  ['.f-ps-rollwt', '.f-ps-corewt', '.f-ps-rpp'].forEach(sel => {
+    pr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
   // v100 -- newly-created rows must reflect the currently active language
   // immediately (option text especially), not just elements present at
@@ -1228,73 +777,18 @@ function addStrapLine() {
     <td style="text-align:center;"><input type="checkbox" class="f-strap-box"></td>
     <td style="text-align:center;"><input type="checkbox" class="f-strap-pallet" checked></td>
     <td>
-      <select class="f-strap-container compact-input" style="width:70px;" title="Which container this line's FOB/CIF is spread over -- matches the source Excel sheet's own CTR. 20ft/CTR. 40ft columns exactly">
-        <option value="40ft">40ft</option>
-        <option value="20ft">20ft</option>
-      </select>
+      <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr40" checked> 40ft</label>
+      <label style="font-size:0.78rem; white-space:nowrap;"><input type="radio" name="ctr_${id}" class="f-strap-ctr20"> 20ft</label>
     </td>
-    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" readonly title="Rolls per pallet -- fixed by core size (not editable)" style="width:70px; background:#f0f0f0;"></td>
-    <!-- v150 -- RESTORED to locked/readonly (reverses v135): owner-reported
-         that a freely-typed Pallets number let a rep type ANY quantity
-         (10, 50, whatever) with nothing tying it to the Container (20ft/
-         40ft) actually picked for that line -- misleading, since the whole
-         point of Container is that its price assumes a real, fixed pallet
-         capacity per the source Excel sheet (see strap_pricing.
-         suggest_pallets_per_container()). This field is now readonly again
-         and always shows that real capacity for whichever Container/core
-         size/box combo is selected (20 for a 40ft container, 10 for a 20ft
-         one, by default -- admin-editable per line in Admin > PET/PP Strap
-         Costing's Stuffing grid) -- the system states the number, not the
-         rep. To order a different quantity, add another strap line
-         (another container) rather than typing a partial-container count
-         here. -->
-    <td><input type="number" class="f-strap-pallets compact-input" min="0" step="1" readonly title="Pallets in this container -- locked to the real capacity for the Container/core size/box picked on this line (not editable). To order a different quantity, add another strap line." style="width:65px; background:#f0f0f0;"></td>
+    <td><input type="number" class="f-strap-rpp compact-input" min="0" step="1" title="Rolls per pallet -- pre-filled from core size/box, editable" style="width:70px;"></td>
+    <td><input type="number" class="f-strap-qty-pallets compact-input" value="1" min="0" step="0.5" style="width:60px;"></td>
     <td><input type="number" class="f-strap-discount compact-input" value="0" min="0" max="100" step="0.1" title="Discount % for this line only" style="width:60px;"></td>
     <td class="f-strap-exw num">0.00</td>
     <td class="f-strap-fob num">0.00</td>
     <td class="f-strap-cfr num">0.00</td>
-    <!-- v136 -- "what price gives me what margin" what-if tool, $/Roll
-         here (Strap's natural unit) -- see the Stretch Film table's
-         matching v136 comment on col_margin_probe above. v137 --
-         admin/sub_admin only (IS_ADMIN), same as that table's column.
-         v147 -- FOB probe now comes FIRST (was CIF first) so these two
-         <td>s stay in the same order as their headers -- see the
-         col_margin_probe_fob header's matching v147 comment. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <span style="display:inline-flex; align-items:center; gap:2px;">
-        <input type="number" class="f-margin-probe-fob compact-input" step="0.01" placeholder="FOB $/roll" style="width:58px;" title="Type a delivered/FOB $/Roll price -- this line's own FOB port-addon share is subtracted automatically (destination freight is NOT) -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-        <button type="button" class="btn-fill-price" data-kind="fob" title="Fill in this line's own current FOB $/Roll exactly -- no manual retyping/rounding error">⇩</button>
-      </span>
-      <div class="f-margin-probe-fob-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
-    <!-- v143 -- second Margin sim input, CIF-basis -- see the Stretch Film
-         table's matching v147 comment on col_margin_probe above. -->
-    ${IS_ADMIN ? `<td class="margin-probe-td">
-      <span style="display:inline-flex; align-items:center; gap:2px;">
-        <input type="number" class="f-margin-probe compact-input" step="0.01" placeholder="CIF $/roll" style="width:58px;" title="Type a delivered/CIF $/Roll price -- this line's own freight/port share is subtracted automatically -- to see what factor % it represents, the same % as Admin &gt; Margin Factors">
-        <button type="button" class="btn-fill-price" data-kind="cif" title="Fill in this line's own current CIF $/Roll exactly -- no manual retyping/rounding error">⇩</button>
-      </span>
-      <div class="f-margin-probe-out" style="font-size:11px;white-space:nowrap;"></div>
-    </td>` : ''}
     <td><button type="button" class="btn-remove" title="Remove line">✕</button></td>
   `;
   document.getElementById('strapLinesBody').appendChild(tr);
-  if (IS_ADMIN) {
-    tr.querySelector('.f-margin-probe').addEventListener('input', () => updateMarginProbe(tr, true));
-    // v143 -- second (FOB-basis) probe, same row -- see updateMarginProbe()'s
-    // matching v143 comment.
-    tr.querySelector('.f-margin-probe-fob').addEventListener('input', () => updateMarginProbe(tr, true, 'fob'));
-    // v148/v148c -- "use current price" auto-fill buttons -- see the
-    // Stretch Film table's matching v148 comment on addLine() above and
-    // fillExactPrice()'s v148c comment (Strap has no raw-precision figure
-    // to bypass to, so this always falls back to the normal reconstruct-
-    // from-displayed-price path there).
-    tr.querySelectorAll('.btn-fill-price').forEach(btn => {
-      btn.addEventListener('click', () => {
-        fillExactPrice(tr, btn.dataset.kind === 'fob');
-      });
-    });
-  }
   tr.querySelector('.btn-remove').addEventListener('click', () => {
     tr.remove();
     renumberStrap();
@@ -1414,19 +908,12 @@ function addStrapLine() {
   // v44 -- see scheduleRecalc()'s comment: auto-recalculate on every
   // price-affecting strap field too (not just the live g/m preview).
   tr.querySelector('.f-strap-product').addEventListener('change', scheduleRecalc);
-  ['.f-strap-bom', '.f-strap-core', '.f-strap-box', '.f-strap-pallet', '.f-strap-container'].forEach(sel => {
+  ['.f-strap-bom', '.f-strap-core', '.f-strap-box', '.f-strap-pallet',
+   '.f-strap-ctr40', '.f-strap-ctr20'].forEach(sel => {
     tr.querySelector(sel).addEventListener('change', scheduleRecalc);
   });
-  // v124 -- .f-strap-rpp is readonly (server-fixed by core size/box), so it
-  // doesn't need its own 'input' listener; it's refreshed unconditionally
-  // by calculateAll() below whenever any of the fields here change.
-  // v150 -- .f-strap-pallets is ALSO readonly again now (see that field's
-  // matching v150 comment) -- it's locked to the real pallets-per-container
-  // capacity for whichever Container (20ft/40ft) is picked, so it no longer
-  // needs its own 'input' trigger either; refreshed the same unconditional
-  // way as Rolls/pallet, by calculateAll() below.
   ['.f-strap-width', '.f-strap-thickness', '.f-strap-meters',
-   '.f-strap-discount'].forEach(sel => {
+   '.f-strap-rpp', '.f-strap-qty-pallets', '.f-strap-discount'].forEach(sel => {
     tr.querySelector(sel).addEventListener('input', scheduleRecalc);
   });
   applyLanguage();
@@ -1446,11 +933,7 @@ function readStrapLines() {
   return [...document.querySelectorAll('#strapLinesBody tr.strap-line-row')].map(tr => {
     const sel = tr.querySelector('.f-strap-product');
     const rollsPerPallet = parseFloat(tr.querySelector('.f-strap-rpp').value || 0);
-    // v150 -- Pallets is readonly/server-locked again (reverses v135 --
-    // see that field's matching v150 comment): reads whatever calculateAll()
-    // last wrote there from suggested_pallets_per_container, i.e. the real
-    // capacity for this line's Container/core size/box combo.
-    const qtyPallets = parseFloat(tr.querySelector('.f-strap-pallets').value || 0);
+    const qtyPallets = parseFloat(tr.querySelector('.f-strap-qty-pallets').value || 0);
     const base = {
       product_line: sel.selectedOptions[0].dataset.line,
       quantity_pallets: qtyPallets,
@@ -1467,11 +950,8 @@ function readStrapLines() {
         strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: tr.querySelector('.f-strap-box').checked,
         strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
-        // v149 -- RESTORED: reads the real Container (20ft/40ft) picker
-        // (see that column's matching v149 comment) instead of the old
-        // hardcoded-40ft stand-in from v133.
-        strap_ctr20: tr.querySelector('.f-strap-container').value === '20ft',
-        strap_ctr40: tr.querySelector('.f-strap-container').value !== '20ft',
+        strap_ctr40: tr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: tr.querySelector('.f-strap-ctr20').checked,
       });
     }
     return Object.assign(base, {strap_product_id: sel.value});
@@ -1487,26 +967,16 @@ function readLines() {
       pricing_basis: tr.querySelector('.f-basis').value,
       colored: tr.querySelector('.f-colored').checked,
       uv: tr.querySelector('.f-uv').checked,
-      slippery: tr.querySelector('.f-slippery').checked,
       quantity_pallets: parseFloat(tr.querySelector('.f-qty').value || 0),
       line_discount_pct: parseFloat(tr.querySelector('.f-discount').value || 0),
+      container_pref: tr.querySelector('.f-container').value,
     };
     if (isPrestretch(line.product_id)) {
-      // v114 -- Roll wt/Core wt/Rolls-per-pallet come from the SAME
-      // main-row fields every other product uses (see
-      // syncPrestretchVisibility()). v119 -- Packaging (Box/No Box) now
-      // comes from the same main-row "Packaging" column every product has
-      // (".f-box") too -- no more separate sub-row. The separate "Pallets/
-      // Container (Fixed)" figure is gone entirely (owner-confirmed it
-      // always duplicated this line's own quantity_pallets in her real
-      // usage) -- prestretch_pallets_per_container is simply never sent
-      // any more, so app.py's/pricing.html's own existing fallback (spread
-      // FOB/CIF over this line's own order quantity) applies every time,
-      // consistently on both the live calculator and the saved quotation.
-      line.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
-      line.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
-      line.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      line.prestretch_packaging_type = tr.querySelector('.f-box').checked ? 'boxes' : 'no_boxes';
+      const pr = tr.nextElementSibling;
+      line.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
+      line.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
+      line.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      line.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1515,15 +985,7 @@ function readLines() {
       if (rollwt !== '') line.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') line.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') line.custom_width_mm = parseFloat(width);
-      // v126 -- only a genuine rep-typed value overrides the server's own
-      // Standard/Euro-aware tier lookup -- see the .f-rpp 'input' listener's
-      // matching v126 comment above for why.
-      if (tr.dataset.rppEdited === '1' && rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
-      // v120 -- this line's own "Box" checkbox; only affects price for a
-      // Manual packing_type (see cost_engine._pallet_key_for()'s v120
-      // comment) -- always sent so a saved Manual line's real choice is
-      // recorded (defaults true/box when the row isn't Manual).
-      line.box_packaging = tr.querySelector('.f-box').checked;
+      if (rpp !== '') line.custom_rolls_per_pallet = parseFloat(rpp);
     }
     return line;
   });
@@ -1557,10 +1019,7 @@ async function calculateAll() {
   // (cost_engine.capped_discount_pct()) -- surfaced as a page-level notice
   // plus an outline on the affected row(s)' discount field.
   let anyDiscountCapped = false;
-  // v128 -- keyed by category_key so Standard AND Power (etc.) each appear
-  // once even if several lines in the same category got capped -- see
-  // buildDiscountCapNotice().
-  const cappedCategoriesMap = {};
+  let cappedMaxPct = null;
   // v96: whether any Strap line's gross roll weight is over the max --
   // see strap_pricing.gross_weight_exceeds_max() and the .f-strap-meters
   // outline set in the strap-lines loop below.
@@ -1573,31 +1032,19 @@ async function calculateAll() {
     const pricing_basis = tr.querySelector('.f-basis').value;
     const colored = tr.querySelector('.f-colored').checked;
     const uv = tr.querySelector('.f-uv').checked;
-    const slippery = tr.querySelector('.f-slippery').checked;
     const quantity_pallets = parseFloat(tr.querySelector('.f-qty').value || 0);
     const line_discount_pct = parseFloat(tr.querySelector('.f-discount').value || 0);
     const payload = {
-      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv, slippery,
+      product_id, quantity_pallets, pallet_type, packing_type, pricing_basis, colored, uv,
       line_discount_pct, global_discount_pct: globalDiscountPct,
       preview_as_user_id: previewAsUserId(),
-      pricing_mode: pricingMode(),
-      // v130 -- owner-reported: the live calculator never sent Payment Term
-      // at all for Stretch Film/Pre-Stretch lines, so the on-screen $/kg
-      // never reflected the Credit payment terms extra (Extras > Credit
-      // payment terms extra -- cost_engine.credit_term_extra_usd_kg()) when
-      // switching from Cash to 30/60/90 days -- it only ever applied once
-      // the quote was actually saved (api_save_quotation() already reads
-      // this correctly). Strap's own live-calc payload already sent this
-      // (see the strap-lines loop below) -- Stretch's just never did.
-      payment_term: document.getElementById('payment_term').value,
     };
     if (isPrestretch(product_id)) {
-      // v114/v119 -- same main-row fields as every other product,
-      // including Packaging (".f-box") now; see readLines().
-      payload.prestretch_roll_weight_kg = parseFloat(tr.querySelector('.f-rollwt').value || 0);
-      payload.prestretch_core_weight_kg = parseFloat(tr.querySelector('.f-corewt').value || 0);
-      payload.prestretch_rolls_per_pallet = parseFloat(tr.querySelector('.f-rpp').value || 0);
-      payload.prestretch_packaging_type = tr.querySelector('.f-box').checked ? 'boxes' : 'no_boxes';
+      const pr = tr.nextElementSibling;
+      payload.prestretch_roll_weight_kg = parseFloat(pr.querySelector('.f-ps-rollwt').value || 0);
+      payload.prestretch_core_weight_kg = parseFloat(pr.querySelector('.f-ps-corewt').value || 0);
+      payload.prestretch_rolls_per_pallet = parseFloat(pr.querySelector('.f-ps-rpp').value || 0);
+      payload.prestretch_packaging_type = pr.querySelector('.f-ps-packaging').value;
     } else {
       const rollwt = tr.querySelector('.f-rollwt').value;
       const corewt = tr.querySelector('.f-corewt').value;
@@ -1606,12 +1053,7 @@ async function calculateAll() {
       if (rollwt !== '') payload.custom_roll_weight_kg = parseFloat(rollwt);
       if (corewt !== '') payload.custom_core_weight_kg = parseFloat(corewt);
       if (width !== '') payload.custom_width_mm = parseFloat(width);
-      // v126 -- only a genuine rep-typed value overrides the server's own
-      // Standard/Euro-aware tier lookup -- see the .f-rpp 'input' listener's
-      // matching v126 comment above for why.
-      if (tr.dataset.rppEdited === '1' && rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
-      // v120 -- see readLines()'s matching v120 comment.
-      payload.box_packaging = tr.querySelector('.f-box').checked;
+      if (rpp !== '') payload.custom_rolls_per_pallet = parseFloat(rpp);
     }
     const resp = await fetch('/api/calculate-line', {
       method: 'POST',
@@ -1623,57 +1065,12 @@ async function calculateAll() {
     const discInput = tr.querySelector('.f-discount');
     if (data.discount_capped) {
       anyDiscountCapped = true;
-      cappedCategoriesMap[data.discount_cap_key] = {label: data.discount_cap_label, max: data.discount_cap_max};
+      cappedMaxPct = data.discount_pct_applied;
       discInput.style.outline = '2px solid #d97706';
-      discInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied, label: data.discount_cap_label});
+      discInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
     } else {
       discInput.style.outline = '';
       discInput.title = '';
-    }
-    // v136 -- "what price gives me what margin" what-if tool: stash the
-    // reference (0%-margin/cost-equivalent) price this response just
-    // carried (null for Pre-Stretch -- see api_calculate_line's matching
-    // v136 comment) so updateMarginProbe() can invert instantly on every
-    // keystroke with no further round trip. v139 tried dropping the
-    // 100%-margin reference (only one point needed for margin-on-price) --
-    // v148 restores it (see app.py's/updateMarginProbe()'s matching v148
-    // comments: the single-reference formula silently diluted the % below
-    // the real factor whenever Color or a credit Payment Term was on).
-    // v137 -- admin/sub_admin only: the response itself carries no
-    // margin_probe_* figures for a non-admin/sub_admin request (server-side
-    // gate -- see that route's matching v137 comment), and IS_ADMIN false
-    // also means this row never got the <td>/input in the first place (see
-    // addLine()'s matching v137 comment), so there's nothing to touch here.
-    if (IS_ADMIN) {
-      if (data.margin_probe_low_usd_kg != null) {
-        tr.dataset.marginLow = data.margin_probe_low_usd_kg;
-        tr.dataset.marginHigh = data.margin_probe_high_usd_kg;
-        // v148c -- owner-requested (Arabic: "قلل الفرق"): stash the FULL-
-        // PRECISION EX-Work price too (never .toFixed()'d), so the "use
-        // current price" button can compute the implied factor straight
-        // from it instead of re-deriving an EX-Work-equivalent from the
-        // 2dp-rounded FOB/CIF cell + freight gap. That reconstruction is
-        // exact algebra either way, but it starts from the DISPLAYED
-        // (rounded) EX-Work price, which is where the small residual
-        // noise (e.g. 8.2% instead of 8.00%) was actually coming from --
-        // proven by comparing against this same raw figure: the two-point
-        // ratio computed from it is 8.000000% to 6 decimals, with or
-        // without UV/Color/credit-term/commission, every time (see the
-        // conversation's matching v148c investigation). Using it directly
-        // removes that last bit of noise for the Stretch Film table.
-        tr.dataset.rawExw = data.unit_price_usd_kg_raw;
-        tr.querySelector('.f-margin-probe').disabled = false;
-        tr.querySelector('.f-margin-probe-fob').disabled = false;
-      } else {
-        delete tr.dataset.marginLow;
-        delete tr.dataset.marginHigh;
-        delete tr.dataset.rawExw;
-        tr.querySelector('.f-margin-probe').disabled = true;
-        tr.querySelector('.f-margin-probe').title = tf('tip_margin_probe_prestretch_na');
-        tr.querySelector('.f-margin-probe-fob').disabled = true;
-        tr.querySelector('.f-margin-probe-fob').title = tf('tip_margin_probe_prestretch_na');
-      }
-      updateMarginProbe(tr, false);
     }
     if (!isPrestretch(product_id)) {
       // Reflect back the roll wt / core wt the server actually costed with
@@ -1709,7 +1106,14 @@ async function calculateAll() {
       totalKg: data.total_kg,
       pricingBasis: pricing_basis, rollWeightKg: data.roll_weight_kg || 0,
       coreWeightKg: data.core_weight_kg || 0, isPrestretchLine: isPrestretch(product_id),
+      // v104 -- this line's own rolls/pallet + pallets/container (40ft/20ft)
+      // figures, so the FOB/CIF pass below can build a fixed per-SKU FULL
+      // CONTAINER kg instead of this line's own (possibly much smaller)
+      // ordered quantity -- see that loop's own v104 comment.
       rollsPerPallet: data.rolls_per_pallet || 0,
+      pallets40: data.pallets_per_container40 || 0,
+      pallets20: data.pallets_per_container20 || 0,
+      containerPref: tr.querySelector('.f-container') ? tr.querySelector('.f-container').value : '40ft',
     });
   }
 
@@ -1724,18 +1128,16 @@ async function calculateAll() {
   for (const tr of strapRows) {
     const sel = tr.querySelector('.f-strap-product');
     const custom = isStrapCustom(sel);
-    // v135 -- the rep types Pallets directly again (Containers removed --
-    // see the col_pallets_locked header's matching v135 comment); only
-    // Rolls/pallet stays locked (readonly), server-computed from the
-    // line's own core-size/box (Admin > PET/PP Strap Costing's Stuffing
-    // grid).
+    // Quantity is Qty (pallets) x Rolls/pallet (like Stretch Film), not a
+    // coil count typed directly -- Rolls/pallet itself is a display
+    // default (pre-filled from the line's own core-size/box spec after
+    // the first calculate) that the rep can override.
     const rollsPerPalletField = tr.querySelector('.f-strap-rpp');
-    const palletsField = tr.querySelector('.f-strap-pallets');
+    const qtyPallets = parseFloat(tr.querySelector('.f-strap-qty-pallets').value || 0);
     const rollsPerPallet = parseFloat(rollsPerPalletField.value || 0);
-    const priorPallets = parseFloat(palletsField.value || 0);
     const payload = {
       product_line: sel.selectedOptions[0].dataset.line,
-      quantity_coils: priorPallets * rollsPerPallet,
+      quantity_coils: qtyPallets * rollsPerPallet,
       line_discount_pct: parseFloat(tr.querySelector('.f-strap-discount').value || 0),
       global_discount_pct: globalDiscountPct,
       payment_term: paymentTerm,
@@ -1747,7 +1149,6 @@ async function calculateAll() {
       // separate flat setting, so loading_port isn't needed here.
       destination: document.getElementById('destination').value,
       preview_as_user_id: previewAsUserId(),
-      pricing_mode: pricingMode(),
     };
     if (custom) {
       Object.assign(payload, {
@@ -1759,11 +1160,8 @@ async function calculateAll() {
         strap_meters_per_coil: parseFloat(tr.querySelector('.f-strap-meters').value || 0),
         strap_has_box: tr.querySelector('.f-strap-box').checked,
         strap_has_pallet: tr.querySelector('.f-strap-pallet').checked,
-        // v149 -- RESTORED: reads the real Container (20ft/40ft) picker
-        // (see that column's matching v149 comment) instead of the old
-        // hardcoded-40ft stand-in from v133.
-        strap_ctr20: tr.querySelector('.f-strap-container').value === '20ft',
-        strap_ctr40: tr.querySelector('.f-strap-container').value !== '20ft',
+        strap_ctr40: tr.querySelector('.f-strap-ctr40').checked,
+        strap_ctr20: tr.querySelector('.f-strap-ctr20').checked,
       });
     } else {
       payload.strap_product_id = sel.value;
@@ -1778,75 +1176,29 @@ async function calculateAll() {
     const strapDiscInput = tr.querySelector('.f-strap-discount');
     if (data.discount_capped) {
       anyDiscountCapped = true;
-      cappedCategoriesMap[data.discount_cap_key] = {label: data.discount_cap_label, max: data.discount_cap_max};
+      cappedMaxPct = data.discount_pct_applied;
       strapDiscInput.style.outline = '2px solid #d97706';
-      strapDiscInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied, label: data.discount_cap_label});
+      strapDiscInput.title = tf('discount_capped_tooltip', {max: data.discount_pct_applied});
     } else {
       strapDiscInput.style.outline = '';
       strapDiscInput.title = '';
     }
-    // v124 -- Rolls/pallet is fixed per (core size, box/no-box) in Admin >
-    // PET/PP Strap Costing's Stuffing grid, and the field is readonly -- so
-    // it's ALWAYS unconditionally overwritten from the server's suggestion
-    // on every recalculate, not just filled once when empty. This is what
-    // makes it follow a Core size / Box change instead of showing a stale
-    // value from a previous selection. quantity_coils above was computed
-    // from whatever the fields held BEFORE this response (possibly stale
-    // or 0 on the row's very first calculate), so total_kg/line_gross below
-    // are recomputed here from the now-current figures instead of firing a
-    // second round trip.
-    // v150 -- Pallets is readonly again (reverses v135 -- see that field's
-    // matching v150 comment): always overwritten from the server's own
-    // suggested_pallets_per_container, the same unconditional way Rolls/
-    // pallet already refreshes from suggested_rolls_per_pallet, so it
-    // follows a Container/core size/box change instead of showing a stale
-    // value from a previous selection.
-    const effectiveRolls = data.suggested_rolls_per_pallet;
-    rollsPerPalletField.value = effectiveRolls;
-    const effectivePallets = data.suggested_pallets_per_container;
-    palletsField.value = effectivePallets;
-    const effectiveTotalKg = Math.round(data.gross_weight_kg * effectivePallets * effectiveRolls * 100) / 100;
+    // Rolls/pallet is pre-filled from the server's suggestion on the row's
+    // very first calculate -- when that happens, quantity_coils above was
+    // sent as 0 (the field was still empty), so total_kg/line_gross in
+    // this response are 0 too. Recompute them here from the now-known
+    // rolls/pallet instead of firing a second round trip.
+    let effectiveRolls = rollsPerPalletField.value ? parseFloat(rollsPerPalletField.value) : 0;
+    if (!effectiveRolls) {
+      effectiveRolls = data.suggested_rolls_per_pallet;
+      rollsPerPalletField.value = effectiveRolls;
+    }
+    const effectiveTotalKg = Math.round(data.gross_weight_kg * qtyPallets * effectiveRolls * 100) / 100;
     const effectiveGross = Math.round(data.unit_price_usd_kg * effectiveTotalKg * 100) / 100;
     const effectiveGrossFull = Math.round(data.unit_price_full_usd_kg * effectiveTotalKg * 100) / 100;
-    const strapExwDisp = roundHalfUp(data.ex_work_price_roll, 2);
-    const strapFobDisp = roundHalfUp(data.fob_price_roll, 2);
-    const strapCfrDisp = roundHalfUp(data.cfr_price_roll, 2);
-    tr.querySelector('.f-strap-exw').textContent = strapExwDisp.toFixed(2);
-    tr.querySelector('.f-strap-fob').textContent = strapFobDisp.toFixed(2);
-    tr.querySelector('.f-strap-cfr').textContent = strapCfrDisp.toFixed(2);
-    // v136 -- "what price gives me what margin" what-if tool -- see the
-    // Stretch Film loop's matching v136 comment above. Strap always has
-    // its probe figure (no Pre-Stretch-style exception here). v137 --
-    // admin/sub_admin only, same gate as the Stretch Film loop. v139 --
-    // only one reference price now (markup-on-cost convention). v142 --
-    // marginFreightGap (CFR - EX-Work, both already computed above) so
-    // updateMarginProbe() can subtract this line's own freight/port share
-    // from a typed delivered/CIF price -- see that function's v142 comment.
-    // v143 -- marginFreightGapFob (FOB - EX-Work) too, for the second
-    // FOB-basis probe -- see col_margin_probe_fob's matching v143 comment.
-    if (IS_ADMIN) {
-      if (data.margin_probe_low_roll != null) {
-        tr.dataset.marginLow = data.margin_probe_low_roll;
-        tr.dataset.marginHigh = data.margin_probe_high_roll;
-      }
-      tr.dataset.marginFreightGap = strapCfrDisp - strapExwDisp;
-      tr.dataset.marginFreightGapFob = strapFobDisp - strapExwDisp;
-      // v148 -- owner-requested "use current price" auto-fill button next
-      // to each probe input (Arabic: "قلل الفرق"): stash the exact number
-      // (not the .toFixed(2) STRING above, which would re-introduce a
-      // parseFloat round-trip) so the button can copy it into the probe
-      // input with zero transcription error -- removes any typo/rounding
-      // mismatch from typing the displayed price back in by hand. The
-      // tiny (<0.3pt) residual noise this doesn't remove is the EX-Work
-      // price itself being rounded to 2dp as a deliberate, sheet-matching
-      // step (see compute_line()'s v100/v110 notes) BEFORE FOB/CFR are
-      // built from it -- not something a UI-side fix can close without
-      // changing that rounding convention itself.
-      tr.dataset.cifDispValue = strapCfrDisp;
-      tr.dataset.fobDispValue = strapFobDisp;
-      updateMarginProbe(tr, true);
-      updateMarginProbe(tr, true, 'fob');
-    }
+    tr.querySelector('.f-strap-exw').textContent = roundHalfUp(data.ex_work_price_roll, 2).toFixed(2);
+    tr.querySelector('.f-strap-fob').textContent = roundHalfUp(data.fob_price_roll, 2).toFixed(2);
+    tr.querySelector('.f-strap-cfr').textContent = roundHalfUp(data.cfr_price_roll, 2).toFixed(2);
     // v96 -- no more "Total KG"/"Line total $" cells to write into (removed
     // per the owner's request); effectiveTotalKg/effectiveGross are still
     // used below, just not displayed per line anymore.
@@ -1918,48 +1270,43 @@ async function calculateAll() {
   const cifTotal = fobTotal + freightAmt;
 
   // Per-line FOB/CIF $/kg: the flat port + freight add-ons spread across
-  // THIS LINE'S OWN ordered quantity (qty pallets x rolls/pallet x roll
-  // weight -- rc.totalKg), so a bigger order genuinely gets a lower $/KG
-  // and a smaller one gets a higher $/KG.
+  // this line's own FULL CONTAINER weight (pallets/container x rolls/
+  // pallet x roll weight for THIS SKU), NOT however many pallets this
+  // particular quote line happens to order.
   //
-  // v127 -- REVERTS v104. Owner re-checked against the H1.36 sheet herself
-  // and insisted the $/KG must divide by however many pallets she actually
-  // enters, for both Standard and Euro pallet types (Arabic: "لازم السعر
-  // يتقسم على الكمية ويتغير"). Re-reading the sheet's own Stretch!AO formula
-  // confirms AK118 ("Pallet Per Container") IS a free-typed cell, not a
-  // locked catalog constant -- the master price-list rows just happen to
-  // have it filled with each SKU's usual full-container number, but nothing
-  // in the formula itself fixes it there. So AK is exactly this line's own
-  // "Pallets/container" field (the one already on screen), and AO/AP are
-  // meant to move with whatever's typed into it, the same way Pre-Stretch's
-  // fobDenomKg already worked (see the old v119 comment below -- Pre-Stretch
-  // never got the v104 lock at all). The lump-sum FOB Total / CIF Total
-  // above are unaffected -- they still add each add-on exactly once,
-  // matching a real invoice, not once per line.
+  // v104 -- owner-requested change (Arabic: "خليها زي الشيت"), REPLACING
+  // the old v67 design below this comment used to describe (spreading over
+  // "EACH LINE'S OWN total KG", confirmed then against a different
+  // reference app, not this Excel sheet). Confirmed directly against the
+  // H1.36 sheet with the owner: the sheet's Stretch!AO/AP price-list
+  // columns assume a FULL CONTAINER of that exact SKU every time (e.g.
+  // 34 pallets for 23mic/150%/16kg/46-rolls-per-pallet), so FOB/CIF $/KG
+  // must be a FIXED per-SKU rate, not one that rises when a quote line
+  // orders less than a full container -- confirmed the app matched the
+  // sheet exactly ($1.54/kg) at a full-container quantity, but at 1 or 5
+  // pallets it was showing $3.52/$1.89 instead, because the flat FOB
+  // Cost/Container was being divided by this line's own (smaller) total
+  // kg. Falls back to this line's own totalKg only for lines with no known
+  // container capacity (Pre-Stretch), same as app.py's matching v104 fix
+  // for the saved-quotation view/PDF/Excel. The lump-sum FOB Total / CIF
+  // Total above are unaffected by this -- they still add each add-on
+  // exactly once, matching a real invoice, not once per line.
   for (const rc of rowCalc) {
-    // rc.totalKg is qty_pallets x rolls/pallet x roll weight (NET weight
-    // for Pre-Stretch, GROSS for everything else -- see pricing.py's
-    // compute_line()/compute_prestretch_line()), i.e. exactly this line's
-    // own ordered weight, matching the sheet's AK x G x H.
-    const fobDenomKg = rc.totalKg;
+    let fobDenomKg = rc.totalKg;
+    if (!rc.isPrestretchLine) {
+      const pallets = (rc.containerPref === '20ft') ? (rc.pallets20 || rc.pallets40) : (rc.pallets40 || rc.pallets20);
+      if (pallets && rc.rollsPerPallet && rc.rollWeightKg) {
+        fobDenomKg = pallets * rc.rollsPerPallet * rc.rollWeightKg;
+      }
+    }
     const lineFobAddonPerKg = fobDenomKg > 0 ? fobAddon / fobDenomKg : 0;
     const lineFreightPerKg = fobDenomKg > 0 ? freightAmt / fobDenomKg : 0;
     // v70.2 -- FOB $/KG built from the RAW unrounded EX-Work price with a
     // single ceiling round at the end, matching Stretch!AO's ROUNDUP() in
     // the sheet (see roundUp() above). CFR/CIF still rounds normally --
     // the owner confirmed freight/CFR doesn't need to match the sheet.
-    // v110 -- rc.exwUnitRaw is now ALWAYS the GROSS raw price regardless of
-    // this line's own pricing_basis (see pricing.py's compute_line() v110
-    // note), so fobUnit/cifUnit here are always Gross, sheet-matching
-    // figures -- Net-basis conversion happens further below, AFTER this,
-    // never before (net-converting before building FOB used to tip the
-    // ROUNDUP() a cent low).
     const fobUnit = roundUp(rc.exwUnitRaw + lineFobAddonPerKg, 2);
-    // v184 -- Pre-Stretch: sheet's AP118 is (container + FOB addon + freight) / net kg,
-    // unrounded (only AO is ROUNDUP'd), so build CFR from the raw net price directly.
-    const cifUnit = rc.isPrestretchLine
-      ? roundHalfUp(rc.exwUnitRaw + lineFobAddonPerKg + lineFreightPerKg, 2)
-      : roundHalfUp(fobUnit + lineFreightPerKg, 2);
+    const cifUnit = roundHalfUp(fobUnit + lineFreightPerKg, 2);
     // v49: "$/Roll (Gross)"/"$/Roll (Net)" in the Price basis dropdown --
     // when the row's own Price basis is a Roll basis, show the $ amount
     // for ONE WHOLE ROLL instead (unit $/KG x that roll's weight), with a
@@ -1980,86 +1327,23 @@ async function calculateAll() {
     // tag naming which basis it was computed on, not just the dropdown's
     // own option label.
     const basisTag = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg') ? ' (Net)' : ' (Gross)';
-    // v110 -- fobUnit/cifUnit just above are always GROSS $/kg now. For a
-    // Net-basis line, convert to Net $/kg HERE -- after the addon and the
-    // ROUNDUP() are already applied -- the exact same re-divide-the-same-
-    // $-total-over-net-weight method the server already uses for EX-Work
-    // (see pricing.py's compute_line()). This must happen after, never
-    // before, building Gross FOB/CIF (see the v110 comments above and in
-    // pricing.py for why doing it first was a cent short of the owner's
-    // reference: $1.76 vs the $1.74-1.75 the old order produced).
-    const isNetBasis = (rc.pricingBasis === 'net' || rc.pricingBasis === 'net_per_kg');
-    const netRollWeight = Math.max(rc.rollWeightKg - rc.coreWeightKg, 0);
-    // v118 -- BUGFIX (found by directly reproducing the owner's exact
-    // pricing-page inputs in a real browser and tracing the numbers, after
-    // she reported FOB/CIF still not matching the sheet once EX-Work
-    // finally did): for a Pre-Stretch line, fobUnit/cifUnit just above are
-    // ALREADY net-basis -- built from rc.exwUnitRaw, which for Pre-Stretch
-    // falls back to data.unit_price_usd_kg, and that price is ALWAYS
-    // net-converted server-side unconditionally (see
-    // compute_prestretch_line()'s own v99 comment in pricing.py). Every
-    // OTHER product's fobUnit/cifUnit at this point IS still Gross (built
-    // from unit_price_usd_kg_raw, confirmed Gross by pricing.py's v110
-    // note) and genuinely needs this net re-conversion. Applying the
-    // re-conversion to Pre-Stretch too was double-converting an
-    // already-net figure by the gross/net ratio a SECOND time -- verified
-    // against the H1.36 sheet: a 6-micron/1.64kg-roll/0.25kg-core
-    // Pre-Stretch line's correct FOB of $2.48 (matching Stretch!AO119
-    // exactly, with the sheet's own Pallet-Per-Container=20 typed into
-    // "Pallets/Container (Fixed)" below) was coming out as $2.93 before
-    // this fix.
-    const fobUnitDisp = (isNetBasis && netRollWeight > 0 && !rc.isPrestretchLine)
-      ? roundHalfUp(fobUnit * rc.rollWeightKg / netRollWeight, 2) : fobUnit;
-    const cifUnitDisp = (isNetBasis && netRollWeight > 0 && !rc.isPrestretchLine)
-      ? roundHalfUp(cifUnit * rc.rollWeightKg / netRollWeight, 2) : cifUnit;
     // v105 -- EX-Work $/kg column, same basis handling (Gross/Net/per-roll)
     // as FOB/CIF just below -- exwUnit is already this line's own EX-Work
-    // $/kg (2dp-rounded, discount already applied -- see rowCalc.push()),
-    // already Net-converted server-side when this line's basis is Net.
-    // v142 -- owner-requested (Arabic: "السعر اللي انا بديه لك ده ... بتشيل
-    // منه برضو بترجعه هو تاني للاكس ورك"): the Margin sim input is meant
-    // for a competitor's/customer's landed (CIF-equivalent) price, not the
-    // EX-Work price -- she compares a target delivered price against what
-    // hers would be. So the tool must subtract THIS line's own freight/port
-    // gap (CIF - EX-Work, exactly what's shown on screen right now) from
-    // whatever she types before computing the factor. Stashed here as the
-    // FINAL, already-displayed CIF/EX-Work gap (same units/basis as the
-    // Margin sim input -- $/roll when this row shows $/roll, $/kg
-    // otherwise), so updateMarginProbe() doesn't need to redo any of the
-    // Gross/Net/roll-basis math above.
-    // v143 -- fobDisp tracked alongside exwDisp/cifDisp now too, so the
-    // FOB-basis probe (marginFreightGapFob = FOB - EX-Work, the port-addon
-    // share only) can be stashed the same way as the CIF one -- see
-    // col_margin_probe_fob's matching v143 comment.
-    let exwDisp, fobDisp, cifDisp;
+    // $/kg (2dp-rounded, discount already applied -- see rowCalc.push()).
     if (rc.pricingBasis === 'gross' || rc.pricingBasis === 'net') {
-      const rollWeight = (rc.pricingBasis === 'net') ? netRollWeight : rc.rollWeightKg;
+      const rollWeight = (rc.pricingBasis === 'net')
+        ? Math.max(rc.rollWeightKg - rc.coreWeightKg, 0)
+        : rc.rollWeightKg;
       const exwRoll = rc.exwUnit * rollWeight;
-      const fobRoll = fobUnitDisp * rollWeight;
-      const cifRoll = cifUnitDisp * rollWeight;
-      exwDisp = roundHalfUp(exwRoll, 2);
-      fobDisp = roundHalfUp(fobRoll, 2);
-      cifDisp = roundHalfUp(cifRoll, 2);
-      rc.tr.querySelector('.f-exw').textContent = exwDisp.toFixed(2) + '/roll' + basisTag;
-      rc.tr.querySelector('.f-fob').textContent = fobDisp.toFixed(2) + '/roll' + basisTag;
-      rc.tr.querySelector('.f-cif').textContent = cifDisp.toFixed(2) + '/roll' + basisTag;
+      const fobRoll = fobUnit * rollWeight;
+      const cifRoll = cifUnit * rollWeight;
+      rc.tr.querySelector('.f-exw').textContent = roundHalfUp(exwRoll, 2).toFixed(2) + '/roll' + basisTag;
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobRoll, 2).toFixed(2) + '/roll' + basisTag;
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifRoll, 2).toFixed(2) + '/roll' + basisTag;
     } else {
-      exwDisp = roundHalfUp(rc.exwUnit, 2);
-      fobDisp = roundHalfUp(fobUnitDisp, 2);
-      cifDisp = roundHalfUp(cifUnitDisp, 2);
-      rc.tr.querySelector('.f-exw').textContent = exwDisp.toFixed(2) + basisTag;
-      rc.tr.querySelector('.f-fob').textContent = fobDisp.toFixed(2) + basisTag;
-      rc.tr.querySelector('.f-cif').textContent = cifDisp.toFixed(2) + basisTag;
-    }
-    rc.tr.dataset.marginFreightGap = cifDisp - exwDisp;
-    rc.tr.dataset.marginFreightGapFob = fobDisp - exwDisp;
-    // v148 -- same "use current price" stash as the Strap loop's matching
-    // v148 comment above.
-    rc.tr.dataset.cifDispValue = cifDisp;
-    rc.tr.dataset.fobDispValue = fobDisp;
-    if (IS_ADMIN) {
-      updateMarginProbe(rc.tr, false);
-      updateMarginProbe(rc.tr, false, 'fob');
+      rc.tr.querySelector('.f-exw').textContent = roundHalfUp(rc.exwUnit, 2).toFixed(2) + basisTag;
+      rc.tr.querySelector('.f-fob').textContent = roundHalfUp(fobUnit, 2).toFixed(2) + basisTag;
+      rc.tr.querySelector('.f-cif').textContent = roundHalfUp(cifUnit, 2).toFixed(2) + basisTag;
     }
   }
 
@@ -2073,11 +1357,11 @@ async function calculateAll() {
   // see the .f-discount/.f-strap-discount outlines set above.
   const capNotice = document.getElementById('discountCapNotice');
   if (anyDiscountCapped) {
-    lastCappedCategories = Object.values(cappedCategoriesMap);
+    lastDiscountCapPct = cappedMaxPct;
     capNotice.style.display = '';
-    capNotice.textContent = buildDiscountCapNotice(lastCappedCategories);
+    capNotice.textContent = tf('discount_capped_notice', {max: cappedMaxPct});
   } else {
-    lastCappedCategories = [];
+    lastDiscountCapPct = null;
     capNotice.style.display = 'none';
   }
 
@@ -2104,7 +1388,6 @@ async function saveQuotation() {
     global_discount_pct: parseFloat(document.getElementById('global_discount_pct').value || 0),
     lines: [...readLines(), ...readStrapLines()],
     preview_as_user_id: previewAsUserId(),
-    pricing_mode: pricingMode(),
   };
   const resp = await fetch('/api/save-quotation', {
     method: 'POST',
@@ -2129,12 +1412,8 @@ async function saveQuotation() {
     // skipped/stale, this still catches it so the saved price is never
     // wrong even if the on-screen warning wasn't seen.
     let msg = 'Quotation saved as ' + (data.quotation_no || ('#' + data.id));
-    // v128 -- same short per-category list as the on-screen notice (plus
-    // the fuller explanation for admin/sub_admin only) -- see
-    // buildDiscountCapNotice(); data.discount_capped_categories is
-    // [{label, max}, ...] from api_save_quotation()'s own re-cap.
     if (data.discount_capped) {
-      msg += '\n\n' + buildDiscountCapNotice(data.discount_capped_categories || []);
+      msg += '\n\n⚠️ تنبيه: خصم سطر أو أكتر كان أعلى من الحد الأقصى المسموح، فاتقفل تلقائيًا قبل الحفظ.';
     }
     // v99 -- confirms, on a fresh "Act as [salesperson]" save, exactly which
     // sales rep this new quotation got attributed to (see the matching note
@@ -2150,7 +1429,7 @@ document.getElementById('addLineBtn').addEventListener('click', () => addLine())
 document.getElementById('addStrapLineBtn').addEventListener('click', () => addStrapLine());
 document.getElementById('calcBtn').addEventListener('click', calculateAll);
 document.getElementById('saveBtn').addEventListener('click', saveQuotation);
-document.getElementById('resetBtn').addEventListener('click', () => { if (window._draft) window._draft.clear(); location.reload(); });
+document.getElementById('resetBtn').addEventListener('click', () => location.reload());
 // v44 -- Payment Term (drives the strap credit-term surcharge) and Global
 // Discount % also auto-recalculate now -- see scheduleRecalc()'s comment.
 document.getElementById('payment_term').addEventListener('change', scheduleRecalc);
@@ -2164,12 +1443,6 @@ document.getElementById('global_discount_pct').addEventListener('input', schedul
 // but is wired the same way so its Total updates live too.
 document.getElementById('loading_port').addEventListener('change', scheduleRecalc);
 document.getElementById('destination').addEventListener('change', scheduleRecalc);
-// v155 -- Actual/Market pricing dropdown (admin/sub_admin only -- not
-// rendered at all otherwise, so guard the lookup).
-(function() {
-  const pm = document.getElementById('pricing_mode');
-  if (pm) pm.addEventListener('change', scheduleRecalc);
-})();
 
 // v99 -- "Act as [salesperson]" preview: switching the dropdown re-runs
 // Calculate immediately (not debounced -- this is a deliberate, infrequent
@@ -2267,26 +1540,5 @@ applyLanguage();
 
 // start with one line
 addLine();
-
-// v181 -- autosave: the builder state survives Back/Forward, refresh and
-// closing the tab (see static/draft.js). The trash button clears it.
-window._draft = new DraftSaver({
-  key: 'pricingDraft_export_{{ current_user.id if current_user else 0 }}',
-  headerIds: ['loading_port', 'destination', 'payment_term', 'global_discount_pct', 'customer_name',
-              'quotation_no', 'pricing_mode', 'actAsUser'],
-  tables: [{body: '#linesBody', add: () => addLine()}, {body: '#strapLinesBody', add: () => addStrapLine()}],
-  getExtra: () => ({qid: currentQuotationId}),
-  setExtra: (x) => {
-    if (x && x.qid) {
-      currentQuotationId = x.qid;
-      document.getElementById('exportBtn').disabled = false;
-      document.getElementById('exportBtn').onclick = () => window.open(`/quotations/${x.qid}/pdf`, '_blank');
-      document.getElementById('exportExcelBtn').disabled = false;
-      document.getElementById('exportExcelBtn').onclick = () => window.open(`/quotations/${x.qid}/excel`, '_blank');
-    }
-  },
-  afterRestore: () => { calculateAll(); }
-});
-window._draft.start();
 </script>
 {% endblock %}

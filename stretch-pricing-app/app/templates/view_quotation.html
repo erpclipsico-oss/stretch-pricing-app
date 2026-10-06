@@ -5,7 +5,6 @@
   <div class="panel-header">
     <h2>{{ q.quotation_no or ('Quotation #' ~ q.id) }}</h2>
     <div class="panel-actions">
-      <a href="{{ url_for('reprice_quotation', qid=q.id) }}" class="btn btn-success" title="Open these exact lines as a NEW quotation, recalculated at today's prices">🔄 Reprice (new copy)</a>
       <a href="{{ url_for('quotation_excel', qid=q.id) }}" class="btn btn-outline">⇧ Export Excel</a>
       <a href="{{ url_for('quotation_pdf', qid=q.id) }}" class="btn btn-primary">⇧ Export PDF</a>
     </div>
@@ -44,14 +43,6 @@
      family. A single-family quotation still gets exactly one table (no
      heading); a mixed one gets two, each with its own heading, sitting
      above the same combined FOB/CIF totals box below. #}
-  {# v124 -- owner-requested, Strap only (Arabic: "حتى عدد الباليتات كمان
-     تسده ... وتطلع في البي دي اف وفي الاكسل"): the line's actual ordered
-     Pallets (Containers x the fixed Pallets/container, both locked/read-
-     only in the quote builder, see pricing.html) is now folded into the
-     spec-note sub-row below each Strap line ("Spec — ... · Pallets: N") --
-     see app.py's _format_spec_note() -- rather than a new table column, so
-     it shows up the same way on this page, the PDF and the Excel export
-     with one change. #}
   {% macro render_lines_table(table_lines, dollar_unit) %}
   <table class="lines-table lines-table-wide">
     <thead>

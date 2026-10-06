@@ -135,19 +135,7 @@ body {
 }
 
 .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-/* v156 -- owner-requested (Arabic: "عايزاك تكبر الشاشه البيضه تكون مريحه
-   للعين وواخده حجم الشاشه اللي مفتوح عليها الموقع"): the Pricing screen's
-   white panel (.container-wide) was still capped at a fixed 1800px max-
-   width, leaving a big grey margin on both sides on a wider monitor (her
-   screenshot: a 2000px-ish window with a noticeably narrower white card
-   centered in it). Switched from a fixed max-width to a %-of-viewport
-   width (96vw) with only a small max-width CAP (2400px, well above any
-   realistic desktop width today) so it always fills whatever screen the
-   browser window is actually open on, on every device, instead of
-   plateauing at one fixed pixel number. Every other page using the plain
-   .container class (Admin, Quotations list, etc.) is untouched -- only
-   the wide Pricing-screen layout changes.*/
-.container-wide { width: 96vw; max-width: 2400px; margin: 24px auto; padding: 0 10px; }
+.container-wide { max-width: 1800px; margin: 24px auto; padding: 0 10px; }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
@@ -197,48 +185,6 @@ input[type=number] {
 .lines-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lines-table .empty { text-align: center; color: var(--muted); padding: 24px; }
 
-/* v146 -- owner-requested (Arabic: "لما باجي يمين بلاقي المواصفة اختفت
-   ... تعمل فريز للمواصفة مهما امشي شمال يبقى مثبت لي البرودكت نفسه"):
-   with this many columns (Pallet type, Packing, Box, Width, Roll kg ...
-   all the way to Margin sim), scrolling the table right to see a later
-   column used to scroll the "#"/Product columns away too, so there was no
-   way to tell which product a value on the right belonged to once you'd
-   scrolled. Scoped to the two LIVE quote-builder tables only (#linesTable
-   / #strapLinesTable, both share the same first two columns) -- NOT
-   .lines-table-wide, the read-only saved-quotation view's table, which
-   the owner didn't ask about and has its own different column layout.
-   The "#" column is given a fixed, border-box width so the Product
-   column's sticky left offset lines up exactly under it, in both the
-   header row and every body row. A solid background (the panel's own
-   white) is required on a sticky cell -- otherwise the columns scrolling
-   underneath would show through it. The thin right-edge shadow is the
-   visual "freeze line" a spreadsheet shows, so it reads as pinned on
-   purpose rather than just stuck. */
-#linesTable th:first-child, #linesTable td:first-child,
-#strapLinesTable th:first-child, #strapLinesTable td:first-child,
-#linesTable th:nth-child(2), #linesTable td:nth-child(2),
-#strapLinesTable th:nth-child(2), #strapLinesTable td:nth-child(2) {
-  position: sticky;
-  background: var(--panel);
-}
-#linesTable th:first-child, #linesTable td:first-child,
-#strapLinesTable th:first-child, #strapLinesTable td:first-child {
-  left: 0;
-  width: 28px;
-  box-sizing: border-box;
-  z-index: 1;
-}
-#linesTable th:nth-child(2), #linesTable td:nth-child(2),
-#strapLinesTable th:nth-child(2), #strapLinesTable td:nth-child(2) {
-  left: 28px;
-  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.2);
-  z-index: 1;
-}
-#linesTable thead th:first-child, #strapLinesTable thead th:first-child,
-#linesTable thead th:nth-child(2), #strapLinesTable thead th:nth-child(2) {
-  z-index: 2;
-}
-
 /* v69 -- saved-quotation view page's line-items table: a bit more
    breathing room per column now that headers are 2 lines (Qty (Pallets),
    Total Qty (KG), etc) instead of one bare word, per the owner's request
@@ -264,23 +210,6 @@ input[type=number] {
 .lines-table-compact select.f-basis { min-width: 92px; }
 
 .btn-remove { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; }
-
-/* v148 -- "use current price" auto-fill button next to each Margin sim
-   input (owner-requested: "قلل الفرق" -- fills the probe with this line's
-   own already-displayed FOB/CIF price with zero transcription error,
-   instead of retyping it by hand). Deliberately tiny/unobtrusive -- it
-   sits right next to a 58px input in an already-dense row. */
-.btn-fill-price {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted, #666);
-  cursor: pointer;
-  font-size: 0.7rem;
-  line-height: 1;
-  padding: 3px 4px;
-}
-.btn-fill-price:hover { background: var(--border); }
 
 .totals-box { margin-top: 16px; margin-left: auto; max-width: 320px; }
 .totals-box div { display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.92rem; }
@@ -319,167 +248,11 @@ input[type=number] {
    admin_strap_costing.html (uses this, purple) for the matching boxes. */
 .price-note-strap { background: #faf5ff; border-color: #e9d5ff; color: #6b21a8; }
 
-/* v138 -- owner-requested (Arabic: "لونها / خلي شكلها مختلف بشكل مختلف
-   عشان احس انها حاجة ليا مش للسعر الاساسي اللي انت مطلعه في الكوتيشن"):
-   the v136/v137 "Margin sim" what-if column (admin/sub_admin only) gets
-   its own distinct amber/honey tint -- different from every real price
-   column (EX-Work/FOB/CIF, plain white/grey) and from the blue/purple
-   "price-note" boxes elsewhere -- plus a dashed left border, so it visibly
-   reads as a personal scratch tool bolted onto the side of the table, not
-   part of the real quoted price. Used on both the Stretch Film and Strap
-   tables' header <th> and each row's <td> -- see pricing.html. */
-.margin-probe-th { background: #fffaeb; border-left: 2px dashed #f0c36d; color: #92400e; }
-.margin-probe-td { background: #fffdf6; border-left: 2px dashed #f0c36d; }
-.margin-probe-td .f-margin-probe { border-color: #f0c36d; background: #fff; }
-.margin-probe-td .f-margin-probe-out { color: #92400e; font-weight: 600; }
-
-/* v164 -- owner-requested, applied SITE-WIDE ("kol colom yekoon el title
-   beta3o fo2eh w kol 7agto ta7t ba3do we mafesh overlapping fel kalam wel
-   arkam, wad7a wel space box wade7 bel dimensions beta3to -- this should be
-   applied all over the website"): fixes the shared .edit-grid/.edit-row
-   pattern itself (used by BOM, Material Rates, Electricity, Labor, Freight,
-   Loading Ports, Pallet, Products, Margin Factors, Packing Tiers, Fixed/
-   Variable Costs, Global Settings, Pre-Stretch, Local Costing -- every Admin
-   table that isn't already its own special case like Users/Stuffing/Resin
-   Rates), not one page at a time. Two compounding bugs:
-   1) MISALIGNMENT root cause (the exact bug already fixed for Users in v55,
-      never generalized to the rest of Admin): a data row's fields are
-      usually wrapped in a nested <form>, which used to be its own
-      `display:flex; flex-wrap:wrap` box -- a SEPARATE wrapping context from
-      the header row's cells (which flex directly under .edit-row). Two
-      independent flex-wrap contexts can wrap at a different point for any
-      small reason (a longer word, a narrower window), so a column's header
-      can end up sitting over a different column's data below it -- not
-      literal CSS overlap, but unreadable the same way. `.edit-row form {
-      display:contents }` removes the <form> from the box tree entirely, so
-      its fields lay out exactly like the header row's cells, in the SAME
-      flex context -- one row, one wrap point, always.
-   2) BOX/SPACING clarity: every .edit-grid now gets the same real
-      bordered-table look that Stuffing (v144)/Material Rates (v160)/Users
-      (v55) already had on their own -- an outer box border, a vertical
-      divider between every column so each value sits in a clearly
-      dimensioned cell directly under its own header, and rows that no
-      longer wrap (nowrap) but scroll horizontally instead on a narrow
-      screen or a wide table (BOM's 11 columns) -- so a header is never
-      pushed onto a 2nd line out of step with the single-line data row under
-      it. Scoped to NOT touch the self-labelled ".edit-cell" pattern's
-      internal label/input stack (Products, Freight, Loading Ports, Pallet,
-      Pre-Stretch) -- the whole .edit-cell gets the bordered box, but the
-      col-label above its input stays undivided, same as before. Buttons
-      (Save/Delete) are also left out of the bordered-cell padding so they
-      keep the site's normal .btn/.btn-sm sizing instead of being stretched
-      to match a table cell's padding. */
-/* v166 -- owner-reported (furious, with good reason): v165 widened the page
-   container on every Admin page so wide tables (BOM, Pallet) wouldn't need
-   to scroll -- but .edit-grid itself (a block-level flex container) still
-   defaulted to width:100% of THAT wide container, same as any ordinary
-   block div. A narrow table (the Strap "Stuffing" table is only 6 columns,
-   ~870px of real content) got stretched into a box 1800px+ wide, leaving a
-   huge dead strip of empty bordered table to the right of the last real
-   column -- exactly what she's pointing at: a border running sideways past
-   where the data actually ends, nothing a normal plain table ever does (a
-   real HTML <table> auto-distributes extra width across its own columns
-   instead; this flex-row layout does not, since each cell keeps its own
-   fixed px width and never grows). Fix: the table box now sizes itself to
-   its OWN content (width:fit-content) and only ever grows up to the full
-   available width if its content genuinely needs it (max-width:100%,
-   combined with the existing overflow-x:auto for when it's still wider
-   than that). A narrow table now reads as a normal, tightly-bordered
-   table with ordinary page whitespace after it -- not a stretched box. */
-.edit-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-x: auto; width: max-content; max-width: 100%; }
-.edit-row { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; padding: 0; border-bottom: 1px solid var(--border); }
-.edit-row:last-child { border-bottom: none; }
-.edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; background: var(--bg); align-items: center; }
-.edit-row form { display: contents; }
-.edit-row > span, .edit-row > input, .edit-row > select, .edit-row > strong, .edit-row > label, .edit-row > .edit-cell,
-.edit-row > form > span, .edit-row > form > input, .edit-row > form > select, .edit-row > form > strong, .edit-row > form > label, .edit-row > form > .edit-cell {
-  border-right: 1px solid var(--border);
-  padding: 8px 10px;
-  margin: 0;
-  box-sizing: border-box;
-}
-.edit-row > span:last-child, .edit-row > input:last-child, .edit-row > select:last-child, .edit-row > strong:last-child, .edit-row > label:last-child, .edit-row > .edit-cell:last-child,
-.edit-row > form > span:last-child, .edit-row > form > input:last-child, .edit-row > form > select:last-child, .edit-row > form > strong:last-child, .edit-row > form > label:last-child, .edit-row > form > .edit-cell:last-child {
-  border-right: none;
-}
-.edit-row > button, .edit-row > form > button { margin: 0 6px 0 4px; flex-shrink: 0; }
-.edit-row input[type=text], .edit-row input[type=number] { font-size: 0.85rem; }
-
-/* v167 -- owner-requested, final form ("اعملي الكولم كله باين على بعضه من
-   اول التايتل لحد الفاليوز اللي تحتيه ... كل الحاجات اللي فيها داتا انتريز
-   في الباك اند تتعمل على شكل جدول، الكولم كله البوردر لاينز مظبوطة ماشية
-   من اول التايتل لحد اخر حتة تحت" -- every backend data-entry section
-   should be a real table, with every column's border lines running
-   unbroken from its title all the way to the last row): v164/v165/v166 all
-   patched the FLEXBOX .edit-grid/.edit-row pattern -- which fakes a table
-   by giving each row its own independent flex layout -- and every patch
-   fixed one symptom while leaving the underlying problem in place: a flex
-   row has no built-in concept of "this column is the same width in every
-   row", so two rows with different label lengths can legitimately end up
-   with their column boundary at two different x-positions (exactly what
-   she's pointing at here -- the Setting/Value divider lands in a different
-   place on every row of FOB & credit terms, because each row's own label
-   span is sized to ITS OWN text, not to the column's shared width). A real
-   HTML <table> does not have this failure mode: the browser's table
-   layout algorithm computes one width per COLUMN from every cell in that
-   column, in every row, and every row then uses that same set of column
-   widths -- it is architecturally impossible for a <table> to misalign a
-   column the way a column of independent flex rows can. `.admin-table` is
-   the shared class every converted page's <table> now carries (templates
-   use real <table>/<thead>/<tbody>/<tr>/<th>/<td> markup -- see individual
-   template comments); a per-row <form> that used to wrap that row's own
-   cells is now a small, invisible, SIBLING <form id="..."> placed right
-   after the table, with each cell's input/button pointing at it via the
-   HTML5 `form="..."` attribute -- a <form> can't be a child of <tr>/<td>
-   in valid HTML (browsers "fix" it by silently relocating it, which is
-   exactly the kind of inconsistent-across-browsers behavior this rewrite
-   exists to get away from), but `form="..."` submits an input anywhere on
-   the page together with a named form as if it were nested inside it,
-   fully standard HTML5, no JS required. */
-.admin-table { border-collapse: collapse; width: max-content; max-width: 100%; margin-bottom: 8px; background: var(--panel); border-radius: 6px; overflow: hidden; }
-.admin-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; width: max-content; max-width: 100%; margin-bottom: 8px; }
-.admin-table-scroll .admin-table { border: none; border-radius: 0; margin-bottom: 0; }
-.admin-table th, .admin-table td {
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 10px;
-  text-align: left;
-  box-sizing: border-box;
-  white-space: nowrap;
-}
-.admin-table th:last-child, .admin-table td:last-child { border-right: none; }
-.admin-table tr:last-child td { border-bottom: none; }
-.admin-table thead th {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 600;
-  background: var(--bg);
-  border-bottom-width: 2px;
-}
-.admin-table td.wrap, .admin-table th.wrap { white-space: normal; }
-.admin-table input[type=number], .admin-table input[type=text] {
-  width: 100%;
-  min-width: 55px;
-  padding: 6px 8px;
-  font-size: 0.85rem;
-  box-sizing: border-box;
-}
-.admin-table select {
-  width: 100%;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  padding: 6px 18px 6px 8px;
-  font-size: 0.85rem;
-  box-sizing: border-box;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  background-size: 9px 6px;
-}
-.admin-table td.col-label-cell { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
-.admin-table .cell-label { display: block; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 3px; font-weight: 600; }
+.edit-grid { display: flex; flex-direction: column; gap: 6px; }
+.edit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--border); }
+.edit-row.header-row { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--border); font-weight: 600; }
+.edit-row form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+.edit-row input[type=text], .edit-row input[type=number] { padding: 6px 8px; font-size: 0.85rem; }
 /* v54 -- header/data column misalignment root cause: flex items default to
    min-width:auto, so a <select>/<input> whose OWN content (e.g. the "Sales
    rep" option text, or a number input's spinner chrome) needs more room
@@ -509,29 +282,8 @@ input[type=number] {
    span only: inputs/selects don't show this failure (their text doesn't
    wrap visibly the same way), so their min-width:0 sizing behavior for
    column alignment is untouched. */
-/* v132 -- owner-reported: a handful of label spans across Admin (e.g. the
-   PET/PP Strap "Max Discount allowed (% points off margin)" label, and the
-   Stuffing table's "Pallets/Container (20ft)"/"(40ft)" headers) got LONGER
-   over time than the fixed pixel `style="width:Npx"` a page gave them --
-   nowrap (v73, kept below) refuses to let that text wrap onto a second
-   line, but with no floor on the span's own rendered width, the browser
-   was free to render it at its narrow declared width anyway and let the
-   single-line text physically overflow past that box's right edge,
-   visually drawing OVER whatever sits next to it (the input field, or the
-   next header) -- illegible overlap, not the mid-word wrapping v73 fixed.
-   min-width:max-content is the fix: it puts a FLOOR under the span equal
-   to its own one-line content width, so the browser is never allowed to
-   render it any narrower than that -- a short label (e.g. "Standard")
-   still renders at its normal declared width via `width:Npx` exactly as
-   before (its max-content is smaller than that, so this floor never
-   engages), but a label too long for its declared width now grows to fit
-   its own text instead of overflowing into a neighbor. Combined with
-   .edit-row's own flex-wrap:wrap, an oversized span simply pushes
-   whatever comes after it in the row onto a new line rather than
-   overlapping it -- still never a mid-word break, same as v73's promise. */
 .edit-row span {
   white-space: nowrap;
-  min-width: max-content;
 }
 .edit-row select {
   appearance: none;
@@ -543,54 +295,6 @@ input[type=number] {
   background-repeat: no-repeat;
   background-position: right 6px center;
   background-size: 9px 6px;
-}
-
-/* v144 -- owner-requested ("organise this in a border table, each field
-   under it's title"): scoped to the Admin > PET/PP Strap Costing "Stuffing"
-   table ONLY (the wrapping <div> there carries both .edit-grid and this new
-   .stuffing-grid class -- see admin_strap_costing.html). Every other page
-   that reuses the shared .edit-grid/.edit-row/.header-row classes (this
-   same page's Factors, Fixed inputs, and FOB & credit terms sections, plus
-   any other admin page) has no .stuffing-grid ancestor, so none of these
-   rules reach it -- all selectors below are scoped with a ".stuffing-grid"
-   prefix for exactly that reason.
-   Look: an outer box border around the whole table, a horizontal line
-   between every row (already there via .edit-row's own border-bottom, kept
-   as-is), and NEW vertical lines between every column so each value sits
-   in its own bordered cell directly under its header label -- turning the
-   flex-row layout into something that reads as a real bordered table
-   without switching it to actual <table> markup (which would need a
-   template rewrite of the row-loop below). */
-.stuffing-grid {
-  /* v166 -- border/border-radius/background duplicate what .edit-grid (this
-     div carries both classes) now already provides; dropped the old
-     `overflow:hidden` specifically -- it was silently overriding .edit-
-     grid's own `overflow-x:auto` (same specificity, later in the file wins)
-     and would have clipped this table's columns instead of scrolling them
-     on a narrow screen. */
-}
-.stuffing-grid .edit-row {
-  gap: 0;
-  padding: 0;
-  flex-wrap: nowrap;
-}
-.stuffing-grid .edit-row.header-row {
-  background: var(--bg);
-}
-.stuffing-grid .edit-row > span,
-.stuffing-grid .edit-row > input {
-  border-right: 1px solid var(--border);
-  padding: 8px 10px;
-  margin: 0;
-  box-sizing: border-box;
-  border-radius: 0;
-}
-.stuffing-grid .edit-row > span:last-child,
-.stuffing-grid .edit-row > input:last-child {
-  border-right: none;
-}
-.stuffing-grid .edit-row:last-child {
-  border-bottom: none;
 }
 .col-label { font-size: 0.7rem; color: var(--muted); display: block; margin-bottom: 2px; }
 .edit-cell { display: flex; flex-direction: column; }
@@ -619,24 +323,14 @@ input[type=number] {
 .users-row {
   display: grid;
   /* v92 -- last column widened 76px -> 230px to fit the new inline "New
-     password" input alongside Save/Delete (was just the two buttons).
-     v158 -- a new "Workspace" column (150px) was inserted between Seller
-     type and Stretch commission in the HTML, but this template wasn't
-     updated to match -- the grid had 9 slots for what became 10 cells, so
-     every column from Workspace onward silently overlapped the next
-     (Active landing on top of Save/Delete, etc.). Grid only lays out
-     columns it's told about; it never reflows to fit however many
-     children actually show up, however obvious that sounds in hindsight.
-     Lesson for next time: adding/removing a .users-row cell ALWAYS means
-     updating grid-template-columns (and min-width below) in the same
-     change, never the HTML alone. */
-  grid-template-columns: 110px 130px 100px 100px 90px 150px 200px 200px 64px 230px;
+     password" input alongside Save/Delete (was just the two buttons). */
+  grid-template-columns: 110px 130px 100px 100px 90px 200px 200px 64px 230px;
   column-gap: 10px;
   row-gap: 4px;
   align-items: center;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border);
-  min-width: 1350px;
+  min-width: 1200px;
 }
 .users-row.header-row {
   font-size: 0.7rem;

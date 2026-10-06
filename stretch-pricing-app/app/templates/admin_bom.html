@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}BOM · Stretch Pricing{% endblock %}
-{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 {% set sync_table_key = 'bom_row' %}
 {% set sync_last_upload = last_upload %}
@@ -13,47 +12,34 @@
     (1 − sum of the other fractions), exactly like the workbook's BOM sheet. A product's Stretch Ability
     text (e.g. "300% (Power plus)") is matched to its multiplier (3.0) automatically.
   </p>
-  <!-- v167 -- real <table>, not the old flexbox .edit-grid (see the long
-       note on .admin-table in style.css). Each row still needs its OWN
-       <form> (one Save button per row, posting only that row's fields) --
-       a <form> can't validly sit between <td> cells, so each row's hidden
-       hidden bom_id + submit now live in a tiny external <form id="..."">
-       right after the table, and every field inside the table points at it
-       via the HTML5 form="..." attribute (standard, no JS needed). -->
-  <div class="admin-table-scroll">
-  <table class="admin-table">
-    <thead>
-      <tr>
-        <th>Mult.</th><th>Micron</th><th>Tier</th>
-        <th>C4 (calc)</th><th>Exceed3518</th><th>Exceed3812</th>
-        <th>ExceedXP</th><th>Vista6000</th><th>Enable</th>
-        <th>LD258</th><th>Vista6202</th><th></th>
-      </tr>
-    </thead>
-    <tbody>
+  <div class="edit-grid">
+    <div class="edit-row header-row">
+      <span style="width:50px;">Mult.</span><span style="width:60px;">Micron</span><span style="width:70px;">Tier</span>
+      <span style="width:75px;">C4 (calc)</span><span style="width:75px;">Exceed3518</span><span style="width:75px;">Exceed3812</span>
+      <span style="width:70px;">ExceedXP</span><span style="width:75px;">Vista6000</span><span style="width:60px;">Enable</span>
+      <span style="width:55px;">LD258</span><span style="width:65px;">Vista6202</span>
+    </div>
     {% for r in rows %}
-      <tr>
-        <td>{{ r.stretch_multiplier }}</td>
-        <td>{{ r.micron }}</td>
-        <td>{{ r.roll_tier }}</td>
-        <td>{{ "%.3f"|format(1 - (r.exceed3518 + r.exceed3812 + r.exceedxp + r.vista6000 + r.enable + r.ld258 + r.vista6202)) }}</td>
-        <td><input type="number" step="any" name="exceed3518" value="{{ r.exceed3518 }}" style="width:70px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="exceed3812" value="{{ r.exceed3812 }}" style="width:70px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="exceedxp" value="{{ r.exceedxp }}" style="width:65px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="vista6000" value="{{ r.vista6000 }}" style="width:70px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="enable" value="{{ r.enable }}" style="width:55px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="ld258" value="{{ r.ld258 }}" style="width:50px;" form="bomrow{{ r.id }}"></td>
-        <td><input type="number" step="any" name="vista6202" value="{{ r.vista6202 }}" style="width:60px;" form="bomrow{{ r.id }}"></td>
-        <td><button type="submit" class="btn btn-primary btn-sm" form="bomrow{{ r.id }}">Save</button></td>
-      </tr>
+    <div class="edit-row">
+      <form method="post">
+        <input type="hidden" name="bom_id" value="{{ r.id }}">
+        <span style="width:50px;">{{ r.stretch_multiplier }}</span>
+        <span style="width:60px;">{{ r.micron }}</span>
+        <span style="width:70px;">{{ r.roll_tier }}</span>
+        <span style="width:75px;">{{ "%.3f"|format(1 - (r.exceed3518 + r.exceed3812 + r.exceedxp + r.vista6000 + r.enable + r.ld258 + r.vista6202)) }}</span>
+        <input type="number" step="any" name="exceed3518" value="{{ r.exceed3518 }}" style="width:75px;">
+        <input type="number" step="any" name="exceed3812" value="{{ r.exceed3812 }}" style="width:75px;">
+        <input type="number" step="any" name="exceedxp" value="{{ r.exceedxp }}" style="width:70px;">
+        <input type="number" step="any" name="vista6000" value="{{ r.vista6000 }}" style="width:75px;">
+        <input type="number" step="any" name="enable" value="{{ r.enable }}" style="width:60px;">
+        <input type="number" step="any" name="ld258" value="{{ r.ld258 }}" style="width:55px;">
+        <input type="number" step="any" name="vista6202" value="{{ r.vista6202 }}" style="width:65px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+    </div>
     {% else %}
-      <tr><td colspan="12" class="empty">No BOM rows yet.</td></tr>
+    <p class="empty">No BOM rows yet.</p>
     {% endfor %}
-    </tbody>
-  </table>
   </div>
-  {% for r in rows %}
-  <form id="bomrow{{ r.id }}" method="post"><input type="hidden" name="bom_id" value="{{ r.id }}"></form>
-  {% endfor %}
 </div>
 {% endblock %}

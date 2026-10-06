@@ -26,7 +26,6 @@
       <span>Role</span>
       <span>Region</span>
       <span>Seller type</span>
-      <span title="Which pricing workspace(s) this user is allowed to sign into">Workspace</span>
       <span title="Commission on Stretch Film / Pre-Stretch quotes only -- never shown to the customer or the rep">Stretch commission</span>
       <span title="Commission on PET/PP Strap quotes only -- never shown to the customer or the rep">Strap commission</span>
       <span>Active</span>
@@ -46,11 +45,6 @@
         <select name="seller_type">
           <option value="local" {% if u.seller_type=='local' or not u.seller_type %}selected{% endif %}>Local</option>
           <option value="foreign" {% if u.seller_type=='foreign' %}selected{% endif %}>Foreign</option>
-        </select>
-        <select name="workspace_access">
-          <option value="both" {% if u.workspace_access=='both' or not u.workspace_access %}selected{% endif %}>Export + Local</option>
-          <option value="export" {% if u.workspace_access=='export' %}selected{% endif %}>Export only</option>
-          <option value="local" {% if u.workspace_access=='local' %}selected{% endif %}>Local only</option>
         </select>
         <span class="markup-pair" title="Never shown to the customer or the rep">
           <select name="stretch_markup_mode">
@@ -102,13 +96,6 @@
       <select name="seller_type">
         <option value="local">Local</option>
         <option value="foreign">Foreign</option>
-      </select>
-    </div>
-    <div class="field"><label>Workspace</label>
-      <select name="workspace_access">
-        <option value="both">Export + Local</option>
-        <option value="export">Export only</option>
-        <option value="local">Local only</option>
       </select>
     </div>
     <div class="field"><label>Password</label><input type="text" name="password" placeholder="ChangeMe123!"></div>

@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Fixed Costs · Stretch Pricing{% endblock %}
-{% block container_extra_class %} container-wide{% endblock %}
 {% block content %}
 {% set sync_table_key = 'fixed_cost_item' %}
 {% set sync_last_upload = last_upload %}
@@ -24,17 +23,14 @@
   <form method="post">
     {% for category, items in by_category.items() %}
     <h3 style="margin-top:18px; text-transform:capitalize;">{{ category }}</h3>
-    <table class="admin-table">
-      <thead><tr><th>Item</th><th>EGP</th></tr></thead>
-      <tbody>
+    <div class="edit-grid">
       {% for it in items %}
-        <tr>
-          <td style="width:340px;">{{ it.name }}</td>
-          <td><input type="number" step="any" name="value_{{ it.id }}" value="{{ '%.2f'|format(it.value_egp) }}" style="width:130px;"></td>
-        </tr>
+      <div class="edit-row">
+        <span style="width:340px;">{{ it.name }}</span>
+        <input type="number" step="any" name="value_{{ it.id }}" value="{{ '%.2f'|format(it.value_egp) }}" style="width:130px;">
+      </div>
       {% endfor %}
-      </tbody>
-    </table>
+    </div>
     {% endfor %}
     <div style="margin-top:14px;">
       <button type="submit" class="btn btn-primary">Save all</button>
