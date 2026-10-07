@@ -117,4 +117,18 @@
 
   <button type="submit" class="btn btn-primary" style="margin:16px 0;">Save all</button>
 </form>
+{% if current_user.role == 'sub_admin' %}
+<div class="price-note" style="background:#fff7e6;border:1px solid #f0c36d;padding:8px 12px;margin:8px 0;">View only -- raw material prices can only be changed by an admin.</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('main form, .container form, form').forEach(function (f) {
+    if (f.closest('nav, .topbar')) return;
+    f.querySelectorAll('input, select, textarea, button').forEach(function (el) {
+      if (el.type === 'hidden') return;
+      el.disabled = true;
+    });
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
