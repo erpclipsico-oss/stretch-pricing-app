@@ -1094,6 +1094,17 @@ def discount_cap_category(product_family, product=None, is_prestretch_line=False
     return key, label, f"max_discount_pct_{key}"
 
 
+def discount_cap_bypassed():
+    """v195 -- owner-requested: a logged-in admin / sub_admin may type ANY
+    discount, with no Max Discount cap -- including while "Acting as" a sales
+    rep (the check is on the REAL logged-in user, set in app.py's
+    load_user()). A plain sales rep is still capped exactly as before."""
+    try:
+        return bool(_has_app_context() and _flask_g.get("discount_cap_bypass", False))
+    except Exception:
+        return False
+
+
 def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_family="stretch",
                          product=None, is_prestretch_line=False, product_line=None):
     """v47 -- owner-requested guardrail: combines a quotation line's own
@@ -1132,6 +1143,8 @@ def capped_discount_pct(conn, line_discount_pct, global_discount_pct, product_fa
     legacy_key = "strap_max_discount_pct" if product_family == "strap" else "max_discount_pct"
     legacy_default = _get_setting(conn, legacy_key, 2.0)
     max_allowed = _get_setting(conn, setting_key, legacy_default)
+    if discount_cap_bypassed():  # v195 -- admin / sub_admin: no cap
+        return requested, False, cat_key, cat_label, max_allowed
     if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
         return max_allowed, True, cat_key, cat_label, max_allowed
     return requested, False, cat_key, cat_label, max_allowed
@@ -1176,6 +1189,8 @@ def local_capped_discount_pct(conn, line_discount_pct, global_discount_pct, prod
     requested = (line_discount_pct or 0) + (global_discount_pct or 0)
     cat_key, cat_label, setting_key = local_discount_cap_category(product)
     max_allowed = _get_setting(conn, setting_key, 2.0)
+    if discount_cap_bypassed():
+        return requested, False, cat_key, cat_label, max_allowed
     if max_allowed is not None and max_allowed >= 0 and requested > max_allowed:
         return max_allowed, True, cat_key, cat_label, max_allowed
     return requested, False, cat_key, cat_label, max_allowed

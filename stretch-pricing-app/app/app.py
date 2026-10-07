@@ -41,6 +41,9 @@ def create_app():
         user_id = session.get("user_id")
         if user_id:
             g.user = g.db.execute("SELECT * FROM user WHERE id=? AND active=1", (user_id,)).fetchone()
+        # v195 -- admin / sub_admin are never held to the Max Discount cap
+        # (even while "Acting as" a rep); see cost_engine.discount_cap_bypassed().
+        g.discount_cap_bypass = bool(g.user and g.user["role"] in ("admin", "sub_admin"))
 
     @app.teardown_appcontext
     def close_db(exception=None):
@@ -123,6 +126,17 @@ def create_app():
     # Margin Factors/Material Rates; a sub_admin gets the full Act-as picker
     # on the Pricing screen exactly like an admin does.
     ACT_AS_ROLES = ("admin", "sub_admin")
+
+    def _block_sub_admin_price_edit():
+        """v196 -- owner-requested: a sub_admin may VIEW the raw-material
+        price pages but never change them (Export Material Rates, Local
+        Costing, Local Strap Costing, and the Material Rates Excel
+        upload/apply). Returns a redirect response to send back when the
+        current user is a sub_admin trying to write, else None."""
+        if g.user is not None and g.user["role"] == "sub_admin":
+            flash("Raw material prices are read-only for your account -- only an admin can change them.", "error")
+            return redirect(request.referrer or url_for("workspace_select"))
+        return None
 
     # v158 -- owner-requested (2026-10-04 Arabic follow-up): per-user
     # workspace access, set by the admin on the Users page
@@ -2489,6 +2503,9 @@ def create_app():
     def local_admin_costing():
         db = g.db
         if request.method == "POST":
+            _blocked = _block_sub_admin_price_edit()
+            if _blocked:
+                return _blocked
             for row in db.execute(
                 "SELECT key FROM global_setting WHERE key LIKE 'local_%' AND key != 'local_system_v156_seeded' "
                 "AND key NOT LIKE 'local_strap_%'"
@@ -2588,6 +2605,9 @@ def create_app():
     def local_admin_strap_costing():
         db = g.db
         if request.method == "POST":
+            _blocked = _block_sub_admin_price_edit()
+            if _blocked:
+                return _blocked
             for row in db.execute(
                 "SELECT key FROM global_setting WHERE key LIKE 'local_strap_%'"
             ).fetchall():
@@ -3063,6 +3083,9 @@ def create_app():
         # builds the page needs to pair each one with its Actual row (done
         # in the GET branch below) instead of listing it as its own line.
         if request.method == "POST":
+            _blocked = _block_sub_admin_price_edit()
+            if _blocked:
+                return _blocked
             for row in db.execute(
                 "SELECT id FROM material_rate WHERE material_key NOT LIKE 'pet_%' AND material_key NOT LIKE 'pp_%' "
                 "AND material_key NOT LIKE 'local_%'"
@@ -3644,6 +3667,10 @@ def create_app():
     @app.route("/admin/table-sync/<table_key>/upload", methods=["POST"])
     @table_sync_access_required
     def table_sync_upload(table_key):
+        if table_key == "material_rate":
+            _blocked = _block_sub_admin_price_edit()
+            if _blocked:
+                return _blocked
         if table_key not in table_sync.TABLE_CONFIGS:
             abort(404)
         cfg = table_sync.TABLE_CONFIGS[table_key]
@@ -3675,6 +3702,10 @@ def create_app():
     @app.route("/admin/table-sync/<table_key>/apply", methods=["POST"])
     @table_sync_access_required
     def table_sync_apply(table_key):
+        if table_key == "material_rate":
+            _blocked = _block_sub_admin_price_edit()
+            if _blocked:
+                return _blocked
         if table_key not in table_sync.TABLE_CONFIGS:
             abort(404)
         cfg = table_sync.TABLE_CONFIGS[table_key]

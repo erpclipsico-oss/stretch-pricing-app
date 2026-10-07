@@ -1398,6 +1398,7 @@ JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS = [
     ("250% Power", "23", 50, 16, 1.8, 500),   # Stretch row 31 ('23J-pre'); row 32 is a duplicate, skipped
     ("250% Power", "30", 50, 16, 1.8, 500),   # Stretch row 35 ('30J-pre')
     ("300% (Power plus)", "17", 50, 16, 1.8, 500),  # Stretch row 40 ('17J-pre')
+    ("300% (Power plus)", "12", 50, 16, 1.8, 500),  # v194 -- source of Pre-Stretch 4um
     ("350% (Power plus)", "17", 50, 16, 1.8, 500),  # Stretch row 49 ('17J-pre')
 ]
 
@@ -1411,6 +1412,9 @@ JUMBO_PRESTRETCH_PRECURSOR_PRODUCTS = [
 # '250% Power' / 23 micron jumbo SKU.
 PRESTRETCH_PRODUCTS = [
     # (micron, source_stretch_ability, source_micron)
+    # v194 -- owner-added by hand on the live site (Pre-Stretch 4um, source
+    # 12um 300% Power plus 50kg jumbo); seeded so it survives every redeploy.
+    ("4", "300% (Power plus)", "12"),
     ("5", "350% (Power plus)", "17"),   # Stretch row 79, source = row 49
     ("6", "300% (Power plus)", "17"),   # Stretch row 80, source = row 40
     ("7", "250% Power", "17"),          # Stretch row 81, source = row 27

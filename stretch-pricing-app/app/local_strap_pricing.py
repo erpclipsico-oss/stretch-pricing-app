@@ -133,6 +133,9 @@ def local_strap_capped_discount_pct(conn, line_discount_pct, global_discount_pct
     Returns (effective_pct, was_capped, max_allowed)."""
     max_allowed = _get_setting(conn, "local_strap_max_discount_pct", 4.0)
     requested = (line_discount_pct or 0) + (global_discount_pct or 0)
+    from . import cost_engine as _ce
+    if _ce.discount_cap_bypassed():  # v195 -- admin / sub_admin: no cap
+        return requested, False, max_allowed
     effective = min(requested, max_allowed) if max_allowed else requested
     return effective, requested > max_allowed, max_allowed
 
