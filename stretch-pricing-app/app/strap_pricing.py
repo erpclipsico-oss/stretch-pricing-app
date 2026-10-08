@@ -154,7 +154,7 @@ def gross_weight_exceeds_max(conn, line_key, gross_weight_kg, core_weight_kg=Non
 # DB-stored numbers.
 BOM_KEYS = {
     "pet": ["pet_green", "pet_colors"],
-    "pp": ["pure_white", "pure_color", "recycled_pure_white", "recycled_color", "recycled_pure_colors"],
+    "pp": ["pure_white", "pure_transparent", "pure_color", "recycled_pure_white", "recycled_color", "recycled_pure_colors"],
 }
 
 # Human labels for each BOM key, in display order -- used by the "Custom
@@ -167,6 +167,7 @@ BOM_LABELS = {
     ],
     "pp": [
         ("pure_white", "Pure - White"),
+        ("pure_transparent", "Pure - Transparent"),
         ("pure_color", "Pure - Colored"),
         ("recycled_pure_white", "Recycled Pure - White"),
         ("recycled_color", "Recycled - Colored"),

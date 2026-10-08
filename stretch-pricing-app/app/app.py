@@ -106,9 +106,24 @@ def create_app():
         def wrapped(*args, **kwargs):
             if g.user is None:
                 return redirect(url_for("login"))
-            if g.user["role"] not in ("admin", "sub_admin"):
+            if g.user["role"] != "admin":  # v201 -- sub_admin: view-only (see backend_view_required)
                 abort(403)
             return view(*args, **kwargs)
+        return wrapped
+
+    # v201 -- sub_admin may OPEN (look at) the backend costing pages but can
+    # never change anything: only GET/HEAD pass for sub_admin; every POST
+    # (save, upload, apply) is refused. admin is unaffected.
+    def backend_view_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if g.user is None:
+                return redirect(url_for("login"))
+            if g.user["role"] == "admin":
+                return view(*args, **kwargs)
+            if g.user["role"] == "sub_admin" and request.method in ("GET", "HEAD"):
+                return view(*args, **kwargs)
+            abort(403)
         return wrapped
 
     # v102 -- same idea as factors_admin_required, for the shared per-table
@@ -118,7 +133,7 @@ def create_app():
     # other table_key (products, freight, labor, ...) still 403s for them,
     # same as a plain sales_rep, even though the route itself is shared
     # across every Admin > Costing page's sync buttons.
-    SUB_ADMIN_TABLE_KEYS = {"margin_factor", "material_rate"}
+    SUB_ADMIN_TABLE_KEYS = set()  # v201 (uploads/apply stay admin-only)  # v198 -- Material Rates is admin-only now
 
     # v102 -- owner also asked for sub_admin to get the "Act as [salesperson]"
     # pricing-preview feature (see _resolve_pricing_user() below), same as
@@ -177,8 +192,8 @@ def create_app():
                 return redirect(url_for("login"))
             if g.user["role"] == "admin":
                 return view(*args, **kwargs)
-            if g.user["role"] == "sub_admin" and kwargs.get("table_key") in SUB_ADMIN_TABLE_KEYS:
-                return view(*args, **kwargs)
+            if g.user["role"] == "sub_admin" and request.method == "GET":
+                return view(*args, **kwargs)  # v201 -- download (read-only) only
             abort(403)
         return wrapped
 
@@ -216,6 +231,31 @@ def create_app():
             flash("Invalid username or password", "error")
         users = g.db.execute("SELECT * FROM user WHERE active=1 ORDER BY username").fetchall()
         return render_template("login.html", users=users)
+
+    # v199 -- owner-requested: every signed-in user can change their OWN
+    # password (the admin can still reset anyone's from Admin > Users).
+    @app.route("/account/password", methods=["GET", "POST"])
+    @login_required
+    def change_password():
+        if request.method == "POST":
+            current = request.form.get("current_password", "")
+            new1 = request.form.get("new_password", "")
+            new2 = request.form.get("confirm_password", "")
+            if not check_password_hash(g.user["password_hash"], current):
+                flash("Current password is incorrect.", "error")
+            elif len(new1) < 6:
+                flash("New password must be at least 6 characters.", "error")
+            elif new1 != new2:
+                flash("New password and confirmation don't match.", "error")
+            elif new1 == current:
+                flash("New password must be different from the current one.", "error")
+            else:
+                g.db.execute("UPDATE user SET password_hash=? WHERE id=?",
+                             (generate_password_hash(new1), g.user["id"]))
+                g.db.commit()
+                flash("Password changed.", "success")
+                return redirect(url_for("change_password"))
+        return render_template("change_password.html")
 
     @app.route("/logout")
     def logout():
@@ -1349,6 +1389,10 @@ def create_app():
             )
 
         db.commit()
+        try:
+            load_quotation(db, quotation_id)  # v201 -- freeze packing figures now
+        except Exception:
+            pass
         q = db.execute("SELECT * FROM quotation WHERE id=?", (quotation_id,)).fetchone()
         total = compute_totals(db, q)["total"]
         return jsonify({
@@ -1893,6 +1937,34 @@ def create_app():
                         fob_unit = cost_engine.round_half_up(fob_unit * gross_roll_weight / net_roll_weight, 2)
                         cif_unit = cost_engine.round_half_up(cif_unit * gross_roll_weight / net_roll_weight, 2)
 
+            # v201 -- the Pricing screen's "Pallets/container" column IS the
+            # quantity the rep typed (what FOB/CIF is spread over), so that is
+            # what must be shown/printed -- never a packing-table suggestion.
+            try:
+                _q_ppc = float(l["quantity_pallets"] or 0) if "quantity_pallets" in l.keys() else 0
+            except Exception:
+                _q_ppc = 0
+            if _q_ppc:
+                if line_pl in ("pet", "pp"):
+                    _ctr = stuffing["container"] if stuffing else ("20ft" if l["sp_ctr20"] else "40ft")
+                else:
+                    _ctr = (l["container_pref"] if ("container_pref" in l.keys() and l["container_pref"]) else "40ft")
+                pallets_per_container_display = f"{_q_ppc:g} ({_ctr})"
+            # v201 -- packing shown (Rolls/Pallet, Pallets/Container) is frozen
+            # at save time: the first time it is computed for a saved line it
+            # is stored, and every later view/PDF/Excel/print reuses exactly
+            # that, so it can never drift from the packing the price used.
+            if "snap_rpp" in l.keys():
+                if l["snap_rpp"] is not None or l["snap_ppc"] is not None:
+                    rolls_per_pallet_display = l["snap_rpp"]
+                    pallets_per_container_display = l["snap_ppc"]
+                else:
+                    try:
+                        db.execute("UPDATE quotation_line SET snap_rpp=?, snap_ppc=? WHERE id=?",
+                                   (rolls_per_pallet_display, pallets_per_container_display, l["id"]))
+                        db.commit()
+                    except Exception:
+                        pass
             lines.append(dict(l, label=label, line_total=line_total, line_total_full=line_total_full,
                                pricing_basis_label=basis_labels.get(basis, "$/KG"), stuffing=stuffing,
                                spec=spec, spec_note=spec_note,
@@ -2498,7 +2570,7 @@ def create_app():
 
     # ---------- Local Costing (admin/sub_admin) ----------
     @app.route("/local/admin/costing", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     @local_access_required
     def local_admin_costing():
         db = g.db
@@ -2580,7 +2652,7 @@ def create_app():
     # Electricity/Fixed-cost-derived figure. Same per-row-form pattern as
     # Local BOM below.
     @app.route("/local/admin/conversion-cost", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     @local_access_required
     def local_admin_conversion_cost():
         db = g.db
@@ -2600,7 +2672,7 @@ def create_app():
 
     # ---------- Local Strap Costing (admin/sub_admin, v173) ----------
     @app.route("/local/admin/strap-costing", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     @local_access_required
     def local_admin_strap_costing():
         db = g.db
@@ -2670,7 +2742,7 @@ def create_app():
     # Admin > Costing > BOM page. This mirrors that page exactly, against
     # local_bom_row instead of bom_row.
     @app.route("/local/admin/bom", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     @local_access_required
     def local_admin_bom():
         db = g.db
@@ -2901,7 +2973,7 @@ def create_app():
         return redirect(url_for("admin_products"))
 
     @app.route("/admin/cost/margin-factors", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     def admin_margin_factors():
         db = g.db
         if request.method == "POST":
@@ -2947,7 +3019,7 @@ def create_app():
         return render_template("admin_margin_factors.html", rows=rows, last_upload=last_upload)
 
     @app.route("/admin/factors", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     def admin_factors():
         # v19: the old Country/Customer Classification margin screen is
         # retired -- margin now comes entirely from Margin Factors (Micron x
@@ -3070,7 +3142,7 @@ def create_app():
         return render_template("admin_global_settings.html", settings=settings, last_upload=last_upload)
 
     @app.route("/admin/cost/materials", methods=["GET", "POST"])
-    @factors_admin_required
+    @backend_view_required
     def admin_material_rates():
         db = g.db
         # v34 -- PET/PP Strap's own materials (pet_*/pp_* keys) now live on

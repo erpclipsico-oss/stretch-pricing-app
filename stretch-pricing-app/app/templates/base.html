@@ -32,15 +32,15 @@
         {% endif %}
         {% if current_user.role == 'sub_admin' %}
         <span class="nav-sep">|</span>
-        <!-- v102 -- owner-requested restricted role: this user can see
-             Margin Factors and Material Rates ONLY -- no Catalog & Rates,
-             no other Costing pages, no Strap Costing, no Admin > Users.
-             Both routes are still gated server-side by
-             factors_admin_required, so this is purely what's shown, not
-             the only thing enforced -- someone typing another /admin/...
-             URL directly still gets a 403. -->
-        <a href="{{ url_for('admin_margin_factors') }}" class="nav-link">Margin Factors</a>
-        <a href="{{ url_for('admin_material_rates') }}" class="nav-link">Material Rates</a>
+        <!-- v201 -- sub_admin: VIEW-ONLY look at the costing pages (inputs
+             are disabled client-side and every POST is refused server-side). -->
+        <div class="nav-dropdown">
+          <button type="button" class="nav-link nav-dropdown-btn">View Costing &#9662;</button>
+          <div class="nav-dropdown-menu">
+            <a href="{{ url_for('admin_margin_factors') }}">Margin Factors</a>
+            <a href="{{ url_for('admin_material_rates') }}">Material Rates</a>
+          </div>
+        </div>
         {% endif %}
         {% if current_user.role == 'admin' %}
         <span class="nav-sep">|</span>
@@ -116,7 +116,7 @@
       {% if current_user.workspace_access == 'both' %}
       <a href="{{ url_for('workspace_select') }}" class="btn btn-outline">Workspace</a>
       {% endif %}
-      <span class="user-chip">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</span>
+      <a href="{{ url_for('change_password') }}" class="user-chip" style="text-decoration:none;" title="Change my password">{{ current_user.full_name or current_user.username }} · {{ current_user.role }}</a>
       <a href="{{ url_for('logout') }}" class="btn btn-outline">Logout</a>
     </div>
   </header>
@@ -183,5 +183,27 @@
       });
     });
   </script>
+{% if current_user.role == 'sub_admin' %}
+<script>
+/* v201 -- sub_admin is view-only on backend pages: lock every field/button
+   inside forms that are not the Pricing/Quotation screens. Server refuses
+   POSTs anyway. */
+(function(){
+  var p = location.pathname;
+  if (p.indexOf('/admin') !== 0 && p.indexOf('/local/admin') !== 0) return;
+  document.querySelectorAll('main form').forEach(function(f){
+    f.querySelectorAll('input,select,textarea,button').forEach(function(el){
+      if (el.type === 'hidden') return;
+      el.disabled = true;
+    });
+    f.addEventListener('submit', function(e){ e.preventDefault(); });
+  });
+  var m = document.querySelector('main');
+  if (m) { var b = document.createElement('div');
+    b.style.cssText='background:#fff4d6;border:1px solid #e0b000;padding:8px 12px;margin-bottom:10px;border-radius:6px;font-weight:600;';
+    b.textContent='View only -- you cannot change anything on this page.'; m.insertBefore(b, m.firstChild); }
+})();
+</script>
+{% endif %}
 </body>
 </html>

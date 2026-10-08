@@ -630,6 +630,7 @@ def init_db():
     _seed_extra_slippery_v180(conn)
     _apply_owner_resin_prices_v181(conn)
     _apply_owner_values_v182(conn)
+    _apply_pp_recycle_30_v201(conn)
     _apply_owner_resin_prices_v188(conn)
     _apply_owner_strap_max_weight_v190(conn)
     _seed_12micron_300_jumbo_v176(conn)
@@ -877,6 +878,12 @@ def _migrate(conn):
         conn.commit()
     if "custom_rolls_per_pallet" not in line_cols:
         conn.execute("ALTER TABLE quotation_line ADD COLUMN custom_rolls_per_pallet REAL")
+        conn.commit()
+    # v201 -- packing figures (Rolls/Pallet, Pallets/Container) frozen at save
+    # time so view/PDF/Excel always show the packing the price was built on.
+    if "snap_rpp" not in line_cols:
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN snap_rpp REAL")
+        conn.execute("ALTER TABLE quotation_line ADD COLUMN snap_ppc TEXT")
         conn.commit()
 
     # ---- Extras (v21.1): this line's own "Colored" checkbox, independent
@@ -4098,9 +4105,12 @@ STRAP_BOM_SEED = [
     ("pet", "pet_colors", 0.16, 0.01, {"resin": 0.935, "c4": 0.02, "color": 0.045}),
     ("pp", "pure_white", 0.12, 0.04, {"5032": 0.97, "coco3": 0.03}),
     ("pp", "pure_color", 0.12, 0.08, {"5032": 0.955, "color": 0.045}),
-    ("pp", "recycled_pure_white", 0.16, 0.04, {"5032": 0.5, "recycled_pure": 0.45, "coco3": 0.05}),
+    ("pp", "recycled_pure_white", 0.16, 0.04, {"5032": 0.65, "recycled_pure": 0.30, "coco3": 0.05}),
     ("pp", "recycled_color", 0.20, 0.08, {"recycled_colored": 0.99, "color": 0.01}),
-    ("pp", "recycled_pure_colors", 0.16, 0.08, {"5032": 0.5, "recycled_pure": 0.45, "color": 0.05}),
+    ("pp", "recycled_pure_colors", 0.16, 0.08, {"5032": 0.65, "recycled_pure": 0.30, "color": 0.05}),
+    # v200 -- owner-requested: the PP sheet's "Pure 100% - Transparent" class
+    # (C=100% 5032, no additive, pure profit 12%, white waste 4%).
+    ("pp", "pure_transparent", 0.12, 0.04, {"5032": 1.0}),
 ]
 
 # v34 -- per-line electricity/fixed-cost/direct-labor figures, moved here
@@ -4531,6 +4541,25 @@ def _apply_owner_strap_max_weight_v190(conn):
         (OWNER_STRAP_MAXW_V190_GATE, "internal marker -- owner strap max roll weight v190 applied", 1,
          "Internal marker: the v190 one-time application of the owner's strap Max Roll Weight (PET 21 / PP 13) has run."),
     )
+    conn.commit()
+
+
+RECYCLE30_V201_GATE = "pp_recycle_30_v201_applied"
+
+
+def _apply_pp_recycle_30_v201(conn):
+    """v201 -- Export PP Recycled Pure (White / Colored): recycled share 30%
+    (5032 65%, recycled 30%, 5% coco3/color). One-time for a persistent DB."""
+    import json as _j
+    if conn.execute("SELECT 1 FROM global_setting WHERE key=?", (RECYCLE30_V201_GATE,)).fetchone():
+        return
+    for bk, extra in (("recycled_pure_white", "coco3"), ("recycled_pure_colors", "color")):
+        conn.execute("UPDATE strap_bom SET components_json=? WHERE line_key='pp' AND bom_key=?",
+                     (_j.dumps({"5032": 0.65, "recycled_pure": 0.30, extra: 0.05}), bk))
+    conn.execute(
+        "INSERT OR IGNORE INTO global_setting (key, label, value, help) VALUES (?,?,?,?)",
+        (RECYCLE30_V201_GATE, "internal marker -- PP recycle 30% v201 applied", 1,
+         "Internal marker: one-time PP Recycled Pure 30% recycle share has run."))
     conn.commit()
 
 
